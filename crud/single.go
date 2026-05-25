@@ -15,57 +15,50 @@ import (
 // The application embeds them inside its own page shell however it
 // wants, satisfying the "library renders components, app composes
 // pages" separation.
+//
+// Each renderer accepts a partially-filled View Data struct: the
+// MetaModel fills in Fields + Inputs/Cells from instance and its own
+// schema, while the caller controls titles, URLs, hx-targets, error
+// messages, and chrome flags (WrapInCard).
 // ──────────────────────────────────────────────────────────────────────────
 
-// DisplayComponent renders the dump fragment for an instance. If
-// editURL is non-empty, an Edit button is rendered that hx-gets editURL
-// into hxTarget (typically "#some-id" wrapping this component on the
-// page).
-func (mm *MetaModel[T]) DisplayComponent(instance T, editURL, hxTarget string) templ.Component {
-	cells := mm.DisplayValues(*mm, instance)
-	return DumpView(DumpViewData{
-		DisplayName:  mm.DisplayName,
-		EditURL:      editURL,
-		EditHXTarget: hxTarget,
-		Fields:       mm.Fields,
-		Cells:        cells,
-	})
+// RenderDisplayComponent returns the dump fragment for an instance.
+// d.Fields and d.Cells are overwritten by the model; d.DisplayName
+// defaults to mm.DisplayName when empty. The caller controls EditURL,
+// EditHXTarget, and (eventually) any custom chrome.
+func (mm *MetaModel[T]) RenderDisplayComponent(instance T, d DumpViewData) templ.Component {
+	d.Fields = mm.Fields
+	d.Cells = mm.DisplayValues(*mm, instance)
+	if d.DisplayName == "" {
+		d.DisplayName = mm.DisplayName
+	}
+	return DumpView(d)
 }
 
-// FormComponent renders the form fragment for an instance. The form
-// posts to actionURL and (when hxTarget != "") submits via HTMX with
-// hx-target=hxTarget — successful submissions and validation errors
-// both swap into that container.
-//
-// The returned fragment is wrapped in a DaisyUI card so it matches the
-// DumpView styling. Modal callers (CRUDTable's edit/create flow) build
-// FormView directly with no card wrapper instead.
-func (mm *MetaModel[T]) FormComponent(
-	instance T,
-	actionURL, hxTarget string,
-	fieldErrors map[string]string,
-	modelErr string,
-) templ.Component {
-	inputs := mm.GenFormElements(*mm, instance)
-	return cardWrap(FormView(FormViewData{
-		DisplayName: "Edit " + mm.DisplayName,
-		ActionURL:   actionURL,
-		BackURL:     "",
-		SubmitText:  "Save",
-		Fields:      mm.Fields,
-		Inputs:      inputs,
-		ErrMsg:      modelErr,
-		FieldErrors: fieldErrors,
-		HXTarget:    hxTarget,
-	}))
+// RenderFormComponent returns the form fragment for an instance.
+// d.Fields and d.Inputs are overwritten by the model; d.DisplayName /
+// d.SubmitText default to "Edit <ModelName>" / "Save" when empty. The
+// caller controls ActionURL, HXTarget, error messages, and WrapInCard
+// (true for inline use, false when the form lives inside a modal-box
+// that already provides chrome).
+func (mm *MetaModel[T]) RenderFormComponent(instance T, d FormViewData) templ.Component {
+	d.Fields = mm.Fields
+	d.Inputs = mm.GenFormElements(*mm, instance)
+	if d.DisplayName == "" {
+		d.DisplayName = "Edit " + mm.DisplayName
+	}
+	if d.SubmitText == "" {
+		d.SubmitText = "Save"
+	}
+	return FormView(d)
 }
 
 // ──────────────────────────────────────────────────────────────────────────
 // Partial-endpoint mounters
 //
 // These register fragment-only HTTP handlers. The application is
-// responsible for the main page route(s) that embed DisplayComponent /
-// FormComponent inside the app's own page shell.
+// responsible for the main page route(s) that embed the renderers
+// inside the app's own page shell.
 // ──────────────────────────────────────────────────────────────────────────
 
 // RouteDisplay mounts GET displayURL → the dump fragment with an Edit
@@ -88,18 +81,21 @@ func (mm *MetaModel[T]) RouteDisplay(
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeFragment(w, r, http.StatusOK, mm.DisplayComponent(instance, editURL, hxTarget))
+		writeFragment(w, r, http.StatusOK, mm.RenderDisplayComponent(instance, DumpViewData{
+			EditURL:      editURL,
+			EditHXTarget: hxTarget,
+		}))
 	})
 	return nil
 }
 
 // RouteForm mounts:
 //
-//	GET  formURL  → form fragment populated from getter
+//	GET  formURL  → form fragment populated from getter (WrapInCard=true)
 //	POST formURL  → bind + validate + setter; on success returns the
-//	                dump fragment (Edit button pointing back at formURL);
+//	                dump fragment with Edit pointing back at formURL;
 //	                on validation error returns the form fragment with
-//	                per-field error messages.
+//	                per-field error messages, still WrapInCard=true.
 //
 // hxTarget is the container both fragments target. nil getter falls
 // back to the zero value (useful for "create new"-style forms).
@@ -121,13 +117,28 @@ func (mm *MetaModel[T]) RouteForm(
 		return getter()
 	}
 
+	formCfg := func(fieldErrs map[string]string, modelErr string) FormViewData {
+		return FormViewData{
+			ActionURL:   formURL,
+			HXTarget:    hxTarget,
+			WrapInCard:  true, // inline use — needs its own chrome
+			FieldErrors: fieldErrs,
+			ErrMsg:      modelErr,
+		}
+	}
+	dumpCfg := DumpViewData{
+		EditURL:      formURL,
+		EditHXTarget: hxTarget,
+	}
+
 	mux.HandleFunc("GET "+formURL, func(w http.ResponseWriter, r *http.Request) {
 		instance, err := loadInstance()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeFragment(w, r, http.StatusOK, mm.FormComponent(instance, formURL, hxTarget, nil, ""))
+		writeFragment(w, r, http.StatusOK,
+			mm.RenderFormComponent(instance, formCfg(nil, "")))
 	})
 
 	mux.HandleFunc("POST "+formURL, func(w http.ResponseWriter, r *http.Request) {
@@ -135,8 +146,6 @@ func (mm *MetaModel[T]) RouteForm(
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		// Start from the current instance so unsubmitted hidden /
-		// read-only fields keep their value.
 		instance, err := loadInstance()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -146,22 +155,19 @@ func (mm *MetaModel[T]) RouteForm(
 			fieldErrs, modelErr := splitValidationErr(err)
 			// Status 200: HTMX only swaps response bodies on 2xx by
 			// default, so a 4xx here would hide the re-rendered form.
-			// The invalid state is fully expressed in the HTML
-			// (alert + per-field errors), which is the form-handling
-			// convention used by most server-rendered frameworks.
 			writeFragment(w, r, http.StatusOK,
-				mm.FormComponent(instance, formURL, hxTarget, fieldErrs, modelErr))
+				mm.RenderFormComponent(instance, formCfg(fieldErrs, modelErr)))
 			return
 		}
 		if setter != nil {
 			if err := setter(instance); err != nil {
 				writeFragment(w, r, http.StatusOK,
-					mm.FormComponent(instance, formURL, hxTarget, nil, err.Error()))
+					mm.RenderFormComponent(instance, formCfg(nil, err.Error())))
 				return
 			}
 		}
 		// Success: swap back to the dump fragment.
-		writeFragment(w, r, http.StatusOK, mm.DisplayComponent(instance, formURL, hxTarget))
+		writeFragment(w, r, http.StatusOK, mm.RenderDisplayComponent(instance, dumpCfg))
 	})
 	return nil
 }

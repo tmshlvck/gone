@@ -220,20 +220,18 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 **Component renderers** — embed the model in the app's own page templ:
 
 ```go
-// DisplayComponent renders the dump fragment for an instance. If
-// editURL is non-empty, an Edit button hx-gets editURL into hxTarget.
-func (mm *MetaModel[T]) DisplayComponent(instance T, editURL, hxTarget string) templ.Component
+// RenderDisplayComponent returns the dump fragment for an instance.
+// Caller fills in DisplayName / EditURL / EditHXTarget on the
+// DumpViewData; the model fills in Fields and Cells.
+func (mm *MetaModel[T]) RenderDisplayComponent(instance T, d DumpViewData) templ.Component
 
-// FormComponent renders the form fragment. The form posts to actionURL
-// and (when hxTarget != "") submits via HTMX with hx-target=hxTarget.
-// Wrapped in a DaisyUI card so inline use matches the dump's chrome
-// (modal callers in CRUDTable use the raw FormView instead).
-func (mm *MetaModel[T]) FormComponent(
-    instance T,
-    actionURL, hxTarget string,
-    fieldErrors map[string]string,
-    modelErr string,
-) templ.Component
+// RenderFormComponent returns the form fragment for an instance. The
+// caller fills in DisplayName / ActionURL / HXTarget / SubmitText /
+// WrapInCard / FieldErrors / ErrMsg on the FormViewData; the model
+// fills in Fields and Inputs. WrapInCard=true for inline use,
+// false when the form lives inside a modal-box that already
+// provides chrome (CRUDTable's modal flow).
+func (mm *MetaModel[T]) RenderFormComponent(instance T, d FormViewData) templ.Component
 ```
 
 **Partial-endpoint mounters** — register fragment-only HTTP handlers.
@@ -271,7 +269,8 @@ func (mm *MetaModel[T]) RouteForm(
    getter, setter)` registers the partial endpoints.
 3. *Include the component renderer.* The app's own handler for
    `GET /` renders its page shell and embeds
-   `mm.DisplayComponent(instance, "/edit", "#main-content")` inside it.
+   `mm.RenderDisplayComponent(instance, DumpViewData{EditURL: "/edit",
+   EditHXTarget: "#main-content"})` inside it.
 
 The library never emits `<html>`/`<body>`/`<style>` chrome. Page
 composition is the application's job — see `examples/form_mem/main.go`
@@ -317,25 +316,34 @@ type CRUDTable[T any] struct {
 
 // Backend-specific constructors. Each installs closures appropriate to
 // its storage; the rest of the library treats them uniformly.
+// Single-instance editing (no table at all) is covered by MetaModel's
+// RouteForm / RenderDisplayComponent — see §6.2 — so there is no
+// "DeriveStructCRUDTable": a struct isn't a table.
 func DeriveMapCRUDTable[T any](store map[uint]T, mu *sync.RWMutex, mm MetaModel[T]) CRUDTable[T]
 func DeriveGormCRUDTable[T any](db *gorm.DB, mm MetaModel[T]) CRUDTable[T]
-func DeriveStructCRUDTable[T any](v *T, mu *sync.RWMutex, mm MetaModel[T]) CRUDTable[T]
 
-// MainComponent returns the TableView fragment populated from r's
+// RenderComponent returns the TableView fragment populated from r's
 // query parameters (?q, ?sort, ?desc, ?page). The application calls
 // this from its own GET {URLBase} handler and embeds the result
 // inside its own page shell — see §6.2's end-to-end pattern.
-func (c *CRUDTable[T]) MainComponent(r *http.Request) (templ.Component, error)
+func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error)
 
 // Route registers ONLY the partial endpoints. The main list URL is
-// the app's responsibility (it embeds MainComponent in its page).
+// the app's responsibility (it embeds RenderComponent in its page).
 // Routes:
-//   GET    {base}/rows         table fragment for HTMX swaps into #ListID
-//   GET    {base}/create       create form (target: ModalContentID)
-//   POST   {base}/create       submit create
-//   GET    {base}/{id}/edit    edit form   (target: ModalContentID)
-//   POST   {base}/{id}/edit    submit update
-//   POST   {base}/{id}/delete  delete      (HX-Request → rows; else 303)
+//   GET    {base}/rows           table fragment for HTMX swaps into #ListID
+//   GET    {base}/create         create form (target: ModalContentID)
+//   POST   {base}/create         submit create
+//   GET    {base}/{id}/edit      edit form   (target: ModalContentID)
+//   POST   {base}/{id}/edit      submit update
+//   POST   {base}/{id}/delete    delete      (HX-Request → rows; else 303)
+//   GET    {base}/{id}/display   per-row dump fragment — the
+//                                foundation for future extended detail
+//                                views (related entities, history, …).
+//                                Currently renders the same fields as
+//                                the table row; users wire an
+//                                hx-get-to-it link from the row
+//                                actions when they want it.
 func (c *CRUDTable[T]) Route(mux *http.ServeMux) error
 
 // CRUDRelationOption is the type-erased row used in cross-model relation
@@ -370,7 +378,9 @@ type CRUDTableInterface interface {
 The components emit page **fragments** — no `<html>/<body>/<style>`.
 The library has no `PageShell` parameter anywhere. The application
 provides its own page chrome and embeds the library's
-`MainComponent` / `DisplayComponent` / `FormComponent` inside it.
+`CRUDTable.RenderComponent` / `MetaModel.RenderDisplayComponent` /
+`MetaModel.RenderFormComponent` inside it. (Future `Admin` follows
+the same pattern with its own `RenderComponent` method.)
 
 **Backends:**
 
@@ -384,23 +394,23 @@ provides its own page chrome and embeds the library's
   reads; flat on list reads. Search compiles to `db.Where("col LIKE ?
   OR col2 LIKE ?", q, q)` against `Searchable` fields enumerated from
   the schema at Derive time.
-- **`DeriveStructCRUDTable[T]`** *(TBD)* — wraps a single caller-owned
-  `*T`. `Get` returns the wrapped struct; `Update` mutates in place.
-  `List` returns a single-element slice; `Create` / `Delete` return
-  errors. This is the "edit one live instance" mode that
-  `form_mem` currently demonstrates without going through a
-  `CRUDTable` at all (it talks to `MetaModel` directly).
+- ~~**`DeriveStructCRUDTable[T]`**~~ — removed. Earlier drafts
+  speculated a "table" backed by a single `*T` instance, but a struct
+  isn't a table. The single-instance use case is fully covered by
+  `MetaModel.RouteForm` + `RenderDisplayComponent` directly —
+  `examples/form_mem` is the worked example, no CRUDTable involved.
 
 Per-operation hooks (Create / Update / Delete) fire **after** the
 operation succeeds and run synchronously so errors surface to the
 HTTP response.
 
-**Implementation status (2026-05-25):** `CRUDTable[T]`, `Route`,
-`PageShell`, `DumpView` / `TableView` / `FormView`, and
+**Implementation status (2026-05-26):** `CRUDTable[T]`, `Route`
+(partials only, no PageShell), `RenderComponent`, `RouteDisplay`
+(GET /{id}/display), `DumpView` / `TableView` / `FormView`, and
 `DeriveMapCRUDTable[T]` ship and are exercised by `examples/crud_mem`.
 `CRUDTableInterface`'s `SearchOptions` / `GetOptionsByID` are deferred
-until the first relation example needs them. `DeriveGormCRUDTable` /
-`DeriveStructCRUDTable` are the next backend implementations.
+until the first relation example needs them. `DeriveGormCRUDTable` is
+the next backend.
 
 **Open: URLBase plurality.** Default is `"/" + strings.ToLower(mm.Name)`
 which gives `/hero` for `Hero`. Apps almost always want `/heroes`. The
@@ -437,9 +447,9 @@ for tests and the single-struct backend's typical use cases.
 ### 6.6 Auto-derivation
 
 `DeriveMetaModel[T]()` and `DeriveMapCRUDTable[T]()` ship today in
-`gone/crud/`. `DeriveGormCRUDTable[T]` and `DeriveStructCRUDTable[T]`
-are the next concrete backends; they reuse the same `MetaModel[T]`
-shape so the rendering layer is unchanged.
+`gone/crud/`. `DeriveGormCRUDTable[T]` is the next concrete backend;
+it reuses the same `MetaModel[T]` shape so the rendering layer is
+unchanged.
 
 ### 6.7 Validation
 

@@ -59,6 +59,12 @@ type FormViewData struct {
 	// element. The browser fallback (non-HTMX) still works via the
 	// regular form action.
 	HXTarget string
+
+	// WrapInCard adds a DaisyUI card wrapper around the form. Set true
+	// for inline use (the form needs its own chrome); leave false when
+	// the form is rendered inside a modal-box that already provides
+	// chrome.
+	WrapInCard bool
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -275,19 +281,6 @@ templ pagination(d TableViewData) {
 	}
 }
 
-// cardWrap is a small chrome wrapper used by MetaModel.FormComponent
-// for inline (non-modal) form rendering. DumpView already includes its
-// own card; FormView does NOT (so the same FormView composes inside a
-// modal-box without nested cards). Inline callers add the card via
-// this helper.
-templ cardWrap(content templ.Component) {
-	<div class="card bg-base-100 shadow">
-		<div class="card-body">
-			@content
-		</div>
-	</div>
-}
-
 templ modalWrapper(modalID, contentID string) {
 	<dialog id={ modalID } class="modal">
 		<div class="modal-box max-w-2xl" id={ contentID }></div>
@@ -302,6 +295,18 @@ templ modalWrapper(modalID, contentID string) {
 // ──────────────────────────────────────────────────────────────────────────
 
 templ FormView(d FormViewData) {
+	if d.WrapInCard {
+		<div class="card bg-base-100 shadow">
+			<div class="card-body">
+				@formInner(d)
+			</div>
+		</div>
+	} else {
+		@formInner(d)
+	}
+}
+
+templ formInner(d FormViewData) {
 	if d.DisplayName != "" {
 		<h3 class="font-bold text-lg mb-2">{ d.DisplayName }</h3>
 	}

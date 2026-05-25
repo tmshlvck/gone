@@ -273,11 +273,11 @@ func setIDField[T any](data *T, id uint) {
 // strictly about components and lets the app own page composition.
 // ──────────────────────────────────────────────────────────────────────────
 
-// MainComponent returns the TableView fragment populated from r's
+// RenderComponent returns the TableView fragment populated from r's
 // query parameters (?q, ?sort, ?desc, ?page). Embed it inline in the
 // app's page templ for the initial render, OR call it from the app's
 // own GET {URLBase} handler to wrap in a page shell.
-func (c *CRUDTable[T]) MainComponent(r *http.Request) (templ.Component, error) {
+func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error) {
 	d, err := c.buildTableViewData(r)
 	if err != nil {
 		return nil, err
@@ -287,16 +287,19 @@ func (c *CRUDTable[T]) MainComponent(r *http.Request) (templ.Component, error) {
 
 // Route registers the CRUD partial endpoints on mux. The main list URL
 // (GET {URLBase}) is intentionally NOT registered — apps handle that
-// themselves by calling MainComponent and wrapping in their page shell.
+// themselves by calling RenderComponent and wrapping in their page shell.
 //
 // Routes registered (Go 1.22 method+pattern):
 //
-//	GET    {base}/rows         table fragment for HTMX swaps into #ListID
-//	GET    {base}/create       create form fragment (target: ModalContent)
-//	POST   {base}/create       submit create
-//	GET    {base}/{id}/edit    edit form fragment (target: ModalContent)
-//	POST   {base}/{id}/edit    submit update
-//	POST   {base}/{id}/delete  delete (HX-Request → rows fragment; else 303)
+//	GET    {base}/rows           table fragment for HTMX swaps into #ListID
+//	GET    {base}/create         create form fragment (target: ModalContent)
+//	POST   {base}/create         submit create
+//	GET    {base}/{id}/edit      edit form fragment (target: ModalContent)
+//	POST   {base}/{id}/edit      submit update
+//	POST   {base}/{id}/delete    delete (HX-Request → rows fragment; else 303)
+//	GET    {base}/{id}/display   per-row dump fragment (foundation for
+//	                             future extended detail views — today it
+//	                             just renders the same fields as the table)
 func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
 	if mux == nil {
 		return errors.New("nil mux")
@@ -319,7 +322,35 @@ func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
 	if c.DeleteEnabled {
 		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost))
 	}
+	mux.HandleFunc("GET "+base+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay))
 	return nil
+}
+
+// handleRowDisplay renders the dump fragment for one row. The Edit
+// button (if EditEnabled) hx-gets into the modal-content container so
+// the user can transition straight from view → edit.
+func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+	id, ok := parseID(r)
+	if !ok {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return "", nil
+	}
+	row, err := c.Get(r.Context(), id)
+	if errors.Is(err, ErrNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return "", nil
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "", nil
+	}
+	d := DumpViewData{}
+	if c.EditEnabled {
+		idStr := strconv.FormatUint(uint64(id), 10)
+		d.EditURL = c.URLBase + "/" + idStr + "/edit"
+		d.EditHXTarget = "#" + c.ModalContentID
+	}
+	return "", c.MetaData.RenderDisplayComponent(row, d)
 }
 
 // handlerFunc returns the page title and the page fragment, or sends a
@@ -441,22 +472,22 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (s
 // the table's ListID and we'll close the modal on success via
 // HX-Trigger. modelErr renders above the form; fieldErrors render below
 // each named field.
+//
+// The form is rendered via mm.RenderFormComponent with WrapInCard=false
+// because the modal-box already provides chrome (no double card).
 func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]string, data T, hxFlow bool) templ.Component {
-	inputs := c.MetaData.GenFormElements(c.MetaData, data)
 	d := FormViewData{
 		DisplayName: "Create " + c.MetaData.DisplayName,
 		ActionURL:   c.URLBase + "/create",
 		BackURL:     c.URLBase,
 		SubmitText:  "Create",
-		Fields:      c.MetaData.Fields,
-		Inputs:      inputs,
 		ErrMsg:      modelErr,
 		FieldErrors: fieldErrors,
 	}
 	if hxFlow {
 		d.HXTarget = "#" + c.ListID
 	}
-	return FormView(d)
+	return c.MetaData.RenderFormComponent(data, d)
 }
 
 // splitValidationErr separates a BindForm error into (perField, modelLevel).
@@ -528,22 +559,19 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 }
 
 func (c *CRUDTable[T]) editFormView(id uint, modelErr string, fieldErrors map[string]string, row T, hxFlow bool) templ.Component {
-	inputs := c.MetaData.GenFormElements(c.MetaData, row)
 	idStr := strconv.FormatUint(uint64(id), 10)
 	d := FormViewData{
 		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
 		ActionURL:   c.URLBase + "/" + idStr + "/edit",
 		BackURL:     c.URLBase,
 		SubmitText:  "Save",
-		Fields:      c.MetaData.Fields,
-		Inputs:      inputs,
 		ErrMsg:      modelErr,
 		FieldErrors: fieldErrors,
 	}
 	if hxFlow {
 		d.HXTarget = "#" + c.ListID
 	}
-	return FormView(d)
+	return c.MetaData.RenderFormComponent(row, d)
 }
 
 func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {

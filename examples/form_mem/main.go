@@ -121,7 +121,10 @@ func main() {
 		instance, _ := getter()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := pageShell(mm.DisplayName,
-			mm.DisplayComponent(instance, formURL, hxTarget),
+			mm.RenderDisplayComponent(instance, crud.DumpViewData{
+				EditURL:      formURL,
+				EditHXTarget: hxTarget,
+			}),
 		).Render(r.Context(), w); err != nil {
 			log.Printf("render: %v", err)
 		}

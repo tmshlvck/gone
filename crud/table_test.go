@@ -37,10 +37,10 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	}
 	// CRUDTable.Route registers only partial endpoints. The "main" page
 	// route is the app's job — for tests we register a thin handler
-	// that just renders MainComponent as a bare fragment (no page
+	// that just renders RenderComponent as a bare fragment (no page
 	// shell, since the tests only inspect HTML structure, not chrome).
 	mux.HandleFunc("GET "+tbl.URLBase, func(w http.ResponseWriter, r *http.Request) {
-		comp, err := tbl.MainComponent(r)
+		comp, err := tbl.RenderComponent(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -251,6 +251,38 @@ func TestCreate_BindErrorReRendersForm(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "alert-error") && !strings.Contains(body, "Power") {
 		t.Errorf("expected error rendering, got: %s", body)
+	}
+}
+
+func TestRowDisplayPartial(t *testing.T) {
+	mux, _ := newTestServer(t)
+	code, body := get(t, mux, "/items/1/display")
+	if code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	if !strings.Contains(body, "Aragorn") {
+		t.Errorf("expected Aragorn in /1/display body: %s", body)
+	}
+	if !strings.Contains(body, "Gondor") {
+		t.Errorf("expected Gondor in /1/display body: %s", body)
+	}
+	// Edit button hx-gets into the modal-content container.
+	if !strings.Contains(body, `hx-get="/items/1/edit"`) {
+		t.Errorf("expected Edit button hx-get to /items/1/edit: %s", body)
+	}
+	// No page chrome — partial only.
+	for _, forbidden := range []string{"<html", "<body"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("/display fragment must not include %q", forbidden)
+		}
+	}
+}
+
+func TestRowDisplay_NotFound(t *testing.T) {
+	mux, _ := newTestServer(t)
+	code, _ := get(t, mux, "/items/999/display")
+	if code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing id, got %d", code)
 	}
 }
 
