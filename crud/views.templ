@@ -5,7 +5,11 @@ import "strconv"
 // ViewData structs keep handler ↔ template wiring obvious. Each handler
 // builds a single struct, passes it to one templ component. The components
 // emit page fragments (no <html>/<body>) so callers wrap them with their
-// own page shell.
+// own page shell that has Tailwind + DaisyUI + HTMX loaded.
+//
+// Table interactivity (search filter, column sort) is HTMX-driven: those
+// controls hx-get the /rows partial and swap just the <tbody>. The page
+// also keeps a fallback href so a non-HTMX request still works.
 
 type DumpViewData struct {
 	DisplayName string
@@ -22,7 +26,7 @@ type TableViewData struct {
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
-	Search        string // current ?q= value, for the search input
+	Search        string // current ?q= value
 	SortBy        string // current ?sort= value
 	SortDesc      bool   // current ?desc=1 flag
 	Total         int64
@@ -37,153 +41,207 @@ type FormViewData struct {
 	DisplayName string
 	ActionURL   string // form POST target
 	BackURL     string // "← back" link
-	SubmitText  string // button label, e.g. "Save" or "Create"
+	SubmitText  string // button label
 	Fields      []MetaField
 	Inputs      []templ.Component // parallel to Fields; nil for Hidden/ReadOnly
 	ErrMsg      string
 }
 
 templ DumpView(d DumpViewData) {
-	<h1>{ d.DisplayName }</h1>
-	if d.EditURL != "" {
-		<p><a href={ templ.URL(d.EditURL) }>Edit</a></p>
-	}
-	<table>
-		for i, mf := range d.Fields {
-			if !mf.Hidden {
-				<tr>
-					<th>{ mf.DisplayName }</th>
-					<td>@d.Cells[i]</td>
-				</tr>
-			}
+	<div class="prose max-w-none">
+		<h1>{ d.DisplayName }</h1>
+		if d.EditURL != "" {
+			<p><a href={ templ.URL(d.EditURL) } class="link link-primary">Edit</a></p>
 		}
-	</table>
-}
-
-templ TableView(d TableViewData) {
-	<h1>{ d.DisplayName }</h1>
-	<form method="get" style="margin-bottom:.75rem">
-		<input type="search" name="q" placeholder="search…" value={ d.Search }/>
-		<button type="submit">Filter</button>
-		if d.SortBy != "" {
-			<input type="hidden" name="sort" value={ d.SortBy }/>
-			if d.SortDesc {
-				<input type="hidden" name="desc" value="1"/>
-			}
-		}
-	</form>
-	if d.CreateEnabled {
-		<p><a href={ templ.URL(d.URLBase + "/create") }>+ Create</a></p>
-	}
-	<table>
-		<thead>
-			<tr>
-				for _, mf := range d.Fields {
+		<table class="table table-zebra w-full">
+			<tbody>
+				for i, mf := range d.Fields {
 					if !mf.Hidden {
-						<th>@sortHeader(d.URLBase, d.Search, mf, d.SortBy, d.SortDesc)</th>
+						<tr>
+							<th class="w-1/3">{ mf.DisplayName }</th>
+							<td>@d.Cells[i]</td>
+						</tr>
 					}
 				}
-				if d.EditEnabled || d.DeleteEnabled {
-					<th></th>
-				}
-			</tr>
-		</thead>
-		<tbody>
-			for _, row := range d.Rows {
+			</tbody>
+		</table>
+	</div>
+}
+
+// TableView is the full table fragment: header, search/create controls,
+// then the table whose <tbody> hosts the rows fragment for HTMX swaps.
+templ TableView(d TableViewData) {
+	<div class="prose max-w-none">
+		<h1>{ d.DisplayName }</h1>
+	</div>
+	<div class="flex flex-wrap gap-2 items-center mb-4">
+		<input
+			type="search"
+			name="q"
+			placeholder="search…"
+			value={ d.Search }
+			class="input input-bordered input-sm w-64"
+			hx-get={ d.URLBase + "/rows" + extraQueryNoSearch(d) }
+			hx-target="#crud-rows"
+			hx-trigger="input changed delay:300ms, search"
+			hx-push-url="true"
+			hx-include="this"
+		/>
+		if d.CreateEnabled {
+			<a href={ templ.URL(d.URLBase + "/create") } class="btn btn-primary btn-sm">+ Create</a>
+		}
+	</div>
+	<div class="overflow-x-auto">
+		<table class="table table-zebra w-full">
+			<thead>
 				<tr>
-					for i, mf := range d.Fields {
+					for _, mf := range d.Fields {
 						if !mf.Hidden {
-							<td>@row.Cells[i]</td>
+							<th>@sortHeader(d, mf)</th>
 						}
 					}
 					if d.EditEnabled || d.DeleteEnabled {
-						<td>
-							@rowActions(d.URLBase, row.ID, d.EditEnabled, d.DeleteEnabled)
-						</td>
+						<th class="w-px"></th>
 					}
 				</tr>
-			}
-		</tbody>
-	</table>
-	<p style="color:#888;font-size:.85em">{ strconv.FormatInt(d.Total, 10) } row(s)</p>
+			</thead>
+			<tbody id="crud-rows">
+				@TableRows(d)
+			</tbody>
+		</table>
+	</div>
+	<p class="text-sm opacity-60 mt-2">{ strconv.FormatInt(d.Total, 10) } row(s)</p>
 }
 
-// sortHeader renders one <th> with a sort toggle link if mf.Sortable.
-templ sortHeader(urlBase, search string, mf MetaField, curSort string, curDesc bool) {
+// TableRows renders only the <tr> rows (sans <tbody>). This is what the
+// /rows partial endpoint serves and what HTMX swaps into #crud-rows.
+templ TableRows(d TableViewData) {
+	for _, row := range d.Rows {
+		<tr>
+			for i, mf := range d.Fields {
+				if !mf.Hidden {
+					<td>@row.Cells[i]</td>
+				}
+			}
+			if d.EditEnabled || d.DeleteEnabled {
+				<td>@rowActions(d.URLBase, row.ID, d.EditEnabled, d.DeleteEnabled)</td>
+			}
+		</tr>
+	}
+}
+
+// sortHeader renders one <th> content. If mf.Sortable, it's an HTMX
+// link with a fallback href that walks the full-page route. Otherwise
+// plain text.
+templ sortHeader(d TableViewData, mf MetaField) {
 	if mf.Sortable {
-		@sortLink(urlBase, search, mf, curSort, curDesc)
+		<a
+			href={ templ.URL(sortToggleURL(d.URLBase, d.Search, mf.Name, d.SortBy, d.SortDesc)) }
+			hx-get={ sortToggleURL(d.URLBase+"/rows", d.Search, mf.Name, d.SortBy, d.SortDesc) }
+			hx-target="#crud-rows"
+			hx-push-url={ sortToggleURL(d.URLBase, d.Search, mf.Name, d.SortBy, d.SortDesc) }
+			class="link link-hover"
+		>
+			{ mf.DisplayName }
+			if d.SortBy == mf.Name {
+				if d.SortDesc {
+					{ " ↓" }
+				} else {
+					{ " ↑" }
+				}
+			}
+		</a>
 	} else {
 		{ mf.DisplayName }
 	}
 }
 
-templ sortLink(urlBase, search string, mf MetaField, curSort string, curDesc bool) {
-	<a href={ templ.URL(sortToggleURL(urlBase, search, mf.Name, curSort, curDesc)) }>
-		{ mf.DisplayName }
-		if curSort == mf.Name {
-			if curDesc {
-				{ " ↓" }
-			} else {
-				{ " ↑" }
-			}
-		}
-	</a>
-}
-
 templ rowActions(urlBase string, id uint, editEnabled, deleteEnabled bool) {
-	if editEnabled {
-		<a href={ templ.URL(urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit") }>edit</a>
-	}
-	if editEnabled && deleteEnabled {
-		{ " · " }
-	}
-	if deleteEnabled {
-		<form method="post" action={ templ.URL(urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete") } style="display:inline" onsubmit="return confirm('Delete this row?')">
-			<button type="submit" style="background:none;border:none;color:#b00;cursor:pointer;padding:0;font:inherit">delete</button>
-		</form>
-	}
+	<div class="flex gap-2 whitespace-nowrap">
+		if editEnabled {
+			<a href={ templ.URL(urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit") } class="link link-primary">edit</a>
+		}
+		if deleteEnabled {
+			<button
+				type="button"
+				class="link link-error"
+				hx-post={ urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete" }
+				hx-confirm="Delete this row?"
+				hx-target="#crud-rows"
+				hx-swap="innerHTML"
+			>delete</button>
+		}
+	</div>
 }
 
 templ FormView(d FormViewData) {
-	<h1>{ d.DisplayName }</h1>
-	if d.BackURL != "" {
-		<p><a href={ templ.URL(d.BackURL) }>← back</a></p>
-	}
-	if d.ErrMsg != "" {
-		<p style="color:#b00">{ d.ErrMsg }</p>
-	}
-	<form method="post" action={ templ.URL(d.ActionURL) }>
+	<div class="prose max-w-none">
+		<h1>{ d.DisplayName }</h1>
+		if d.BackURL != "" {
+			<p><a href={ templ.URL(d.BackURL) } class="link">← back</a></p>
+		}
+		if d.ErrMsg != "" {
+			<div class="alert alert-error mb-4">
+				<span>{ d.ErrMsg }</span>
+			</div>
+		}
+	</div>
+	<form method="post" action={ templ.URL(d.ActionURL) } class="flex flex-col gap-3 max-w-2xl">
 		for i, mf := range d.Fields {
 			if !mf.Hidden && !mf.ReadOnly {
-				<label>
-					<span class="lbl">{ mf.DisplayName }</span>
+				<label class="form-control">
+					<span class="label-text font-medium">{ mf.DisplayName }</span>
 					@d.Inputs[i]
+					if mf.FormHelp != "" {
+						<span class="label-text-alt opacity-70">{ mf.FormHelp }</span>
+					}
 				</label>
 			}
 		}
-		<button type="submit">{ d.SubmitText }</button>
+		<button type="submit" class="btn btn-primary self-start mt-2">{ d.SubmitText }</button>
 	</form>
 }
 
-// sortToggleURL returns the URL that toggles sorting on the given field:
-// not-sorted → asc → desc → not-sorted.
+// sortToggleURL returns the URL for clicking a sort header on `field`:
+// not-sorted → asc → desc → not-sorted. urlBase is whichever endpoint
+// you want the link to hit ("/heroes" or "/heroes/rows").
 func sortToggleURL(urlBase, search, field, curSort string, curDesc bool) string {
-	q := "?"
+	parts := []string{}
 	if search != "" {
-		q += "q=" + search + "&"
+		parts = append(parts, "q="+search)
 	}
 	switch {
 	case curSort != field:
-		q += "sort=" + field
+		parts = append(parts, "sort="+field)
 	case !curDesc:
-		q += "sort=" + field + "&desc=1"
+		parts = append(parts, "sort="+field, "desc=1")
 	default:
 		// turn sorting off
-		if search != "" {
-			q = "?q=" + search
-		} else {
-			q = ""
-		}
 	}
-	return urlBase + q
+	if len(parts) == 0 {
+		return urlBase
+	}
+	out := urlBase + "?"
+	for i, p := range parts {
+		if i > 0 {
+			out += "&"
+		}
+		out += p
+	}
+	return out
+}
+
+// extraQueryNoSearch returns "?sort=…&desc=1" if those are currently set,
+// or "" otherwise. Used to preserve sort state when the search input
+// triggers a partial refresh (the search input contributes ?q= via
+// hx-include="this", so we mustn't duplicate it).
+func extraQueryNoSearch(d TableViewData) string {
+	if d.SortBy == "" {
+		return ""
+	}
+	out := "?sort=" + d.SortBy
+	if d.SortDesc {
+		out += "&desc=1"
+	}
+	return out
 }

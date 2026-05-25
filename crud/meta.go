@@ -227,7 +227,9 @@ func DefaultDisplayValue(mf MetaField, value any) templ.Component {
 }
 
 // DefaultGenFormElement renders an HTML form element appropriate for
-// mf.FormInputType, pre-filled with value.
+// mf.FormInputType, pre-filled with value. Outputs DaisyUI classes
+// (input input-bordered, checkbox, …) and assumes Tailwind+DaisyUI are
+// loaded by the caller's page shell.
 func DefaultGenFormElement(mf MetaField, value any) templ.Component {
 	name := html.EscapeString(mf.Name)
 	switch mf.FormInputType {
@@ -241,7 +243,7 @@ func DefaultGenFormElement(mf MetaField, value any) templ.Component {
 		// unchecked checkbox still sends a value the server can detect.
 		return templ.Raw(fmt.Sprintf(
 			`<input type="hidden" name=%q value="off"/>`+
-				`<input type="checkbox" name=%q value="on"%s/>`,
+				`<input type="checkbox" name=%q value="on"%s class="checkbox"/>`,
 			mf.Name, mf.Name, checked))
 	case "number":
 		step := ""
@@ -249,11 +251,11 @@ func DefaultGenFormElement(mf MetaField, value any) templ.Component {
 			step = ` step="any"`
 		}
 		return templ.Raw(fmt.Sprintf(
-			`<input type="number" name=%q value="%s"%s/>`,
+			`<input type="number" name=%q value="%s"%s class="input input-bordered"/>`,
 			name, html.EscapeString(formatValue(mf, value)), step))
 	default:
 		return templ.Raw(fmt.Sprintf(
-			`<input type=%q name=%q value="%s"/>`,
+			`<input type=%q name=%q value="%s" class="input input-bordered"/>`,
 			html.EscapeString(mf.FormInputType), name,
 			html.EscapeString(formatValue(mf, value))))
 	}

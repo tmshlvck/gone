@@ -262,7 +262,18 @@ func setIDField[T any](data *T, id uint) {
 type PageShell func(title string, content templ.Component) templ.Component
 
 // Route registers all CRUD routes on mux. Returns an error if mux is nil.
-// shell is optional — if nil, fragments render unwrapped.
+// shell is optional — if nil, fragments render unwrapped (matching the
+// HX-Request partial flow).
+//
+// Routes (Go 1.22 method+pattern):
+//
+//	GET    {base}              full list page
+//	GET    {base}/rows         tbody-only partial for HTMX swap (no shell ever)
+//	GET    {base}/create       create form
+//	POST   {base}/create       submit create
+//	GET    {base}/{id}/edit    edit form
+//	POST   {base}/{id}/edit    submit update
+//	POST   {base}/{id}/delete  delete (HX-Request → rows fragment; else 303)
 func (c *CRUDTable[T]) Route(mux *http.ServeMux, shell PageShell) error {
 	if mux == nil {
 		return errors.New("nil mux")
@@ -274,6 +285,7 @@ func (c *CRUDTable[T]) Route(mux *http.ServeMux, shell PageShell) error {
 	c.URLBase = base
 
 	mux.HandleFunc("GET "+base, c.makeHandler(shell, c.handleList))
+	mux.HandleFunc("GET "+base+"/rows", c.makeFragmentHandler(c.handleListRows))
 	if c.CreateEnabled {
 		mux.HandleFunc("GET "+base+"/create", c.makeHandler(shell, c.handleCreateForm))
 		mux.HandleFunc("POST "+base+"/create", c.makeHandler(shell, c.handleCreatePost))
@@ -292,6 +304,12 @@ func (c *CRUDTable[T]) Route(mux *http.ServeMux, shell PageShell) error {
 // redirect / error directly and returns ("", nil) to signal "no fragment".
 type handlerFunc func(w http.ResponseWriter, r *http.Request) (title string, fragment templ.Component)
 
+// isHTMXRequest reports whether r came from HTMX (so we should respond
+// with a partial fragment instead of redirecting).
+func isHTMXRequest(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
+}
+
 func (c *CRUDTable[T]) makeHandler(shell PageShell, h handlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		title, frag := h(w, r)
@@ -299,7 +317,10 @@ func (c *CRUDTable[T]) makeHandler(shell PageShell, h handlerFunc) http.HandlerF
 			return // handler already wrote the response
 		}
 		var page templ.Component = frag
-		if shell != nil {
+		// Use shell only for full-page browser requests. HTMX-issued
+		// requests (HX-Request: true) always get the bare fragment so
+		// they can be swapped into the existing page.
+		if shell != nil && !isHTMXRequest(r) {
 			page = shell(title, frag)
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -309,7 +330,24 @@ func (c *CRUDTable[T]) makeHandler(shell PageShell, h handlerFunc) http.HandlerF
 	}
 }
 
-func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+// makeFragmentHandler is like makeHandler but never wraps in a shell.
+// Used for /rows and any other endpoint that always returns a partial.
+func (c *CRUDTable[T]) makeFragmentHandler(h handlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, frag := h(w, r)
+		if frag == nil {
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := frag.Render(r.Context(), w); err != nil {
+			log.Printf("render: %v", err)
+		}
+	}
+}
+
+// buildTableViewData reads ?q, ?sort, ?desc from r, queries the backend,
+// and returns the populated struct. Shared by handleList and handleListRows.
+func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error) {
 	q := r.URL.Query()
 	search := q.Get("q")
 	sortBy := q.Get("sort")
@@ -317,8 +355,7 @@ func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (strin
 
 	results, total, err := c.List(r.Context(), search, sortBy, sortDesc, 0, 0)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return "", nil
+		return TableViewData{}, err
 	}
 	rows := make([]TableRow, len(results))
 	for i, res := range results {
@@ -327,7 +364,7 @@ func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (strin
 			Cells: c.MetaData.DisplayValues(c.MetaData, res.Row),
 		}
 	}
-	return c.MetaData.DisplayName, TableView(TableViewData{
+	return TableViewData{
 		DisplayName:   c.MetaData.DisplayName,
 		URLBase:       c.URLBase,
 		Fields:        c.MetaData.Fields,
@@ -339,7 +376,27 @@ func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (strin
 		SortBy:        sortBy,
 		SortDesc:      sortDesc,
 		Total:         total,
-	})
+	}, nil
+}
+
+func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+	d, err := c.buildTableViewData(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "", nil
+	}
+	return c.MetaData.DisplayName, TableView(d)
+}
+
+// handleListRows returns just the <tr> rows for HTMX swaps into the
+// #crud-rows tbody.
+func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+	d, err := c.buildTableViewData(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "", nil
+	}
+	return "", TableRows(d)
 }
 
 func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -459,6 +516,16 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 	if err := c.Delete(r.Context(), id); err != nil && !errors.Is(err, ErrNotFound) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
+	}
+	// HTMX flow: return the rows fragment so the table re-renders in
+	// place without a full page navigation.
+	if isHTMXRequest(r) {
+		d, err := c.buildTableViewData(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return "", nil
+		}
+		return "", TableRows(d)
 	}
 	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
 	return "", nil

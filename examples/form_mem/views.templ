@@ -5,20 +5,16 @@ templ pageShell(title string, content templ.Component) {
 	<html lang="en">
 		<head>
 			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
-			<style>
-				body { font-family: sans-serif; padding: 1.5rem; max-width: 50rem; }
-				table { border-collapse: collapse; margin: 1em 0; }
-				th, td { border: 1px solid #ccc; padding: .3rem .6rem; text-align: left; }
-				th { background: #f4f4f4; font-weight: 600; }
-				label { display: block; margin: .6rem 0; }
-				label > span.lbl { display: inline-block; min-width: 12rem; font-weight: 600; }
-				input { padding: .25rem .4rem; }
-				button { padding: .4rem 1rem; margin-top: 1rem; }
-			</style>
+			<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+			<script src="https://cdn.tailwindcss.com"></script>
+			<script src="https://unpkg.com/htmx.org@2"></script>
 		</head>
 		<body>
-			@content
+			<main class="container mx-auto p-6 max-w-3xl">
+				@content
+			</main>
 		</body>
 	</html>
 }

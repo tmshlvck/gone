@@ -424,14 +424,80 @@ input.
 
 ### 6.8 Form binding
 
-TBD — the default `MetaModel.BindForm` walks `Fields` and applies each
-`MetaField.Set` after coercing the wire string into the field's Go type.
-Custom binders override per `MetaModel`.
+`MetaModel.BindForm` walks `Fields` and calls each `MetaField.FromStrings`
+to coerce the wire value into the field's Go type via reflection.
+`DefaultFromStrings` handles `string`, signed/unsigned ints, floats,
+`bool` (with the hidden-input/checkbox pairing trick), and `time.Time`
+(HTML `datetime-local` format). Custom binders override per `MetaModel`.
 
+### 6.9 Styling
 
+`gone/crud` emits markup with **DaisyUI** + **TailwindCSS** classes
+(`input input-bordered`, `btn btn-primary`, `table table-zebra`,
+`form-control`, `alert alert-error`, …) and **assumes both are loaded
+by the caller's page shell**. The library bundles no CSS and serves no
+static assets — keeps gone a true library, lets the caller pick the
+DaisyUI theme, integrates with the host app's existing Tailwind build.
 
+The example shells (`examples/*/page.templ`) load Tailwind v3 CDN
+(`https://cdn.tailwindcss.com`) and DaisyUI v5
+(`https://cdn.jsdelivr.net/npm/daisyui@5`). Production apps should run
+their own Tailwind build with DaisyUI configured as a plugin — the
+CDN is dev-only.
 
-################# The rest is the easy part - let's ignore it for now!
+Component fragments emit **no `<html>`/`<body>`/`<style>`** — they're
+fragments wrapped by the caller's `PageShell`. Direct full-page browser
+navigation goes through the shell; HTMX requests (`HX-Request: true`)
+get the raw fragment so it can be swapped into an already-rendered page.
+
+### 6.10 HTMX partials
+
+Table interactivity — search filter, column sort, row delete — is
+HTMX-driven. The library ships:
+
+- A `<tbody id="crud-rows">` anchor inside `TableView` for HTMX swap
+  targets.
+- A `TableRows(d)` templ component that renders just the `<tr>` rows
+  (no surrounding `<table>` / `<thead>`). Served as the **`/rows`**
+  partial endpoint registered by `Route`.
+- `hx-get` / `hx-target` / `hx-trigger` / `hx-push-url` attributes on
+  the search input and sortable column headers, with fallback `href`
+  values so the same page works with HTMX disabled.
+- HX-Request detection on the delete handler — HTMX delete returns
+  the updated rows fragment; browser delete (no header) returns a
+  303 redirect to the list page.
+
+The library assumes HTMX is loaded by the caller's page shell. Examples
+load `https://unpkg.com/htmx.org@2` from CDN.
+
+### 6.11 Testing
+
+**Primary lever: HTTP end-to-end tests** using `net/http/httptest`. The
+package's exported API is the routes registered by `CRUDTable.Route`,
+and most behavior worth verifying is observable through them: did the
+list page render the right rows, did search filter, did sort change
+order, did a POST persist, does a checked checkbox round-trip, does
+the `/rows` partial omit `<table>` chrome, does HX-Request flip the
+delete response from 303-redirect to fragment-return.
+
+`crud/table_test.go` ships ~14 such tests against an in-memory `item`
+model and a `*http.ServeMux`. They're cheap (sub-millisecond), don't
+need an external process, and exercise rendering + handlers in one
+pass.
+
+**Unit tests** cover the reflection-heavy primitives that aren't
+naturally observable through HTTP: `DeriveMetaModel` returning the
+right `FormInputType` per Go kind, `DefaultBindForm` round-tripping
+each scalar type, the unchecked-checkbox bind quirk. Targeted, small.
+
+What we **don't** unit-test exhaustively: templ rendering output
+byte-for-byte (brittle and templ-generate is already a source of
+correctness), default rendering of every Go scalar (covered by the
+e2e tests through observable HTML).
+
+Run with `go test ./...` — no external dependencies, no DB, no
+browser. Future GORM-backed tests will use an in-memory SQLite
+(`glebarez/sqlite`'s `:memory:` DSN) so they stay self-contained.
 
 
 
