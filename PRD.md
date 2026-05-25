@@ -439,13 +439,39 @@ by the caller's page shell**. The library bundles no CSS and serves no
 static assets — keeps gone a true library, lets the caller pick the
 DaisyUI theme, integrates with the host app's existing Tailwind build.
 
-The example shells (`examples/*/page.templ`) load **DaisyUI v4** as a
-precompiled CSS bundle (`https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css`)
-and **Tailwind v3 Play CDN** (`https://cdn.tailwindcss.com`) for utility
-classes. This is the compatible pair — DaisyUI v5 requires Tailwind v4
-which has no equivalent Play CDN, leaving `btn-primary` and friends
-half-styled in browser. Production apps should run their own Tailwind
-build with DaisyUI configured as a plugin; the CDN is dev-only.
+The example shells (`examples/*/page.templ`) load **DaisyUI v5** plus
+its **themes.css** bundle and the **Tailwind v4 browser CDN**:
+
+```html
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css"/>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+```
+
+DaisyUI v5 dropped the `-bordered` modifiers (`input-bordered` etc.) —
+the base `input` / `select` / `textarea` classes now include borders by
+default. Library views use the unsuffixed class names. Production apps
+should still run their own Tailwind build with DaisyUI as a plugin; the
+CDN is dev-only.
+
+Buttons in the library are `btn-outline` by default (outlined border,
+transparent fill) — DaisyUI's hover state automatically fills them. The
+active pagination page is the one filled button per UI; everything else
+shows outline-default / fill-on-hover.
+
+Per-instance DOM IDs: `DeriveMetaModel` and `DeriveMapCRUDTable` mint
+short random suffixes so multiple CRUDTables can share a page without
+ID collisions. Format is `<role>_<rand>` (e.g. `table_zhk6dthk`,
+`modal-content_4u2yznow`, `field_hostname_a1b2c3d4`). The HTTP handler
+sends the modal id back through `HX-Trigger` JSON payloads
+(`{"openModal":"<id>"}`) so the page-shell JS knows which dialog to
+open or close.
+
+The page shells in the examples include a light/dark theme toggle
+(DaisyUI's `swap swap-rotate` with `data-theme-toggle` checkbox), pure
+client-side: `prefers-color-scheme` on first load, persisted to
+`localStorage`, applied as `data-theme` on `<html>`. No library code
+involved — drop the same snippet into any consumer's page shell.
 
 Component fragments emit **no `<html>`/`<body>`/`<style>`** — they're
 fragments wrapped by the caller's `PageShell`. Direct full-page browser

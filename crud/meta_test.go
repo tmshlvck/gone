@@ -47,6 +47,23 @@ func TestDeriveMetaModel_FieldsAndInputTypes(t *testing.T) {
 	}
 }
 
+func TestDeriveMetaModel_DivIDsArePerInstanceRandom(t *testing.T) {
+	a, _ := DeriveMetaModel[sampleConfig]()
+	b, _ := DeriveMetaModel[sampleConfig]()
+	if !strings.HasPrefix(a.DivID, "model_sampleconfig_") {
+		t.Errorf("model DivID = %q; want prefix model_sampleconfig_", a.DivID)
+	}
+	if a.DivID == b.DivID {
+		t.Errorf("two derivations produced the same model DivID: %q", a.DivID)
+	}
+	if !strings.HasPrefix(a.Fields[0].DivID, "field_hostname_") {
+		t.Errorf("field DivID = %q; want prefix field_hostname_", a.Fields[0].DivID)
+	}
+	if a.Fields[0].DivID == b.Fields[0].DivID {
+		t.Errorf("two derivations produced the same field DivID: %q", a.Fields[0].DivID)
+	}
+}
+
 func TestDeriveMetaModel_SortableSearchable(t *testing.T) {
 	mm, _ := DeriveMetaModel[sampleConfig]()
 	for _, mf := range mm.Fields {

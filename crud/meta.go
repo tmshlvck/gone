@@ -12,6 +12,8 @@
 package crud
 
 import (
+	"crypto/rand"
+	"encoding/base32"
 	"fmt"
 	"html"
 	"reflect"
@@ -22,12 +24,23 @@ import (
 	"github.com/a-h/templ"
 )
 
+// randSuffix returns a short (8 chars) lowercase URL-safe random string.
+// Used by Derive* to mint per-instance DOM IDs in the form "<name>_<suffix>".
+// Per-instance IDs let multiple components coexist on the same page
+// without collisions.
+func randSuffix() string {
+	var b [5]byte // 5 bytes → 8 base32 chars
+	_, _ = rand.Read(b[:])
+	return strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b[:]))
+}
+
 // MetaField describes one field for rendering and form binding.
 // The hooks accept `any` because MetaField is not generic (so it can live
 // in a heterogeneous []MetaField). Implementations reflect on the value
 // using MetaField.Name.
 type MetaField struct {
 	Name          string
+	DivID         string // id attribute on the field's wrapper; populated by DeriveMetaModel as "field_<name>_<rand>"
 	DisplayName   string
 	FormInputType string // HTML <input type=...>: "text", "number", "checkbox", "datetime-local", "email", …
 	FormHelp      string
@@ -59,6 +72,7 @@ type MetaModel[T any] struct {
 	Fields []MetaField
 
 	Name        string // type name (e.g. "ExampleConfig")
+	DivID       string // id attribute on the model's wrapper; "model_<lcname>_<rand>"
 	DisplayName string
 
 	DisplayValues   func(mm MetaModel[T], instance T) []templ.Component
@@ -81,6 +95,7 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 
 	mm := MetaModel[T]{
 		Name:        rt.Name(),
+		DivID:       "model_" + strings.ToLower(rt.Name()) + "_" + randSuffix(),
 		DisplayName: rt.Name(),
 	}
 
@@ -102,6 +117,7 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 func deriveField(f reflect.StructField) MetaField {
 	return MetaField{
 		Name:           f.Name,
+		DivID:          "field_" + strings.ToLower(f.Name) + "_" + randSuffix(),
 		DisplayName:    f.Name,
 		FormInputType:  inputTypeFor(f.Type),
 		Sortable:       isSortableKind(f.Type),
@@ -251,11 +267,11 @@ func DefaultGenFormElement(mf MetaField, value any) templ.Component {
 			step = ` step="any"`
 		}
 		return templ.Raw(fmt.Sprintf(
-			`<input type="number" name=%q value="%s"%s class="input input-bordered"/>`,
+			`<input type="number" name=%q value="%s"%s class="input"/>`,
 			name, html.EscapeString(formatValue(mf, value)), step))
 	default:
 		return templ.Raw(fmt.Sprintf(
-			`<input type=%q name=%q value="%s" class="input input-bordered"/>`,
+			`<input type=%q name=%q value="%s" class="input"/>`,
 			html.EscapeString(mf.FormInputType), name,
 			html.EscapeString(formatValue(mf, value))))
 	}

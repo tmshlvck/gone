@@ -32,6 +32,11 @@ type TableViewData struct {
 	Page          int   // 1-indexed
 	PageSize      int   // rows per page; 0 = unpaged
 	NumPages      int   // ceil(Total/PageSize); 1 when unpaged
+
+	// Per-instance DOM IDs (set by CRUDTable.Route from its struct).
+	ListID         string
+	ModalID        string
+	ModalContentID string
 }
 
 type TableRow struct {
@@ -67,13 +72,13 @@ templ DumpView(d DumpViewData) {
 				if d.EditURL != "" {
 					if d.EditHXTarget != "" {
 						<button
-							class="btn btn-primary btn-sm"
+							class="btn btn-outline btn-primary btn-sm"
 							hx-get={ d.EditURL }
 							hx-target={ d.EditHXTarget }
 							hx-swap="innerHTML"
 						>Edit</button>
 					} else {
-						<a href={ templ.URL(d.EditURL) } class="btn btn-primary btn-sm">Edit</a>
+						<a href={ templ.URL(d.EditURL) } class="btn btn-outline btn-primary btn-sm">Edit</a>
 					}
 				}
 			</div>
@@ -111,9 +116,9 @@ templ TableView(d TableViewData) {
 						name="q"
 						placeholder="search…"
 						value={ d.Search }
-						class="input input-bordered input-sm w-64"
+						class="input input-sm w-64"
 						hx-get={ d.URLBase + "/rows" + extraQueryNoSearch(d) }
-						hx-target="#crud-list"
+						hx-target={ "#" + d.ListID }
 						hx-swap="innerHTML"
 						hx-trigger="input changed delay:300ms, search"
 						hx-push-url="true"
@@ -121,20 +126,20 @@ templ TableView(d TableViewData) {
 					/>
 					if d.CreateEnabled {
 						<button
-							class="btn btn-primary btn-sm"
+							class="btn btn-outline btn-primary btn-sm"
 							hx-get={ d.URLBase + "/create" }
-							hx-target="#modal-content"
+							hx-target={ "#" + d.ModalContentID }
 							hx-swap="innerHTML"
 						>+ Create</button>
 					}
 				</div>
 			</div>
-			<div id="crud-list">
+			<div id={ d.ListID }>
 				@TableContent(d)
 			</div>
 		</div>
 	</div>
-	@modalWrapper()
+	@modalWrapper(d.ModalID, d.ModalContentID)
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
@@ -164,7 +169,7 @@ templ TableContent(d TableViewData) {
 							}
 						}
 						if d.EditEnabled || d.DeleteEnabled {
-							<td>@rowActions(d.URLBase, row.ID, d.EditEnabled, d.DeleteEnabled)</td>
+							<td>@rowActions(d, row.ID)</td>
 						}
 					</tr>
 				}
@@ -184,7 +189,7 @@ templ sortHeader(d TableViewData, mf MetaField) {
 		<a
 			href={ templ.URL(sortToggleURL(d, mf.Name, false)) }
 			hx-get={ sortToggleURL(d, mf.Name, true) }
-			hx-target="#crud-list"
+			hx-target={ "#" + d.ListID }
 			hx-swap="innerHTML"
 			hx-push-url={ sortToggleURL(d, mf.Name, false) }
 			class="link link-hover"
@@ -203,24 +208,24 @@ templ sortHeader(d TableViewData, mf MetaField) {
 	}
 }
 
-templ rowActions(urlBase string, id uint, editEnabled, deleteEnabled bool) {
+templ rowActions(d TableViewData, id uint) {
 	<div class="flex gap-2 whitespace-nowrap">
-		if editEnabled {
+		if d.EditEnabled {
 			<button
 				type="button"
-				class="btn btn-ghost btn-xs"
-				hx-get={ urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit" }
-				hx-target="#modal-content"
+				class="btn btn-outline btn-xs"
+				hx-get={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit" }
+				hx-target={ "#" + d.ModalContentID }
 				hx-swap="innerHTML"
 			>edit</button>
 		}
-		if deleteEnabled {
+		if d.DeleteEnabled {
 			<button
 				type="button"
-				class="btn btn-ghost btn-xs text-error"
-				hx-post={ urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete" }
+				class="btn btn-outline btn-error btn-xs"
+				hx-post={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete" }
 				hx-confirm="Delete this row?"
-				hx-target="#crud-list"
+				hx-target={ "#" + d.ListID }
 				hx-swap="innerHTML"
 			>delete</button>
 		}
@@ -232,23 +237,23 @@ templ pagination(d TableViewData) {
 		<div class="join">
 			if d.Page > 1 {
 				<button
-					class="join-item btn btn-sm"
+					class="join-item btn btn-outline btn-sm"
 					hx-get={ pageURL(d, d.Page-1, true) }
-					hx-target="#crud-list"
+					hx-target={ "#" + d.ListID }
 					hx-swap="innerHTML"
 					hx-push-url={ pageURL(d, d.Page-1, false) }
 				>«</button>
 			} else {
-				<button class="join-item btn btn-sm btn-disabled">«</button>
+				<button class="join-item btn btn-outline btn-sm btn-disabled">«</button>
 			}
 			for _, n := range pageRange(d.Page, d.NumPages) {
 				if n == d.Page {
-					<button class="join-item btn btn-sm btn-active">{ strconv.Itoa(n) }</button>
+					<button class="join-item btn btn-primary btn-sm">{ strconv.Itoa(n) }</button>
 				} else {
 					<button
-						class="join-item btn btn-sm"
+						class="join-item btn btn-outline btn-sm"
 						hx-get={ pageURL(d, n, true) }
-						hx-target="#crud-list"
+						hx-target={ "#" + d.ListID }
 						hx-swap="innerHTML"
 						hx-push-url={ pageURL(d, n, false) }
 					>{ strconv.Itoa(n) }</button>
@@ -256,22 +261,22 @@ templ pagination(d TableViewData) {
 			}
 			if d.Page < d.NumPages {
 				<button
-					class="join-item btn btn-sm"
+					class="join-item btn btn-outline btn-sm"
 					hx-get={ pageURL(d, d.Page+1, true) }
-					hx-target="#crud-list"
+					hx-target={ "#" + d.ListID }
 					hx-swap="innerHTML"
 					hx-push-url={ pageURL(d, d.Page+1, false) }
 				>»</button>
 			} else {
-				<button class="join-item btn btn-sm btn-disabled">»</button>
+				<button class="join-item btn btn-outline btn-sm btn-disabled">»</button>
 			}
 		</div>
 	}
 }
 
-templ modalWrapper() {
-	<dialog id="crud-modal" class="modal">
-		<div class="modal-box max-w-2xl" id="modal-content"></div>
+templ modalWrapper(modalID, contentID string) {
+	<dialog id={ modalID } class="modal">
+		<div class="modal-box max-w-2xl" id={ contentID }></div>
 		<form method="dialog" class="modal-backdrop">
 			<button>close</button>
 		</form>
@@ -326,7 +331,7 @@ templ formBody(d FormViewData) {
 		}
 	}
 	<div class="flex gap-2 mt-2">
-		<button type="submit" class="btn btn-primary">{ d.SubmitText }</button>
+		<button type="submit" class="btn btn-outline btn-primary">{ d.SubmitText }</button>
 		if d.BackURL != "" {
 			<a href={ templ.URL(d.BackURL) } class="btn btn-ghost">Cancel</a>
 		}

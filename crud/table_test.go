@@ -56,7 +56,7 @@ func postForm(t *testing.T, mux *http.ServeMux, path, body string) *httptest.Res
 }
 
 func TestList_ShowsAllRowsByDefault(t *testing.T) {
-	mux, _ := newTestServer(t)
+	mux, tbl := newTestServer(t)
 	code, body := get(t, mux, "/items")
 	if code != 200 {
 		t.Fatalf("status %d", code)
@@ -66,17 +66,23 @@ func TestList_ShowsAllRowsByDefault(t *testing.T) {
 			t.Errorf("missing %q in list", name)
 		}
 	}
-	if !strings.Contains(body, `id="crud-list"`) {
-		t.Error("table should have id=\"crud-list\" wrapper for HTMX swaps")
+	// The list-area wrapper carries the per-instance id derived at
+	// Derive time — assert the id is present and follows the
+	// "table_<rand>" format.
+	if !strings.Contains(body, `id="`+tbl.ListID+`"`) {
+		t.Errorf("table should have id=%q wrapper for HTMX swaps", tbl.ListID)
+	}
+	if !strings.HasPrefix(tbl.ListID, "table_") {
+		t.Errorf("ListID = %q; want prefix 'table_'", tbl.ListID)
 	}
 }
 
 func TestList_TableViewHasHTMXAttrs(t *testing.T) {
-	mux, _ := newTestServer(t)
+	mux, tbl := newTestServer(t)
 	_, body := get(t, mux, "/items")
 	for _, tok := range []string{
 		`hx-get="/items/rows`,
-		`hx-target="#crud-list"`,
+		`hx-target="#` + tbl.ListID + `"`,
 		`hx-push-url`,
 	} {
 		if !strings.Contains(body, tok) {
