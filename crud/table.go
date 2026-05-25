@@ -37,6 +37,7 @@ type CRUDTable[T any] struct {
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
+	PageSize      int // rows per page; 0 = no pagination
 	// Authz is not wired in this iteration; field reserved so the shape
 	// matches PRD §6.3 and so callers can store it.
 
@@ -46,6 +47,11 @@ type CRUDTable[T any] struct {
 	Update func(ctx context.Context, id uint, data T) (T, error)
 	Delete func(ctx context.Context, id uint) error
 }
+
+// defaultPageSize is used when CRUDTable.PageSize is 0 and pagination is
+// implicitly enabled by the table view (which it always is — set to 0
+// only when you intentionally want all rows in one shot).
+const defaultPageSize = 20
 
 // DeriveMapCRUDTable wires CRUDTable[T] to a caller-owned map and mutex.
 // Search is a case-insensitive substring match against every MetaField
@@ -345,17 +351,32 @@ func (c *CRUDTable[T]) makeFragmentHandler(h handlerFunc) http.HandlerFunc {
 	}
 }
 
-// buildTableViewData reads ?q, ?sort, ?desc from r, queries the backend,
-// and returns the populated struct. Shared by handleList and handleListRows.
+// buildTableViewData reads ?q, ?sort, ?desc, ?page from r, queries the
+// backend with the right offset/limit, and returns the populated struct.
+// Shared by handleList and handleListRows.
 func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error) {
 	q := r.URL.Query()
 	search := q.Get("q")
 	sortBy := q.Get("sort")
 	sortDesc := q.Get("desc") == "1"
+	page := parsePage(q.Get("page"))
 
-	results, total, err := c.List(r.Context(), search, sortBy, sortDesc, 0, 0)
+	pageSize := c.PageSize
+	if pageSize <= 0 {
+		pageSize = defaultPageSize
+	}
+	offset := (page - 1) * pageSize
+
+	results, total, err := c.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)
 	if err != nil {
 		return TableViewData{}, err
+	}
+	numPages := 1
+	if pageSize > 0 && total > 0 {
+		numPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+	}
+	if page > numPages {
+		page = numPages
 	}
 	rows := make([]TableRow, len(results))
 	for i, res := range results {
@@ -376,7 +397,21 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 		SortBy:        sortBy,
 		SortDesc:      sortDesc,
 		Total:         total,
+		Page:          page,
+		PageSize:      pageSize,
+		NumPages:      numPages,
 	}, nil
+}
+
+func parsePage(s string) int {
+	if s == "" {
+		return 1
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
 }
 
 func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -388,28 +423,46 @@ func (c *CRUDTable[T]) handleList(w http.ResponseWriter, r *http.Request) (strin
 	return c.MetaData.DisplayName, TableView(d)
 }
 
-// handleListRows returns just the <tr> rows for HTMX swaps into the
-// #crud-rows tbody.
+// handleListRows returns the table + footer for HTMX swaps into
+// #crud-list. (Despite the URL ending in /rows, the partial includes
+// the table headers and the count/pagination footer so that all of
+// those refresh together.)
 func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
 	d, err := c.buildTableViewData(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
-	return "", TableRows(d)
+	return "", TableContent(d)
 }
 
-func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
-	var zero T
-	inputs := c.MetaData.GenFormElements(c.MetaData, zero)
-	return "Create " + c.MetaData.DisplayName, FormView(FormViewData{
+// createFormView returns the FormView component for a fresh row.
+// hxFlow controls HTMX wiring: when true, the form submits via HTMX into
+// #crud-list (and we'll close the modal on success via HX-Trigger header).
+func (c *CRUDTable[T]) createFormView(errMsg string, data T, hxFlow bool) templ.Component {
+	inputs := c.MetaData.GenFormElements(c.MetaData, data)
+	d := FormViewData{
 		DisplayName: "Create " + c.MetaData.DisplayName,
 		ActionURL:   c.URLBase + "/create",
 		BackURL:     c.URLBase,
 		SubmitText:  "Create",
 		Fields:      c.MetaData.Fields,
 		Inputs:      inputs,
-	})
+		ErrMsg:      errMsg,
+	}
+	if hxFlow {
+		d.HXTarget = "#crud-list"
+	}
+	return FormView(d)
+}
+
+func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+	var zero T
+	if isHTMXRequest(r) {
+		// Pop the modal on the client after the swap lands.
+		w.Header().Set("HX-Trigger", "openModal")
+	}
+	return "Create " + c.MetaData.DisplayName, c.createFormView("", zero, isHTMXRequest(r))
 }
 
 func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -419,23 +472,49 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 	}
 	var data T
 	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &data); err != nil {
-		inputs := c.MetaData.GenFormElements(c.MetaData, data)
-		return "Create " + c.MetaData.DisplayName, FormView(FormViewData{
-			DisplayName: "Create " + c.MetaData.DisplayName,
-			ActionURL:   c.URLBase + "/create",
-			BackURL:     c.URLBase,
-			SubmitText:  "Create",
-			Fields:      c.MetaData.Fields,
-			Inputs:      inputs,
-			ErrMsg:      err.Error(),
-		})
+		if isHTMXRequest(r) {
+			// Form had hx-target=#crud-list; swap into modal instead so
+			// the user sees the error in place.
+			w.Header().Set("HX-Retarget", "#modal-content")
+			w.Header().Set("HX-Reswap", "innerHTML")
+		}
+		return "Create " + c.MetaData.DisplayName, c.createFormView(err.Error(), data, isHTMXRequest(r))
 	}
 	if _, _, err := c.Create(r.Context(), data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
+	if isHTMXRequest(r) {
+		// Return the updated rows fragment; close the modal client-side
+		// via the bridged event handler.
+		w.Header().Set("HX-Trigger", "closeModal")
+		d, err := c.buildTableViewData(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return "", nil
+		}
+		return "", TableContent(d)
+	}
 	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
 	return "", nil
+}
+
+func (c *CRUDTable[T]) editFormView(id uint, errMsg string, row T, hxFlow bool) templ.Component {
+	inputs := c.MetaData.GenFormElements(c.MetaData, row)
+	idStr := strconv.FormatUint(uint64(id), 10)
+	d := FormViewData{
+		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
+		ActionURL:   c.URLBase + "/" + idStr + "/edit",
+		BackURL:     c.URLBase,
+		SubmitText:  "Save",
+		Fields:      c.MetaData.Fields,
+		Inputs:      inputs,
+		ErrMsg:      errMsg,
+	}
+	if hxFlow {
+		d.HXTarget = "#crud-list"
+	}
+	return FormView(d)
 }
 
 func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -453,16 +532,10 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (s
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
-	inputs := c.MetaData.GenFormElements(c.MetaData, row)
-	idStr := strconv.FormatUint(uint64(id), 10)
-	return "Edit " + c.MetaData.DisplayName, FormView(FormViewData{
-		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
-		ActionURL:   c.URLBase + "/" + idStr + "/edit",
-		BackURL:     c.URLBase,
-		SubmitText:  "Save",
-		Fields:      c.MetaData.Fields,
-		Inputs:      inputs,
-	})
+	if isHTMXRequest(r) {
+		w.Header().Set("HX-Trigger", "openModal")
+	}
+	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, "", row, isHTMXRequest(r))
 }
 
 func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -487,21 +560,24 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (s
 		return "", nil
 	}
 	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &row); err != nil {
-		inputs := c.MetaData.GenFormElements(c.MetaData, row)
-		idStr := strconv.FormatUint(uint64(id), 10)
-		return "Edit " + c.MetaData.DisplayName, FormView(FormViewData{
-			DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
-			ActionURL:   c.URLBase + "/" + idStr + "/edit",
-			BackURL:     c.URLBase,
-			SubmitText:  "Save",
-			Fields:      c.MetaData.Fields,
-			Inputs:      inputs,
-			ErrMsg:      err.Error(),
-		})
+		if isHTMXRequest(r) {
+			w.Header().Set("HX-Retarget", "#modal-content")
+			w.Header().Set("HX-Reswap", "innerHTML")
+		}
+		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, err.Error(), row, isHTMXRequest(r))
 	}
 	if _, err := c.Update(r.Context(), id, row); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
+	}
+	if isHTMXRequest(r) {
+		w.Header().Set("HX-Trigger", "closeModal")
+		d, err := c.buildTableViewData(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return "", nil
+		}
+		return "", TableContent(d)
 	}
 	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
 	return "", nil
@@ -525,7 +601,7 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return "", nil
 		}
-		return "", TableRows(d)
+		return "", TableContent(d)
 	}
 	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
 	return "", nil

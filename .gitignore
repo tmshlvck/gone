@@ -5,6 +5,10 @@
 *.prof
 coverage.txt
 
+# Playwright MCP scratch (snapshots, console logs, ad-hoc screenshots)
+.playwright-mcp/
+*.png
+
 # Go workspace files (not committed for this module)
 go.work
 go.work.sum

@@ -439,11 +439,13 @@ by the caller's page shell**. The library bundles no CSS and serves no
 static assets — keeps gone a true library, lets the caller pick the
 DaisyUI theme, integrates with the host app's existing Tailwind build.
 
-The example shells (`examples/*/page.templ`) load Tailwind v3 CDN
-(`https://cdn.tailwindcss.com`) and DaisyUI v5
-(`https://cdn.jsdelivr.net/npm/daisyui@5`). Production apps should run
-their own Tailwind build with DaisyUI configured as a plugin — the
-CDN is dev-only.
+The example shells (`examples/*/page.templ`) load **DaisyUI v4** as a
+precompiled CSS bundle (`https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css`)
+and **Tailwind v3 Play CDN** (`https://cdn.tailwindcss.com`) for utility
+classes. This is the compatible pair — DaisyUI v5 requires Tailwind v4
+which has no equivalent Play CDN, leaving `btn-primary` and friends
+half-styled in browser. Production apps should run their own Tailwind
+build with DaisyUI configured as a plugin; the CDN is dev-only.
 
 Component fragments emit **no `<html>`/`<body>`/`<style>`** — they're
 fragments wrapped by the caller's `PageShell`. Direct full-page browser
@@ -452,25 +454,54 @@ get the raw fragment so it can be swapped into an already-rendered page.
 
 ### 6.10 HTMX partials
 
-Table interactivity — search filter, column sort, row delete — is
-HTMX-driven. The library ships:
+The whole `CRUDTable` UI is HTMX-driven. The library ships:
 
-- A `<tbody id="crud-rows">` anchor inside `TableView` for HTMX swap
-  targets.
-- A `TableRows(d)` templ component that renders just the `<tr>` rows
-  (no surrounding `<table>` / `<thead>`). Served as the **`/rows`**
-  partial endpoint registered by `Route`.
-- `hx-get` / `hx-target` / `hx-trigger` / `hx-push-url` attributes on
-  the search input and sortable column headers, with fallback `href`
-  values so the same page works with HTMX disabled.
-- HX-Request detection on the delete handler — HTMX delete returns
-  the updated rows fragment; browser delete (no header) returns a
-  303 redirect to the list page.
+- A `<div id="crud-list">` wrapper around the table + count + pagination.
+  All in-page list updates target it via `hx-target="#crud-list"`.
+- `TableContent(d)` templ component returns the `<table>` + footer
+  fragment — served by the **`GET {base}/rows`** partial endpoint
+  registered by `Route`. Replaces `#crud-list` on every list-update
+  HTMX swap.
+- `hx-get` / `hx-target` / `hx-push-url` attributes on the search
+  input, sortable column headers, pagination buttons, and the row
+  delete buttons. Fallback `href` values keep the page functional with
+  HTMX disabled.
+- HX-Request detection on delete — HTMX delete returns the refreshed
+  list fragment; browser delete returns a 303 redirect.
 
-The library assumes HTMX is loaded by the caller's page shell. Examples
-load `https://unpkg.com/htmx.org@2` from CDN.
+**Create / edit forms open in a DaisyUI modal.** The page contains a
+hidden `<dialog id="crud-modal">` with `#modal-content` inside it. The
+"+ Create" and per-row "edit" buttons `hx-get` the form into
+`#modal-content`; the response carries `HX-Trigger: openModal` so the
+client opens the dialog. On successful POST the server returns the
+list fragment + `HX-Trigger: closeModal`; HTMX swaps `#crud-list` *and*
+the modal closes. On validation error the server sets
+`HX-Retarget: #modal-content` so the re-rendered form lands back in
+the modal with the error visible.
 
-### 6.11 Testing
+For inline use (no modal), `FormView.HXTarget` carries any element ID
+the caller chooses. `form_mem`'s example sets it to `#main-content`
+and swaps the dump for the form (and back to dump on save) — same
+`FormView` partial, different placement.
+
+### 6.11 Pagination
+
+`CRUDTable.PageSize` (default 20) controls rows per page. `?page=N`
+selects the page (1-indexed). The renderer emits a DaisyUI `join`
+button group with prev/next + clickable numbers when there's more
+than one page. All page links are HTMX with `hx-target="#crud-list"`
+plus `hx-push-url` so the browser URL updates and bookmarking /
+back-button work. Search and sort changes reset to page 1
+automatically (search input is `hx-include="this"` only; sort URLs
+strip the page param).
+
+The library assumes HTMX is loaded by the caller's page shell.
+Examples load `https://unpkg.com/htmx.org@2` from CDN. They also
+include a small `DOMContentLoaded` script that bridges the
+`openModal` / `closeModal` HX-Trigger events to the dialog's
+`showModal()` / `close()`.
+
+### 6.12 Testing
 
 **Primary lever: HTTP end-to-end tests** using `net/http/httptest`. The
 package's exported API is the routes registered by `CRUDTable.Route`,

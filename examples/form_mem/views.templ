@@ -7,14 +7,28 @@ templ pageShell(title string, content templ.Component) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
-			<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+			<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css"/>
 			<script src="https://cdn.tailwindcss.com"></script>
 			<script src="https://unpkg.com/htmx.org@2"></script>
 		</head>
-		<body>
+		<body class="bg-base-200 min-h-screen">
 			<main class="container mx-auto p-6 max-w-3xl">
-				@content
+				<div id="main-content">
+					@content
+				</div>
 			</main>
 		</body>
 	</html>
+}
+
+// inCard wraps a fragment in a DaisyUI card. crud.DumpView already
+// includes its own card; crud.FormView does not (so it can sit inside
+// a modal). form_mem wraps the form when rendering inline so the card
+// stays visually consistent across both views.
+templ inCard(content templ.Component) {
+	<div class="card bg-base-100 shadow">
+		<div class="card-body">
+			@content
+		</div>
+	</div>
 }

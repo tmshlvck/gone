@@ -7,13 +7,30 @@ templ pageShell(title string, content templ.Component) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
-			<!-- Tailwind + DaisyUI via CDN (sufficient for examples) -->
-			<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+			<!-- DaisyUI v4 ships as a precompiled CSS bundle that contains
+			     Tailwind preflight + every DaisyUI component class. Tailwind
+			     v3 Play CDN adds the utility classes used for layout. -->
+			<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css"/>
 			<script src="https://cdn.tailwindcss.com"></script>
-			<!-- HTMX -->
 			<script src="https://unpkg.com/htmx.org@2"></script>
+			<script>
+				// Bridge HX-Trigger response headers to DaisyUI modal control.
+				// htmx fires the events on body after a response carrying
+				// HX-Trigger lands. We attach listeners after DOM is ready
+				// so document.body exists.
+				document.addEventListener('DOMContentLoaded', () => {
+					document.body.addEventListener('openModal', () => {
+						const m = document.getElementById('crud-modal');
+						if (m) m.showModal();
+					});
+					document.body.addEventListener('closeModal', () => {
+						const m = document.getElementById('crud-modal');
+						if (m) m.close();
+					});
+				});
+			</script>
 		</head>
-		<body>
+		<body class="bg-base-200 min-h-screen">
 			<main class="container mx-auto p-6 max-w-5xl">
 				@content
 			</main>

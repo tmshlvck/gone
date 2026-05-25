@@ -66,8 +66,8 @@ func TestList_ShowsAllRowsByDefault(t *testing.T) {
 			t.Errorf("missing %q in list", name)
 		}
 	}
-	if !strings.Contains(body, "id=\"crud-rows\"") {
-		t.Error("table should have id=\"crud-rows\" anchor for HTMX swaps")
+	if !strings.Contains(body, `id="crud-list"`) {
+		t.Error("table should have id=\"crud-list\" wrapper for HTMX swaps")
 	}
 }
 
@@ -76,7 +76,7 @@ func TestList_TableViewHasHTMXAttrs(t *testing.T) {
 	_, body := get(t, mux, "/items")
 	for _, tok := range []string{
 		`hx-get="/items/rows`,
-		`hx-target="#crud-rows"`,
+		`hx-target="#crud-list"`,
 		`hx-push-url`,
 	} {
 		if !strings.Contains(body, tok) {
@@ -85,20 +85,27 @@ func TestList_TableViewHasHTMXAttrs(t *testing.T) {
 	}
 }
 
-func TestRowsPartial_IsTbodyContentOnly(t *testing.T) {
+func TestRowsPartial_IsFragmentNotFullPage(t *testing.T) {
 	mux, _ := newTestServer(t)
 	code, body := get(t, mux, "/items/rows")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	if strings.Contains(body, "<table") {
-		t.Errorf("/rows must not emit <table>; got: %s", body)
+	// /rows is a fragment that lands inside #crud-list, so it has the
+	// <table> + footer but never the outer page chrome.
+	for _, forbidden := range []string{"<html", "<head", "<body", "card-body"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("/rows must not emit %q; got: %s", forbidden, body)
+		}
 	}
-	if strings.Contains(body, "<thead") {
-		t.Errorf("/rows must not emit <thead>")
+	if !strings.Contains(body, "<table") {
+		t.Errorf("/rows should contain <table>; got: %s", body)
 	}
 	if !strings.Contains(body, "Aragorn") {
 		t.Errorf("/rows missing data rows")
+	}
+	if !strings.Contains(body, "row(s)") {
+		t.Errorf("/rows should include the row-count footer")
 	}
 }
 
@@ -200,8 +207,12 @@ func TestDelete_HTMXRequestReturnsRowsFragment(t *testing.T) {
 		t.Fatalf("HTMX delete: status %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	if strings.Contains(body, "<table") || strings.Contains(body, "<thead") {
-		t.Errorf("HTMX delete must return tbody-only fragment; got: %s", body)
+	// HTMX delete returns the list fragment (table + footer) but never
+	// the page chrome.
+	for _, forbidden := range []string{"<html", "<head", "<body"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("HTMX delete must not return page chrome %q; got: %s", forbidden, body)
+		}
 	}
 	if strings.Contains(body, "Legolas") {
 		t.Errorf("Legolas should have been deleted from the response: %s", body)

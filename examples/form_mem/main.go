@@ -1,6 +1,7 @@
 // Example: edit a single in-memory ExampleConfig struct via an auto-derived
-// MetaModel. Demonstrates the simplified §6.1–6.2 surface plus shared
-// gone/crud view components on a mix of scalar types.
+// MetaModel. Demonstrates the same gone/crud view components as crud_mem
+// (DumpView, FormView) but with inline HTMX swaps into #main-content
+// instead of a modal — no CRUDTable involved.
 package main
 
 import (
@@ -39,6 +40,9 @@ var (
 	mu sync.RWMutex
 )
 
+// renderPage wraps frag in the page shell. Used for browser navigation /
+// initial loads. HTMX requests skip the shell and write the fragment
+// directly via writeFragment.
 func renderPage(w http.ResponseWriter, r *http.Request, status int, title string, frag templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -46,6 +50,16 @@ func renderPage(w http.ResponseWriter, r *http.Request, status int, title string
 		log.Printf("render: %v", err)
 	}
 }
+
+func writeFragment(w http.ResponseWriter, r *http.Request, status int, frag templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	if err := frag.Render(r.Context(), w); err != nil {
+		log.Printf("render: %v", err)
+	}
+}
+
+func isHX(r *http.Request) bool { return r.Header.Get("HX-Request") == "true" }
 
 func main() {
 	mm, err := crud.DeriveMetaModel[ExampleConfig]()
@@ -71,32 +85,52 @@ func main() {
 		}
 	}
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	dumpFragment := func() templ.Component {
 		mu.RLock()
 		cells := mm.DisplayValues(mm, cfg)
 		mu.RUnlock()
-		renderPage(w, r, http.StatusOK, mm.DisplayName, crud.DumpView(crud.DumpViewData{
-			DisplayName: mm.DisplayName,
-			EditURL:     "/edit",
-			Fields:      mm.Fields,
-			Cells:       cells,
-		}))
-	})
+		return crud.DumpView(crud.DumpViewData{
+			DisplayName:  mm.DisplayName,
+			EditURL:      "/edit",
+			EditHXTarget: "#main-content",
+			Fields:       mm.Fields,
+			Cells:        cells,
+		})
+	}
 
-	mux.HandleFunc("GET /edit", func(w http.ResponseWriter, r *http.Request) {
-		mu.RLock()
-		inputs := mm.GenFormElements(mm, cfg)
-		mu.RUnlock()
-		renderPage(w, r, http.StatusOK, "Edit "+mm.DisplayName, crud.FormView(crud.FormViewData{
+	formFragment := func(errMsg string, instance ExampleConfig) templ.Component {
+		inputs := mm.GenFormElements(mm, instance)
+		// crud.FormView emits no card wrapper (so it composes inside a
+		// modal). For inline use we add one explicitly so the page
+		// styling matches the dump view.
+		return inCard(crud.FormView(crud.FormViewData{
 			DisplayName: "Edit " + mm.DisplayName,
 			ActionURL:   "/edit",
 			BackURL:     "/",
 			SubmitText:  "Save",
 			Fields:      mm.Fields,
 			Inputs:      inputs,
+			HXTarget:    "#main-content",
+			ErrMsg:      errMsg,
 		}))
+	}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		renderPage(w, r, http.StatusOK, mm.DisplayName, dumpFragment())
+	})
+
+	mux.HandleFunc("GET /edit", func(w http.ResponseWriter, r *http.Request) {
+		mu.RLock()
+		snapshot := cfg
+		mu.RUnlock()
+		frag := formFragment("", snapshot)
+		if isHX(r) {
+			writeFragment(w, r, http.StatusOK, frag)
+		} else {
+			renderPage(w, r, http.StatusOK, "Edit "+mm.DisplayName, frag)
+		}
 	})
 
 	mux.HandleFunc("POST /edit", func(w http.ResponseWriter, r *http.Request) {
@@ -109,22 +143,24 @@ func main() {
 		mu.RUnlock()
 
 		if err := mm.BindForm(mm, r.PostForm, &next); err != nil {
-			inputs := mm.GenFormElements(mm, next)
-			renderPage(w, r, http.StatusBadRequest, "Edit "+mm.DisplayName, crud.FormView(crud.FormViewData{
-				DisplayName: "Edit " + mm.DisplayName,
-				ActionURL:   "/edit",
-				BackURL:     "/",
-				SubmitText:  "Save",
-				Fields:      mm.Fields,
-				Inputs:      inputs,
-				ErrMsg:      err.Error(),
-			}))
+			frag := formFragment(err.Error(), next)
+			if isHX(r) {
+				writeFragment(w, r, http.StatusBadRequest, frag)
+			} else {
+				renderPage(w, r, http.StatusBadRequest, "Edit "+mm.DisplayName, frag)
+			}
 			return
 		}
 
 		mu.Lock()
 		cfg = next
 		mu.Unlock()
+
+		if isHX(r) {
+			// Replace the inline form with the freshly rendered dump.
+			writeFragment(w, r, http.StatusOK, dumpFragment())
+			return
+		}
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
