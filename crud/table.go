@@ -266,30 +266,38 @@ func setIDField[T any](data *T, id uint) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// HTTP wiring. PageShell lets callers wrap the per-handler fragment in
-// their site chrome (head, navigation, footer). If nil, the fragments are
-// served raw — fine for testing.
+// HTTP wiring. The library only registers PARTIAL endpoints — HTML
+// fragments without <html>/<body>/<style> chrome. The application is
+// responsible for the main list page (GET {URLBase}) that embeds
+// MainComponent inside its own page shell. This keeps the library
+// strictly about components and lets the app own page composition.
 // ──────────────────────────────────────────────────────────────────────────
 
-// PageShell wraps a fragment in a full HTML page. Pass nil to skip
-// wrapping (fragment is rendered as the entire response — useful for
-// HTMX partial responses; less useful for browser navigation).
-type PageShell func(title string, content templ.Component) templ.Component
+// MainComponent returns the TableView fragment populated from r's
+// query parameters (?q, ?sort, ?desc, ?page). Embed it inline in the
+// app's page templ for the initial render, OR call it from the app's
+// own GET {URLBase} handler to wrap in a page shell.
+func (c *CRUDTable[T]) MainComponent(r *http.Request) (templ.Component, error) {
+	d, err := c.buildTableViewData(r)
+	if err != nil {
+		return nil, err
+	}
+	return TableView(d), nil
+}
 
-// Route registers all CRUD routes on mux. Returns an error if mux is nil.
-// shell is optional — if nil, fragments render unwrapped (matching the
-// HX-Request partial flow).
+// Route registers the CRUD partial endpoints on mux. The main list URL
+// (GET {URLBase}) is intentionally NOT registered — apps handle that
+// themselves by calling MainComponent and wrapping in their page shell.
 //
-// Routes (Go 1.22 method+pattern):
+// Routes registered (Go 1.22 method+pattern):
 //
-//	GET    {base}              full list page
-//	GET    {base}/rows         tbody-only partial for HTMX swap (no shell ever)
-//	GET    {base}/create       create form
+//	GET    {base}/rows         table fragment for HTMX swaps into #ListID
+//	GET    {base}/create       create form fragment (target: ModalContent)
 //	POST   {base}/create       submit create
-//	GET    {base}/{id}/edit    edit form
+//	GET    {base}/{id}/edit    edit form fragment (target: ModalContent)
 //	POST   {base}/{id}/edit    submit update
 //	POST   {base}/{id}/delete  delete (HX-Request → rows fragment; else 303)
-func (c *CRUDTable[T]) Route(mux *http.ServeMux, shell PageShell) error {
+func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
@@ -299,18 +307,17 @@ func (c *CRUDTable[T]) Route(mux *http.ServeMux, shell PageShell) error {
 	}
 	c.URLBase = base
 
-	mux.HandleFunc("GET "+base, c.makeHandler(shell, c.handleList))
 	mux.HandleFunc("GET "+base+"/rows", c.makeFragmentHandler(c.handleListRows))
 	if c.CreateEnabled {
-		mux.HandleFunc("GET "+base+"/create", c.makeHandler(shell, c.handleCreateForm))
-		mux.HandleFunc("POST "+base+"/create", c.makeHandler(shell, c.handleCreatePost))
+		mux.HandleFunc("GET "+base+"/create", c.makeFragmentHandler(c.handleCreateForm))
+		mux.HandleFunc("POST "+base+"/create", c.makeFragmentHandler(c.handleCreatePost))
 	}
 	if c.EditEnabled {
-		mux.HandleFunc("GET "+base+"/{id}/edit", c.makeHandler(shell, c.handleEditForm))
-		mux.HandleFunc("POST "+base+"/{id}/edit", c.makeHandler(shell, c.handleEditPost))
+		mux.HandleFunc("GET "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditForm))
+		mux.HandleFunc("POST "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditPost))
 	}
 	if c.DeleteEnabled {
-		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeHandler(shell, c.handleDeletePost))
+		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost))
 	}
 	return nil
 }
@@ -325,28 +332,9 @@ func isHTMXRequest(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
-func (c *CRUDTable[T]) makeHandler(shell PageShell, h handlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		title, frag := h(w, r)
-		if frag == nil {
-			return // handler already wrote the response
-		}
-		var page templ.Component = frag
-		// Use shell only for full-page browser requests. HTMX-issued
-		// requests (HX-Request: true) always get the bare fragment so
-		// they can be swapped into the existing page.
-		if shell != nil && !isHTMXRequest(r) {
-			page = shell(title, frag)
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := page.Render(r.Context(), w); err != nil {
-			log.Printf("render: %v", err)
-		}
-	}
-}
-
-// makeFragmentHandler is like makeHandler but never wraps in a shell.
-// Used for /rows and any other endpoint that always returns a partial.
+// makeFragmentHandler runs h and writes its returned fragment as the
+// response body. The handler may also write the response directly and
+// return ("", nil) — e.g. for redirects and errors.
 func (c *CRUDTable[T]) makeFragmentHandler(h handlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_, frag := h(w, r)
@@ -472,15 +460,25 @@ func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]st
 }
 
 // splitValidationErr separates a BindForm error into (perField, modelLevel).
-// When err is ValidationErrors, the map drives per-field rendering; any
-// other error becomes a model-level message above the form.
+// When err is ValidationErrors:
+//   - the entry under ModelLevelKey ("") becomes the modelLevel message
+//     and is removed from the per-field map (so it isn't rendered twice).
+//   - the remaining entries drive per-field rendering.
+// Any other error type becomes a model-level message above the form.
 func splitValidationErr(err error) (map[string]string, string) {
 	if err == nil {
 		return nil, ""
 	}
 	var verrs ValidationErrors
 	if errors.As(err, &verrs) {
-		return verrs, ""
+		modelErr := verrs[ModelLevelKey]
+		fieldErrs := make(map[string]string, len(verrs))
+		for k, v := range verrs {
+			if k != ModelLevelKey {
+				fieldErrs[k] = v
+			}
+		}
+		return fieldErrs, modelErr
 	}
 	return nil, err.Error()
 }

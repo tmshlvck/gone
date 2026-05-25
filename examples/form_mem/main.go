@@ -1,24 +1,24 @@
 // Example: edit a single in-memory ExampleConfig struct via an auto-derived
-// MetaModel. Demonstrates the same gone/crud view components as crud_mem
-// (DumpView, FormView) but with inline HTMX swaps into #main-content
-// instead of a modal — no CRUDTable involved.
+// MetaModel using crud.MetaModel.RouteForm + DisplayComponent — the
+// library exposes only fragment endpoints; this example owns its page
+// shell and embeds the dump component in /. Demonstrates per-field
+// validators, FormHelp, and a cross-field MetaModel.Validate
+// (MaxRequests must exceed Port).
 package main
 
 import (
-	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
 	"time"
-
-	"github.com/a-h/templ"
 
 	"github.com/tmshlvck/gone/crud"
 )
 
 type ExampleConfig struct {
 	Hostname    string
-	BindAddress string // IP kept as plain string (same as a GORM column)
+	BindAddress string
 	Port        int
 	EnableTLS   bool
 	MaxRequests uint64
@@ -41,26 +41,10 @@ var (
 	mu sync.RWMutex
 )
 
-// renderPage wraps frag in the page shell. Used for browser navigation /
-// initial loads. HTMX requests skip the shell and write the fragment
-// directly via writeFragment.
-func renderPage(w http.ResponseWriter, r *http.Request, status int, title string, frag templ.Component) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := pageShell(title, frag).Render(r.Context(), w); err != nil {
-		log.Printf("render: %v", err)
-	}
-}
-
-func writeFragment(w http.ResponseWriter, r *http.Request, status int, frag templ.Component) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := frag.Render(r.Context(), w); err != nil {
-		log.Printf("render: %v", err)
-	}
-}
-
-func isHX(r *http.Request) bool { return r.Header.Get("HX-Request") == "true" }
+const (
+	formURL  = "/edit"
+	hxTarget = "#main-content"
+)
 
 func main() {
 	mm, err := crud.DeriveMetaModel[ExampleConfig]()
@@ -69,112 +53,81 @@ func main() {
 	}
 	mm.DisplayName = "Server configuration"
 
-	// Per-field overrides after derivation.
+	// Per-field metadata: display names, help text, and field validators.
 	for i := range mm.Fields {
 		switch mm.Fields[i].Name {
-		case "AdminEmail":
-			mm.Fields[i].FormInputType = "email"
-			mm.Fields[i].DisplayName = "Admin email"
+		case "Hostname":
+			mm.Fields[i].FormHelp = "FQDN or short host, 1–253 chars."
+			mm.Fields[i].FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(253))
 		case "BindAddress":
 			mm.Fields[i].DisplayName = "Bind address"
+			mm.Fields[i].FormHelp = "IPv4 or IPv6 the server listens on."
+			mm.Fields[i].FieldValidate = crud.NotEmpty
+		case "Port":
+			mm.Fields[i].FormHelp = "TCP port, 1–65535."
+			mm.Fields[i].FieldValidate = crud.IntRange(1, 65535)
 		case "EnableTLS":
 			mm.Fields[i].DisplayName = "TLS enabled"
 		case "MaxRequests":
 			mm.Fields[i].DisplayName = "Max requests"
+			mm.Fields[i].FormHelp = "Concurrent request cap, must exceed the port number."
+			mm.Fields[i].FieldValidate = crud.IntRange(1, 10_000_000)
+		case "Threshold":
+			mm.Fields[i].FormHelp = "CPU load shed threshold, 0.0–1.0."
+			mm.Fields[i].FieldValidate = crud.FloatRange(0.0, 1.0)
 		case "StartTime":
 			mm.Fields[i].DisplayName = "Start time"
+		case "AdminEmail":
+			mm.Fields[i].DisplayName = "Admin email"
+			mm.Fields[i].FormInputType = "email"
+			mm.Fields[i].FieldValidate = crud.All(crud.NotEmpty, crud.Email)
 		}
 	}
 
-	dumpFragment := func() templ.Component {
-		mu.RLock()
-		cells := mm.DisplayValues(mm, cfg)
-		mu.RUnlock()
-		return crud.DumpView(crud.DumpViewData{
-			DisplayName:  mm.DisplayName,
-			EditURL:      "/edit",
-			EditHXTarget: "#main-content",
-			Fields:       mm.Fields,
-			Cells:        cells,
-		})
+	// Cross-field rule: MaxRequests must be strictly larger than Port.
+	// This is intentionally arbitrary so it's easy to violate in the demo
+	// (Port=8443 and MaxRequests=100 fails; MaxRequests=100_000 passes).
+	mm.Validate = func(mm crud.MetaModel[ExampleConfig], instance ExampleConfig) error {
+		if instance.MaxRequests <= uint64(instance.Port) {
+			return fmt.Errorf("Max requests (%d) must be greater than Port (%d)",
+				instance.MaxRequests, instance.Port)
+		}
+		return nil
 	}
 
-	formFragment := func(modelErr string, fieldErrors map[string]string, instance ExampleConfig) templ.Component {
-		inputs := mm.GenFormElements(mm, instance)
-		// crud.FormView emits no card wrapper (so it composes inside a
-		// modal). For inline use we add one explicitly so the page
-		// styling matches the dump view.
-		return inCard(crud.FormView(crud.FormViewData{
-			DisplayName: "Edit " + mm.DisplayName,
-			ActionURL:   "/edit",
-			BackURL:     "/",
-			SubmitText:  "Save",
-			Fields:      mm.Fields,
-			Inputs:      inputs,
-			HXTarget:    "#main-content",
-			ErrMsg:      modelErr,
-			FieldErrors: fieldErrors,
-		}))
+	getter := func() (ExampleConfig, error) {
+		mu.RLock()
+		defer mu.RUnlock()
+		return cfg, nil
+	}
+	setter := func(next ExampleConfig) error {
+		mu.Lock()
+		defer mu.Unlock()
+		cfg = next
+		return nil
 	}
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, r, http.StatusOK, mm.DisplayName, dumpFragment())
-	})
+	// Library registers ONLY partial endpoints — no page shell.
+	if err := mm.RouteForm(mux, formURL, hxTarget, getter, setter); err != nil {
+		log.Fatalf("RouteForm: %v", err)
+	}
 
-	mux.HandleFunc("GET /edit", func(w http.ResponseWriter, r *http.Request) {
-		mu.RLock()
-		snapshot := cfg
-		mu.RUnlock()
-		frag := formFragment("", nil, snapshot)
-		if isHX(r) {
-			writeFragment(w, r, http.StatusOK, frag)
-		} else {
-			renderPage(w, r, http.StatusOK, "Edit "+mm.DisplayName, frag)
+	// App owns the main page route. It embeds DisplayComponent inside
+	// its own page shell and wraps the result with the #main-content
+	// container so form swaps land in the right place.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		instance, _ := getter()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := pageShell(mm.DisplayName,
+			mm.DisplayComponent(instance, formURL, hxTarget),
+		).Render(r.Context(), w); err != nil {
+			log.Printf("render: %v", err)
 		}
-	})
-
-	mux.HandleFunc("POST /edit", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		mu.RLock()
-		next := cfg
-		mu.RUnlock()
-
-		if err := mm.BindForm(mm, r.PostForm, &next); err != nil {
-			var verrs crud.ValidationErrors
-			var fieldErrs map[string]string
-			var modelErr string
-			if errors.As(err, &verrs) {
-				fieldErrs = verrs
-			} else {
-				modelErr = err.Error()
-			}
-			frag := formFragment(modelErr, fieldErrs, next)
-			if isHX(r) {
-				writeFragment(w, r, http.StatusBadRequest, frag)
-			} else {
-				renderPage(w, r, http.StatusBadRequest, "Edit "+mm.DisplayName, frag)
-			}
-			return
-		}
-
-		mu.Lock()
-		cfg = next
-		mu.Unlock()
-
-		if isHX(r) {
-			// Replace the inline form with the freshly rendered dump.
-			writeFragment(w, r, http.StatusOK, dumpFragment())
-			return
-		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 
 	addr := ":8080"
-	log.Printf("form_mem listening on %s — open / and /edit", addr)
+	log.Printf("form_mem listening on %s — open /", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }

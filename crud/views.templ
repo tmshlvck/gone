@@ -275,6 +275,19 @@ templ pagination(d TableViewData) {
 	}
 }
 
+// cardWrap is a small chrome wrapper used by MetaModel.FormComponent
+// for inline (non-modal) form rendering. DumpView already includes its
+// own card; FormView does NOT (so the same FormView composes inside a
+// modal-box without nested cards). Inline callers add the card via
+// this helper.
+templ cardWrap(content templ.Component) {
+	<div class="card bg-base-100 shadow">
+		<div class="card-body">
+			@content
+		</div>
+	</div>
+}
+
 templ modalWrapper(modalID, contentID string) {
 	<dialog id={ modalID } class="modal">
 		<div class="modal-box max-w-2xl" id={ contentID }></div>

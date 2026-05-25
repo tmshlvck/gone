@@ -917,7 +917,12 @@ func pagination(d TableViewData) templ.Component {
 	})
 }
 
-func modalWrapper(modalID, contentID string) templ.Component {
+// cardWrap is a small chrome wrapper used by MetaModel.FormComponent
+// for inline (non-modal) form rendering. DumpView already includes its
+// own card; FormView does NOT (so the same FormView composes inside a
+// modal-box without nested cards). Inline callers add the card via
+// this helper.
+func cardWrap(content templ.Component) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -938,33 +943,70 @@ func modalWrapper(modalID, contentID string) templ.Component {
 			templ_7745c5c3_Var43 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<dialog id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<div class=\"card bg-base-100 shadow\"><div class=\"card-body\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var44 string
-		templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(modalID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 279, Col: 21}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
+		templ_7745c5c3_Err = content.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "\" class=\"modal\"><div class=\"modal-box max-w-2xl\" id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "</div></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+func modalWrapper(modalID, contentID string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var44 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var44 == nil {
+			templ_7745c5c3_Var44 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<dialog id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var45 string
-		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(contentID)
+		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(modalID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 280, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 292, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "\"></div><form method=\"dialog\" class=\"modal-backdrop\"><button>close</button></form></dialog>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "\" class=\"modal\"><div class=\"modal-box max-w-2xl\" id=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var46 string
+		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(contentID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 293, Col: 49}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "\"></div><form method=\"dialog\" class=\"modal-backdrop\"><button>close</button></form></dialog>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -991,90 +1033,90 @@ func FormView(d FormViewData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var46 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var46 == nil {
-			templ_7745c5c3_Var46 = templ.NopComponent
+		templ_7745c5c3_Var47 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var47 == nil {
+			templ_7745c5c3_Var47 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if d.DisplayName != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<h3 class=\"font-bold text-lg mb-2\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var47 string
-			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(d.DisplayName)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 293, Col: 52}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "</h3>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		if d.ErrMsg != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "<div class=\"alert alert-error mb-4\"><span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "<h3 class=\"font-bold text-lg mb-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var48 string
-			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(d.ErrMsg)
+			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(d.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 297, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 306, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "</span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "</h3>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		if d.HXTarget != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<form method=\"post\" action=\"")
+		if d.ErrMsg != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<div class=\"alert alert-error mb-4\"><span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var49 templ.SafeURL
-			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
+			var templ_7745c5c3_Var49 string
+			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(d.ErrMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 303, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 310, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "\" class=\"flex flex-col gap-3\" hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "</span></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var50 string
-			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 305, Col: 24}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
+		}
+		if d.HXTarget != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "<form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "\" hx-target=\"")
+			var templ_7745c5c3_Var50 templ.SafeURL
+			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 316, Col: 34}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "\" class=\"flex flex-col gap-3\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var51 string
-			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.HXTarget)
+			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 306, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 318, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "\" hx-swap=\"innerHTML\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "\" hx-target=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var52 string
+			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.HXTarget)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 319, Col: 25}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "\" hx-swap=\"innerHTML\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1082,25 +1124,25 @@ func FormView(d FormViewData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "</form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "</form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "<form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var52 templ.SafeURL
-			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
+			var templ_7745c5c3_Var53 templ.SafeURL
+			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 312, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 325, Col: 53}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "\" class=\"flex flex-col gap-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "\" class=\"flex flex-col gap-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1108,7 +1150,7 @@ func FormView(d FormViewData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "</form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1133,9 +1175,9 @@ func formBody(d FormViewData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var53 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var53 == nil {
-			templ_7745c5c3_Var53 = templ.NopComponent
+		templ_7745c5c3_Var54 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var54 == nil {
+			templ_7745c5c3_Var54 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		for i, mf := range d.Fields {
@@ -1146,43 +1188,43 @@ func formBody(d FormViewData) templ.Component {
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<div class=\"flex gap-2 mt-4\"><button type=\"submit\" class=\"btn btn-outline btn-primary\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "<div class=\"flex gap-2 mt-4\"><button type=\"submit\" class=\"btn btn-outline btn-primary\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var54 string
-		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(d.SubmitText)
+		var templ_7745c5c3_Var55 string
+		templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(d.SubmitText)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 325, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 338, Col: 74}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</button> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "</button> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if d.BackURL != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "<a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "<a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var55 templ.SafeURL
-			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.BackURL))
+			var templ_7745c5c3_Var56 templ.SafeURL
+			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.BackURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 327, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 340, Col: 33}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "\" class=\"btn btn-ghost\">Cancel</a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "\" class=\"btn btn-ghost\">Cancel</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1209,25 +1251,25 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var56 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var56 == nil {
-			templ_7745c5c3_Var56 = templ.NopComponent
+		templ_7745c5c3_Var57 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var57 == nil {
+			templ_7745c5c3_Var57 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "<label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "<label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var57 string
-		templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(mf.DisplayName)
+		var templ_7745c5c3_Var58 string
+		templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(mf.DisplayName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 337, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 350, Col: 44}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1236,32 +1278,14 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			return templ_7745c5c3_Err
 		}
 		if msg, ok := d.FieldErrors[mf.Name]; ok {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "<span class=\"text-sm text-error\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var58 string
-			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 340, Col: 41}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "</span>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		} else if mf.FormHelp != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<span class=\"text-sm opacity-60\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<span class=\"text-sm text-error\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var59 string
-			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(mf.FormHelp)
+			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 342, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 353, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 			if templ_7745c5c3_Err != nil {
@@ -1271,8 +1295,26 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+		} else if mf.FormHelp != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<span class=\"text-sm opacity-60\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var60 string
+			templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(mf.FormHelp)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 355, Col: 49}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "</label>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "</label>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

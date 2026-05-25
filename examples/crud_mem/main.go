@@ -111,10 +111,24 @@ func main() {
 	table.PageSize = 10
 
 	mux := http.NewServeMux()
-	if err := table.Route(mux, pageShell); err != nil {
+	// Library registers only the partial endpoints (rows, modal forms,
+	// delete). The main /heroes page is the app's responsibility — it
+	// embeds table.MainComponent(r) inside its own page shell.
+	if err := table.Route(mux); err != nil {
 		log.Fatalf("route: %v", err)
 	}
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+table.URLBase, func(w http.ResponseWriter, r *http.Request) {
+		comp, err := table.MainComponent(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := pageShell("Heroes", comp).Render(r.Context(), w); err != nil {
+			log.Printf("render: %v", err)
+		}
+	})
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, table.URLBase, http.StatusSeeOther)
 	})
 

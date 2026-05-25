@@ -2,7 +2,6 @@ package crud
 
 import (
 	"fmt"
-	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,10 +10,17 @@ import (
 // ValidationErrors maps field name → error message. Returned by
 // MetaModel.BindForm on bind or per-field validation failures.
 //
+// The empty string "" is reserved for model-level errors emitted by
+// MetaModel.Validate (cross-field rules).
+//
 // A nil or empty ValidationErrors signals success; handlers should test
 // for that explicitly (don't compare to nil — Go's nil-interface gotcha
 // would mistake an empty ValidationErrors for a non-nil error).
 type ValidationErrors map[string]string
+
+// ModelLevelKey is the key under which MetaModel.Validate's error is
+// stored inside a ValidationErrors map.
+const ModelLevelKey = ""
 
 func (e ValidationErrors) Error() string {
 	if len(e) == 0 {
@@ -22,71 +28,94 @@ func (e ValidationErrors) Error() string {
 	}
 	parts := make([]string, 0, len(e))
 	for f, msg := range e {
-		parts = append(parts, f+": "+msg)
+		if f == ModelLevelKey {
+			parts = append(parts, msg)
+		} else {
+			parts = append(parts, f+": "+msg)
+		}
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "; ")
 }
 
-// Validator is the per-field validation hook type. Use directly as
-// MetaField.FieldValidate, or compose with All.
-type Validator = func(mf MetaField, instance any) error
+// Validator is the per-field validation hook. It receives the field's
+// metadata and the already-extracted Go-typed value (NOT the whole
+// struct), enforcing one-field-at-a-time separation of concerns.
+//
+// Use it directly as MetaField.FieldValidate, or compose with All.
+// Cross-field rules belong on MetaModel.Validate instead.
+type Validator = func(mf MetaField, value any) error
 
-// NotEmpty fails if the field's string value is empty after trimming
-// (also covers slice/array fields of length 0).
-func NotEmpty(mf MetaField, instance any) error {
-	v := lookupField(instance, mf.Name)
-	if !v.IsValid() {
-		return nil
-	}
-	switch v.Kind() {
-	case reflect.String:
-		if strings.TrimSpace(v.String()) == "" {
+// NotEmpty fails for an empty string (after trimming) or zero-length
+// slice/array/map.
+func NotEmpty(mf MetaField, value any) error {
+	switch v := value.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
 			return fmt.Errorf("required")
 		}
-	case reflect.Slice, reflect.Array, reflect.Map:
-		if v.Len() == 0 {
+	case []string:
+		if len(v) == 0 {
 			return fmt.Errorf("required")
 		}
 	}
 	return nil
 }
 
-// MinLen fails if a string field is shorter than n characters.
+// MinLen fails if a string value is shorter than n characters.
 func MinLen(n int) Validator {
-	return func(mf MetaField, instance any) error {
-		v := lookupField(instance, mf.Name)
-		if v.IsValid() && v.Kind() == reflect.String && len(v.String()) < n {
+	return func(mf MetaField, value any) error {
+		s, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		if len(s) < n {
 			return fmt.Errorf("must be at least %d characters", n)
 		}
 		return nil
 	}
 }
 
-// MaxLen fails if a string field is longer than n characters.
+// MaxLen fails if a string value is longer than n characters.
 func MaxLen(n int) Validator {
-	return func(mf MetaField, instance any) error {
-		v := lookupField(instance, mf.Name)
-		if v.IsValid() && v.Kind() == reflect.String && len(v.String()) > n {
+	return func(mf MetaField, value any) error {
+		s, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		if len(s) > n {
 			return fmt.Errorf("must be at most %d characters", n)
 		}
 		return nil
 	}
 }
 
-// IntRange fails if a signed/unsigned int field is outside [min, max].
+// IntRange fails if an integer value is outside [min, max]. Accepts any
+// of Go's signed or unsigned integer types.
 func IntRange(min, max int64) Validator {
-	return func(mf MetaField, instance any) error {
-		v := lookupField(instance, mf.Name)
-		if !v.IsValid() {
-			return nil
-		}
+	return func(mf MetaField, value any) error {
 		var n int64
-		switch v.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			n = v.Int()
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			n = int64(v.Uint())
+		switch v := value.(type) {
+		case int:
+			n = int64(v)
+		case int8:
+			n = int64(v)
+		case int16:
+			n = int64(v)
+		case int32:
+			n = int64(v)
+		case int64:
+			n = v
+		case uint:
+			n = int64(v)
+		case uint8:
+			n = int64(v)
+		case uint16:
+			n = int64(v)
+		case uint32:
+			n = int64(v)
+		case uint64:
+			n = int64(v)
 		default:
 			return nil
 		}
@@ -97,15 +126,20 @@ func IntRange(min, max int64) Validator {
 	}
 }
 
-// FloatRange fails if a float field is outside [min, max].
+// FloatRange fails if a float value is outside [min, max].
 func FloatRange(min, max float64) Validator {
-	return func(mf MetaField, instance any) error {
-		v := lookupField(instance, mf.Name)
-		if v.IsValid() && (v.Kind() == reflect.Float32 || v.Kind() == reflect.Float64) {
-			f := v.Float()
-			if f < min || f > max {
-				return fmt.Errorf("must be between %g and %g", min, max)
-			}
+	return func(mf MetaField, value any) error {
+		var f float64
+		switch v := value.(type) {
+		case float32:
+			f = float64(v)
+		case float64:
+			f = v
+		default:
+			return nil
+		}
+		if f < min || f > max {
+			return fmt.Errorf("must be between %g and %g", min, max)
 		}
 		return nil
 	}
@@ -113,31 +147,34 @@ func FloatRange(min, max float64) Validator {
 
 var emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
-// Email fails if the field's string value doesn't look like an email
-// (a permissive regex, not full RFC 5322).
-func Email(mf MetaField, instance any) error {
-	v := lookupField(instance, mf.Name)
-	if v.IsValid() && v.Kind() == reflect.String && v.String() != "" {
-		if !emailRE.MatchString(v.String()) {
-			return fmt.Errorf("must be a valid email address")
-		}
+// Email fails for a non-empty string that doesn't match a permissive
+// email regex. Empty strings pass — use NotEmpty separately when
+// required.
+func Email(mf MetaField, value any) error {
+	s, ok := value.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	if !emailRE.MatchString(s) {
+		return fmt.Errorf("must be a valid email address")
 	}
 	return nil
 }
 
-// Pattern fails if a string field doesn't match the supplied regex.
-// reason is used in the error message ("must match <reason>") and
-// should describe the format in user-friendly terms.
+// Pattern fails for a non-empty string that doesn't match re. reason
+// is used in the error message ("must be <reason>") and should describe
+// the format in user-friendly terms. Empty strings pass.
 func Pattern(re *regexp.Regexp, reason string) Validator {
-	return func(mf MetaField, instance any) error {
-		v := lookupField(instance, mf.Name)
-		if v.IsValid() && v.Kind() == reflect.String && v.String() != "" {
-			if !re.MatchString(v.String()) {
-				if reason != "" {
-					return fmt.Errorf("must be %s", reason)
-				}
-				return fmt.Errorf("invalid format")
+	return func(mf MetaField, value any) error {
+		s, ok := value.(string)
+		if !ok || s == "" {
+			return nil
+		}
+		if !re.MatchString(s) {
+			if reason != "" {
+				return fmt.Errorf("must be %s", reason)
 			}
+			return fmt.Errorf("invalid format")
 		}
 		return nil
 	}
@@ -145,26 +182,15 @@ func Pattern(re *regexp.Regexp, reason string) Validator {
 
 // All composes validators in order. First failure short-circuits.
 func All(vs ...Validator) Validator {
-	return func(mf MetaField, instance any) error {
+	return func(mf MetaField, value any) error {
 		for _, v := range vs {
 			if v == nil {
 				continue
 			}
-			if err := v(mf, instance); err != nil {
+			if err := v(mf, value); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-}
-
-func lookupField(instance any, name string) reflect.Value {
-	rv := reflect.ValueOf(instance)
-	for rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return reflect.Value{}
-	}
-	return rv.FieldByName(name)
 }

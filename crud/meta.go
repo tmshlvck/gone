@@ -64,10 +64,12 @@ type MetaField struct {
 	// an empty slice means the field was absent (e.g. unchecked checkbox).
 	FromStrings func(mf MetaField, strs []string, instance any) error
 
-	// FieldValidate runs after FromStrings has populated the field on
-	// instance. Use validators from validators.go (NotEmpty, MinLen, …)
-	// or compose with All(...). nil = no validation for this field.
-	FieldValidate func(mf MetaField, instance any) error
+	// FieldValidate runs after FromStrings has populated the field. It
+	// receives only the field's own value (not the whole struct) — use
+	// MetaModel.Validate for cross-field rules. Helpers in
+	// validators.go (NotEmpty, MinLen, …) plus All(...) for composition.
+	// nil = no validation for this field.
+	FieldValidate Validator
 }
 
 // MetaModel is the per-type description used to render and bind. T is the
@@ -83,6 +85,13 @@ type MetaModel[T any] struct {
 	DisplayValues   func(mm MetaModel[T], instance T) []templ.Component
 	GenFormElements func(mm MetaModel[T], instance T) []templ.Component
 	BindForm        func(mm MetaModel[T], form map[string][]string, out *T) error
+
+	// Validate is the user-defined cross-field validator. nil = no
+	// model-level validation. Runs in DefaultBindForm after every
+	// per-field validator passes. A non-nil error becomes the
+	// ValidationErrors entry under ModelLevelKey ("") and rejects the
+	// form submission.
+	Validate func(mm MetaModel[T], instance T) error
 }
 
 // DeriveMetaModel reflects T, builds default MetaFields, and installs the
@@ -221,16 +230,23 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 	return out
 }
 
-// DefaultBindForm walks the fields, parses each value via FromStrings,
-// then runs the per-field FieldValidate hook (when set). On any failure
-// it accumulates ValidationErrors keyed by MetaField.Name and returns
-// that as an error. Returns nil on success.
+// DefaultBindForm walks the fields, parses each via FromStrings, runs
+// FieldValidate on the parsed *value*, and finally calls mm.Validate
+// (if set) for cross-field rules. Errors accumulate into
+// ValidationErrors keyed by field name (or ModelLevelKey for the
+// cross-field hook). Returns nil on success.
 //
-// Parse failures and validation failures are not distinguished in the
-// returned map — both look like {"FieldName": "error message"}. Bind
-// failures skip the field's FieldValidate (no Go value yet to validate).
+// Validation pipeline (per field, then once for the model):
+//
+//  1. FromStrings parses the wire value. On failure, record under the
+//     field name and skip step 2 — no Go value to feed it.
+//  2. FieldValidate receives the field's value (not the whole struct).
+//     On failure, record under the field name.
+//  3. After all fields done, if every field passed and mm.Validate is
+//     set, run it. On failure, record under ModelLevelKey ("").
 func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) error {
 	verrs := ValidationErrors{}
+	rv := reflect.ValueOf(out).Elem()
 	for _, mf := range mm.Fields {
 		if mf.Hidden || mf.ReadOnly {
 			continue
@@ -241,9 +257,22 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 			continue
 		}
 		if mf.FieldValidate != nil {
-			if err := mf.FieldValidate(mf, out); err != nil {
+			// Extract just this field's value — validators see only
+			// what they're validating, not the whole struct.
+			fv := rv.FieldByName(mf.Name)
+			if !fv.IsValid() {
+				continue
+			}
+			if err := mf.FieldValidate(mf, fv.Interface()); err != nil {
 				verrs[mf.Name] = err.Error()
 			}
+		}
+	}
+	// Model-level cross-field validation runs only if every field
+	// passed — otherwise its preconditions may not hold.
+	if len(verrs) == 0 && mm.Validate != nil {
+		if err := mm.Validate(mm, *out); err != nil {
+			verrs[ModelLevelKey] = err.Error()
 		}
 	}
 	if len(verrs) > 0 {

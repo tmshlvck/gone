@@ -181,29 +181,30 @@ type MetaModel[T any] struct {
     Fields []MetaField
 
     Name        string           // type name (e.g. "Hero")
+    DivID       string           // "model_<lcname>_<rand>"
     DisplayName string           // table + form label; default: type name
-    FormBanner  templ.Component  // optional HTML banner above the form
 
     // Model-level walks. Default implementations iterate Fields and call
     // each field's hook with the field's reflected value.
     DisplayValues   func(mm MetaModel[T], instance T) []templ.Component
     GenFormElements func(mm MetaModel[T], instance T) []templ.Component
 
-    // BindForm parses a posted form into out, mutating it in place.
-    // Default impl walks Fields and calls each MetaField.FromStrings.
+    // BindForm parses a posted form into out, mutating it in place,
+    // then runs FieldValidate per field and finally Validate (cross-field).
+    // Returns ValidationErrors (which implements error) on failure.
     BindForm func(mm MetaModel[T], form map[string][]string, out *T) error
 
-    // Cross-field validator. Nil = no model-level rule. See §6.7.
-    Validate func(ctx context.Context, mm MetaModel[T], instance T) error
-
-    // Short label for use inside other models' relation pickers.
-    // Default: DefaultShortValue (Name field, else ID, else %v).
-    ShortValue func(instance T) string
+    // Validate is the user-defined cross-field validator. nil = no
+    // model-level rule. Runs after every per-field validator passes;
+    // a non-nil error is stored under ValidationErrors[""] and
+    // rejects the form. See §6.7.
+    Validate func(mm MetaModel[T], instance T) error
 }
 
 // DeriveMetaModel builds a MetaModel[T] by reflecting T and installing
 // default hooks. Callers post-mutate to override individual fields
-// (DisplayName, FormInputType, ReadOnly, …) or the model-level hooks.
+// (DisplayName, FormInputType, ReadOnly, FieldValidate, FormHelp) or the
+// model-level hooks (Validate).
 func DeriveMetaModel[T any]() (MetaModel[T], error)
 
 // DefaultDisplayValues / DefaultGenFormElements / DefaultBindForm are
@@ -214,12 +215,66 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) error
 ```
 
-**Implementation status (2026-05-25):** `MetaModel[T]`, `DeriveMetaModel[T]`,
-and the three `Default*` walks ship in `gone/crud/meta.go`. Supports
-`string`, signed/unsigned ints, floats, `bool`, `time.Time`. Validation
-hooks (`MetaModel.Validate`, `MetaField.FieldValidate`) and
-`ShortValue` defaults are reserved fields; concrete defaults land with
-§6.7.
+**Component renderers** — embed the model in the app's own page templ:
+
+```go
+// DisplayComponent renders the dump fragment for an instance. If
+// editURL is non-empty, an Edit button hx-gets editURL into hxTarget.
+func (mm *MetaModel[T]) DisplayComponent(instance T, editURL, hxTarget string) templ.Component
+
+// FormComponent renders the form fragment. The form posts to actionURL
+// and (when hxTarget != "") submits via HTMX with hx-target=hxTarget.
+// Wrapped in a DaisyUI card so inline use matches the dump's chrome
+// (modal callers in CRUDTable use the raw FormView instead).
+func (mm *MetaModel[T]) FormComponent(
+    instance T,
+    actionURL, hxTarget string,
+    fieldErrors map[string]string,
+    modelErr string,
+) templ.Component
+```
+
+**Partial-endpoint mounters** — register fragment-only HTTP handlers.
+No PageShell, no full-page wrapping. The app owns the page route(s)
+that embed the components above:
+
+```go
+// Mounts GET displayURL → dump fragment, with the Edit button wired
+// to editURL/hxTarget when editURL != "".
+func (mm *MetaModel[T]) RouteDisplay(
+    mux *http.ServeMux,
+    displayURL string,
+    editURL, hxTarget string,
+    getter func() (T, error),
+) error
+
+// Mounts GET formURL → form fragment, POST formURL → bind + validate +
+// setter; on success returns the dump fragment (so the swap container
+// flips back to the dump); on validation failure returns the form
+// with per-field errors and the model-level alert.
+func (mm *MetaModel[T]) RouteForm(
+    mux *http.ServeMux,
+    formURL, hxTarget string,
+    getter func() (T, error),
+    setter func(data T) error,
+) error
+```
+
+**End-to-end pattern**, top to bottom:
+
+1. *Derive the metadata.* `mm := DeriveMetaModel[T]()`; set per-field
+   `FormHelp` and `FieldValidate`; set model-level `mm.Validate` for
+   cross-field rules.
+2. *Bind data to routes.* `mm.RouteForm(mux, "/edit", "#main-content",
+   getter, setter)` registers the partial endpoints.
+3. *Include the component renderer.* The app's own handler for
+   `GET /` renders its page shell and embeds
+   `mm.DisplayComponent(instance, "/edit", "#main-content")` inside it.
+
+The library never emits `<html>`/`<body>`/`<style>` chrome. Page
+composition is the application's job — see `examples/form_mem/main.go`
+for the worked example, including a cross-field `Validate` that
+requires `MaxRequests` to exceed `Port`.
 
 ### 6.3 `CRUDTable[T any]`
 
@@ -241,7 +296,14 @@ type CRUDTable[T any] struct {
     CreateEnabled bool            // default true
     EditEnabled   bool            // default true
     DeleteEnabled bool            // default true
+    PageSize      int             // rows per page; 0 = library default (20)
     Authz         AuthzInterface  // nil = AllowAll
+
+    // Per-instance DOM IDs (set by Derive*) so multiple CRUDTables can
+    // share one page without collisions.
+    ListID         string // "table_<rand>"; HTMX swap target
+    ModalID        string // "modal_<rand>"; <dialog> for create/edit
+    ModalContentID string // "modal-content_<rand>"; modal-box's inner div
 
     // Data accessors. Derive* populates these with backend-specific closures.
     Get    func(ctx context.Context, id uint) (T, error)
@@ -257,19 +319,22 @@ func DeriveMapCRUDTable[T any](store map[uint]T, mu *sync.RWMutex, mm MetaModel[
 func DeriveGormCRUDTable[T any](db *gorm.DB, mm MetaModel[T]) CRUDTable[T]
 func DeriveStructCRUDTable[T any](v *T, mu *sync.RWMutex, mm MetaModel[T]) CRUDTable[T]
 
-// PageShell lets callers wrap each rendered fragment in their own site
-// chrome. nil = serve fragments raw (useful for HTMX partial swaps).
-type PageShell func(title string, content templ.Component) templ.Component
+// MainComponent returns the TableView fragment populated from r's
+// query parameters (?q, ?sort, ?desc, ?page). The application calls
+// this from its own GET {URLBase} handler and embeds the result
+// inside its own page shell — see §6.2's end-to-end pattern.
+func (c *CRUDTable[T]) MainComponent(r *http.Request) (templ.Component, error)
 
-// Route registers list/create/edit/delete handlers under c.URLBase using
-// Go 1.22 method+pattern syntax. Routes registered:
-//   GET    {base}              — list (?q=, ?sort=, ?desc=1)
-//   GET    {base}/create       — create form    (if CreateEnabled)
-//   POST   {base}/create       — submit create  (if CreateEnabled)
-//   GET    {base}/{id}/edit    — edit form      (if EditEnabled)
-//   POST   {base}/{id}/edit    — submit update  (if EditEnabled)
-//   POST   {base}/{id}/delete  — delete         (if DeleteEnabled)
-func (c *CRUDTable[T]) Route(mux *http.ServeMux, shell PageShell) error
+// Route registers ONLY the partial endpoints. The main list URL is
+// the app's responsibility (it embeds MainComponent in its page).
+// Routes:
+//   GET    {base}/rows         table fragment for HTMX swaps into #ListID
+//   GET    {base}/create       create form (target: ModalContentID)
+//   POST   {base}/create       submit create
+//   GET    {base}/{id}/edit    edit form   (target: ModalContentID)
+//   POST   {base}/{id}/edit    submit update
+//   POST   {base}/{id}/delete  delete      (HX-Request → rows; else 303)
+func (c *CRUDTable[T]) Route(mux *http.ServeMux) error
 
 // CRUDRelationOption is the type-erased row used in cross-model relation
 // pickers (e.g. a <select> on Hero pulling options from a Skill CRUD).
@@ -300,9 +365,10 @@ type CRUDTableInterface interface {
 - `FormView(FormViewData)` — create or edit form (caller picks
   ActionURL + SubmitText).
 
-The components emit page **fragments** — no `<html>/<body>`. Callers
-supply page chrome via `PageShell` (per-app styling, navigation,
-auth-aware menus). HTMX partial responses pass `shell = nil`.
+The components emit page **fragments** — no `<html>/<body>/<style>`.
+The library has no `PageShell` parameter anywhere. The application
+provides its own page chrome and embeds the library's
+`MainComponent` / `DisplayComponent` / `FormComponent` inside it.
 
 **Backends:**
 
@@ -382,56 +448,69 @@ shape so the rendering layer is unchanged.
    `"notatime"` into `time.Time`) records the error under the field's
    name and **skips step 2 for that field** — there is no Go value to
    validate.
-2. **Per-field hook.** `MetaField.FieldValidate(mf, instance)` runs
-   only if bind succeeded for this field. Use the helpers in
-   `crud/validators.go` (`NotEmpty`, `MinLen`, `MaxLen`, `IntRange`,
-   `FloatRange`, `Email`, `Pattern`) or compose with `crud.All(...)`.
-   Custom logic — DB uniqueness, cross-system lookups — fits here.
+2. **Per-field hook.** `MetaField.FieldValidate(mf, value)` runs only
+   if bind succeeded. The validator receives **only its own value**,
+   not the whole struct — this enforces the one-field-at-a-time
+   separation of concerns. Use the helpers in `crud/validators.go`
+   (`NotEmpty`, `MinLen`, `MaxLen`, `IntRange`, `FloatRange`, `Email`,
+   `Pattern`) or compose with `crud.All(...)`.
 
-**(TBD)** Model-level cross-field hook (`MetaModel.Validate`) for rules
-like `StartDate < EndDate`. Not implemented yet; would run after every
-field-level check passes.
+**Across the whole submission, after all fields pass:**
+
+3. **Model-level hook.** `MetaModel.Validate(mm, instance)` is the
+   user-defined cross-field validator. nil = no model-level
+   validation. Runs only when every per-field validator passed
+   (cross-field rules typically assume the inputs are individually
+   valid). On failure, the error is stored under
+   `ValidationErrors[ModelLevelKey]` (the empty string `""`).
 
 All errors from a single submission accumulate into one
-`ValidationErrors` map keyed by field name. The user sees every
-problem at once, Pydantic-style. The skip rule in (1) prevents
-piling up follow-on noise on the same field.
+`ValidationErrors` map. The user sees every per-field problem at once,
+plus any model-level message rendered as an alert above the form.
 
 ```go
 // crud/validators.go
-type ValidationErrors map[string]string  // field name → message
+type ValidationErrors map[string]string  // field name → message; "" = model-level
 
-func (e ValidationErrors) Error() string { /* "field: msg; field: msg" */ }
+const ModelLevelKey = ""
 
-// MetaField.FieldValidate signature
-type Validator = func(mf MetaField, instance any) error
+func (e ValidationErrors) Error() string  // "field: msg; field: msg; …"
+
+// Validator signature — takes the field's value, NOT the whole struct.
+type Validator = func(mf MetaField, value any) error
 
 // Built-in validators
-func NotEmpty(mf MetaField, instance any) error
+func NotEmpty(mf MetaField, value any) error
 func MinLen(n int) Validator
 func MaxLen(n int) Validator
 func IntRange(min, max int64) Validator
 func FloatRange(min, max float64) Validator
-func Email(mf MetaField, instance any) error
+func Email(mf MetaField, value any) error
 func Pattern(re *regexp.Regexp, reason string) Validator
 func All(vs ...Validator) Validator  // first failure wins
 ```
 
 `DefaultBindForm` returns `ValidationErrors` (which implements `error`)
 on any failure, or nil on success. Handlers extract it with
-`errors.As(err, &verrs)` and populate `FormViewData.FieldErrors`. The
-form view renders each error in red directly under its input — or the
-field's `FormHelp` text if there is no error.
+`errors.As(err, &verrs)`, split into per-field (`fieldErrors`) and
+model-level (`modelErr`), and populate `FormViewData.FieldErrors` /
+`ErrMsg`. The form view renders each per-field error in red directly
+under its input (or the field's `FormHelp` if there is no error), and
+the model-level message as a DaisyUI alert above the form.
 
 The HTMX modal flow stays open on validation failure (via
 `HX-Retarget: #<modal-content-id>`) so the user can fix and resubmit.
-The submitted values are preserved in the re-rendered form via
-`GenFormElements` on the partially-populated instance.
+Submitted values are preserved in the re-rendered form via
+`GenFormElements` on the partially-populated instance. Note that
+validation re-renders return **HTTP 200** with the invalid-state HTML
+in the body — HTMX only swaps response bodies on 2xx by default, so a
+4xx would hide the form's error feedback.
 
-See `examples/crud_mem/main.go` for a working example wiring
-`FormHelp` and `FieldValidate` on Hero (Name min/max, Realm required,
-Power 0–100). `crud/validators_test.go` covers every built-in
-validator + the bind-validate pipeline.
+See `examples/crud_mem/main.go` for per-field validators (Name
+min/max, Power 0–100), and `examples/form_mem/main.go` for a
+cross-field `MetaModel.Validate` rule (MaxRequests must exceed Port).
+`crud/validators_test.go` covers every built-in validator plus the
+bind → per-field → model-level pipeline (incl. the skip rules).
 
 ### 6.8 Form binding
 

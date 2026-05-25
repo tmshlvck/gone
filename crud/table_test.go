@@ -32,9 +32,22 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	tbl := DeriveMapCRUDTable[item](store, mu, mm)
 	tbl.URLBase = "/items"
 	mux := http.NewServeMux()
-	if err := tbl.Route(mux, nil); err != nil {
+	if err := tbl.Route(mux); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
+	// CRUDTable.Route registers only partial endpoints. The "main" page
+	// route is the app's job — for tests we register a thin handler
+	// that just renders MainComponent as a bare fragment (no page
+	// shell, since the tests only inspect HTML structure, not chrome).
+	mux.HandleFunc("GET "+tbl.URLBase, func(w http.ResponseWriter, r *http.Request) {
+		comp, err := tbl.MainComponent(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = comp.Render(r.Context(), w)
+	})
 	return mux, &tbl
 }
 

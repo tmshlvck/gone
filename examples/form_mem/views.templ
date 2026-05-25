@@ -47,11 +47,3 @@ templ pageShell(title string, content templ.Component) {
 	</html>
 }
 
-// inCard wraps a fragment in a DaisyUI card.
-templ inCard(content templ.Component) {
-	<div class="card bg-base-100 shadow">
-		<div class="card-body">
-			@content
-		</div>
-	</div>
-}
