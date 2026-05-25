@@ -79,11 +79,30 @@ func main() {
 	}
 	mm.DisplayName = "Heroes"
 
+	// Per-field tweaks: ReadOnly on the auto-assigned ID, plus FormHelp
+	// + FieldValidate to demonstrate the help-text + per-field error
+	// rendering on the form.
 	for i := range mm.Fields {
 		switch mm.Fields[i].Name {
 		case "ID":
 			mm.Fields[i].ReadOnly = true
 			mm.Fields[i].Sortable = true
+		case "Name":
+			mm.Fields[i].FormHelp = "Display name, 2–30 characters."
+			mm.Fields[i].FieldValidate = crud.All(
+				crud.NotEmpty,
+				crud.MinLen(2),
+				crud.MaxLen(30),
+			)
+		case "Realm":
+			mm.Fields[i].FormHelp = "Origin (e.g. Gondor, Mirkwood)."
+			mm.Fields[i].FieldValidate = crud.All(
+				crud.NotEmpty,
+				crud.MaxLen(40),
+			)
+		case "Power":
+			mm.Fields[i].FormHelp = "Power level, 0–100."
+			mm.Fields[i].FieldValidate = crud.IntRange(0, 100)
 		}
 	}
 

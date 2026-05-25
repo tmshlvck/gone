@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -98,7 +99,7 @@ func main() {
 		})
 	}
 
-	formFragment := func(errMsg string, instance ExampleConfig) templ.Component {
+	formFragment := func(modelErr string, fieldErrors map[string]string, instance ExampleConfig) templ.Component {
 		inputs := mm.GenFormElements(mm, instance)
 		// crud.FormView emits no card wrapper (so it composes inside a
 		// modal). For inline use we add one explicitly so the page
@@ -111,7 +112,8 @@ func main() {
 			Fields:      mm.Fields,
 			Inputs:      inputs,
 			HXTarget:    "#main-content",
-			ErrMsg:      errMsg,
+			ErrMsg:      modelErr,
+			FieldErrors: fieldErrors,
 		}))
 	}
 
@@ -125,7 +127,7 @@ func main() {
 		mu.RLock()
 		snapshot := cfg
 		mu.RUnlock()
-		frag := formFragment("", snapshot)
+		frag := formFragment("", nil, snapshot)
 		if isHX(r) {
 			writeFragment(w, r, http.StatusOK, frag)
 		} else {
@@ -143,7 +145,15 @@ func main() {
 		mu.RUnlock()
 
 		if err := mm.BindForm(mm, r.PostForm, &next); err != nil {
-			frag := formFragment(err.Error(), next)
+			var verrs crud.ValidationErrors
+			var fieldErrs map[string]string
+			var modelErr string
+			if errors.As(err, &verrs) {
+				fieldErrs = verrs
+			} else {
+				modelErr = err.Error()
+			}
+			frag := formFragment(modelErr, fieldErrs, next)
 			if isHX(r) {
 				writeFragment(w, r, http.StatusBadRequest, frag)
 			} else {

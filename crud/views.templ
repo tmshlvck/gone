@@ -51,7 +51,8 @@ type FormViewData struct {
 	SubmitText  string
 	Fields      []MetaField
 	Inputs      []templ.Component // parallel to Fields; nil for Hidden/ReadOnly
-	ErrMsg      string
+	ErrMsg      string            // model-level error (cross-field, save failed, …)
+	FieldErrors map[string]string // per-field error messages keyed by MetaField.Name
 
 	// HXTarget enables HTMX submission. When non-empty, the form gets
 	// hx-post / hx-target / hx-swap so the response replaces the target
@@ -317,25 +318,30 @@ templ FormView(d FormViewData) {
 templ formBody(d FormViewData) {
 	for i, mf := range d.Fields {
 		if !mf.Hidden && !mf.ReadOnly {
-			<label class="form-control w-full">
-				<div class="label">
-					<span class="label-text font-medium">{ mf.DisplayName }</span>
-				</div>
-				@d.Inputs[i]
-				if mf.FormHelp != "" {
-					<div class="label">
-						<span class="label-text-alt opacity-70">{ mf.FormHelp }</span>
-					</div>
-				}
-			</label>
+			@fieldRow(d, mf, d.Inputs[i])
 		}
 	}
-	<div class="flex gap-2 mt-2">
+	<div class="flex gap-2 mt-4">
 		<button type="submit" class="btn btn-outline btn-primary">{ d.SubmitText }</button>
 		if d.BackURL != "" {
 			<a href={ templ.URL(d.BackURL) } class="btn btn-ghost">Cancel</a>
 		}
 	</div>
+}
+
+// fieldRow renders one form row as a vertical stack: label, input,
+// then either an error message (red) or help text (muted), so each
+// field is clearly separated.
+templ fieldRow(d FormViewData, mf MetaField, input templ.Component) {
+	<label class="flex flex-col gap-1.5 w-full">
+		<span class="font-medium">{ mf.DisplayName }</span>
+		@input
+		if msg, ok := d.FieldErrors[mf.Name]; ok {
+			<span class="text-sm text-error">{ msg }</span>
+		} else if mf.FormHelp != "" {
+			<span class="text-sm opacity-60">{ mf.FormHelp }</span>
+		}
+	</label>
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -450,8 +450,10 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (s
 
 // createFormView returns the FormView component for a fresh row.
 // hxFlow controls HTMX wiring: when true, the form submits via HTMX into
-// #crud-list (and we'll close the modal on success via HX-Trigger header).
-func (c *CRUDTable[T]) createFormView(errMsg string, data T, hxFlow bool) templ.Component {
+// the table's ListID and we'll close the modal on success via
+// HX-Trigger. modelErr renders above the form; fieldErrors render below
+// each named field.
+func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]string, data T, hxFlow bool) templ.Component {
 	inputs := c.MetaData.GenFormElements(c.MetaData, data)
 	d := FormViewData{
 		DisplayName: "Create " + c.MetaData.DisplayName,
@@ -460,12 +462,27 @@ func (c *CRUDTable[T]) createFormView(errMsg string, data T, hxFlow bool) templ.
 		SubmitText:  "Create",
 		Fields:      c.MetaData.Fields,
 		Inputs:      inputs,
-		ErrMsg:      errMsg,
+		ErrMsg:      modelErr,
+		FieldErrors: fieldErrors,
 	}
 	if hxFlow {
 		d.HXTarget = "#" + c.ListID
 	}
 	return FormView(d)
+}
+
+// splitValidationErr separates a BindForm error into (perField, modelLevel).
+// When err is ValidationErrors, the map drives per-field rendering; any
+// other error becomes a model-level message above the form.
+func splitValidationErr(err error) (map[string]string, string) {
+	if err == nil {
+		return nil, ""
+	}
+	var verrs ValidationErrors
+	if errors.As(err, &verrs) {
+		return verrs, ""
+	}
+	return nil, err.Error()
 }
 
 func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -474,7 +491,7 @@ func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) 
 		// Pop the modal on the client after the swap lands.
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"openModal":%q}`, c.ModalID))
 	}
-	return "Create " + c.MetaData.DisplayName, c.createFormView("", zero, isHTMXRequest(r))
+	return "Create " + c.MetaData.DisplayName, c.createFormView("", nil, zero, isHTMXRequest(r))
 }
 
 func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -487,10 +504,11 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		if isHTMXRequest(r) {
 			// Form had hx-target=#crud-list; swap into modal instead so
 			// the user sees the error in place.
-			w.Header().Set("HX-Retarget", "#" + c.ModalContentID)
+			w.Header().Set("HX-Retarget", "#"+c.ModalContentID)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
-		return "Create " + c.MetaData.DisplayName, c.createFormView(err.Error(), data, isHTMXRequest(r))
+		fieldErrs, modelErr := splitValidationErr(err)
+		return "Create " + c.MetaData.DisplayName, c.createFormView(modelErr, fieldErrs, data, isHTMXRequest(r))
 	}
 	if _, _, err := c.Create(r.Context(), data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -511,7 +529,7 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 	return "", nil
 }
 
-func (c *CRUDTable[T]) editFormView(id uint, errMsg string, row T, hxFlow bool) templ.Component {
+func (c *CRUDTable[T]) editFormView(id uint, modelErr string, fieldErrors map[string]string, row T, hxFlow bool) templ.Component {
 	inputs := c.MetaData.GenFormElements(c.MetaData, row)
 	idStr := strconv.FormatUint(uint64(id), 10)
 	d := FormViewData{
@@ -521,7 +539,8 @@ func (c *CRUDTable[T]) editFormView(id uint, errMsg string, row T, hxFlow bool) 
 		SubmitText:  "Save",
 		Fields:      c.MetaData.Fields,
 		Inputs:      inputs,
-		ErrMsg:      errMsg,
+		ErrMsg:      modelErr,
+		FieldErrors: fieldErrors,
 	}
 	if hxFlow {
 		d.HXTarget = "#" + c.ListID
@@ -547,7 +566,7 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (s
 	if isHTMXRequest(r) {
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"openModal":%q}`, c.ModalID))
 	}
-	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, "", row, isHTMXRequest(r))
+	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, "", nil, row, isHTMXRequest(r))
 }
 
 func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -573,10 +592,11 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (s
 	}
 	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &row); err != nil {
 		if isHTMXRequest(r) {
-			w.Header().Set("HX-Retarget", "#" + c.ModalContentID)
+			w.Header().Set("HX-Retarget", "#"+c.ModalContentID)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
-		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, err.Error(), row, isHTMXRequest(r))
+		fieldErrs, modelErr := splitValidationErr(err)
+		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, modelErr, fieldErrs, row, isHTMXRequest(r))
 	}
 	if _, err := c.Update(r.Context(), id, row); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

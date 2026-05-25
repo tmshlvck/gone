@@ -63,6 +63,11 @@ type MetaField struct {
 	// writes them into instance via reflection. strs is form[mf.Name];
 	// an empty slice means the field was absent (e.g. unchecked checkbox).
 	FromStrings func(mf MetaField, strs []string, instance any) error
+
+	// FieldValidate runs after FromStrings has populated the field on
+	// instance. Use validators from validators.go (NotEmpty, MinLen, …)
+	// or compose with All(...). nil = no validation for this field.
+	FieldValidate func(mf MetaField, instance any) error
 }
 
 // MetaModel is the per-type description used to render and bind. T is the
@@ -216,17 +221,33 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 	return out
 }
 
-// DefaultBindForm walks the fields and calls each field's FromStrings to
-// write the wire values into out.
+// DefaultBindForm walks the fields, parses each value via FromStrings,
+// then runs the per-field FieldValidate hook (when set). On any failure
+// it accumulates ValidationErrors keyed by MetaField.Name and returns
+// that as an error. Returns nil on success.
+//
+// Parse failures and validation failures are not distinguished in the
+// returned map — both look like {"FieldName": "error message"}. Bind
+// failures skip the field's FieldValidate (no Go value yet to validate).
 func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) error {
+	verrs := ValidationErrors{}
 	for _, mf := range mm.Fields {
 		if mf.Hidden || mf.ReadOnly {
 			continue
 		}
 		strs := form[mf.Name]
 		if err := mf.FromStrings(mf, strs, out); err != nil {
-			return fmt.Errorf("%s: %w", mf.Name, err)
+			verrs[mf.Name] = err.Error()
+			continue
 		}
+		if mf.FieldValidate != nil {
+			if err := mf.FieldValidate(mf, out); err != nil {
+				verrs[mf.Name] = err.Error()
+			}
+		}
+	}
+	if len(verrs) > 0 {
+		return verrs
 	}
 	return nil
 }

@@ -375,52 +375,63 @@ shape so the rendering layer is unchanged.
 
 ### 6.7 Validation
 
-**Per field, in this order:**
+**Per field, in this order (`DefaultBindForm`):**
 
-1. **Bind.** The MetaForm parses the wire value into the field's Go
-   type. Failure here (`"abc"` into an `int`, missing required field on
-   a JSON body) emits a `ValidationError{Code: "bind"}` and **skips
-   layers 2–3 for that field** — there is no Go value to feed them.
+1. **Bind.** `MetaField.FromStrings` parses the wire value into the
+   field's Go type via reflection. Failure (`"abc"` into an `int`,
+   `"notatime"` into `time.Time`) records the error under the field's
+   name and **skips step 2 for that field** — there is no Go value to
+   validate.
+2. **Per-field hook.** `MetaField.FieldValidate(mf, instance)` runs
+   only if bind succeeded for this field. Use the helpers in
+   `crud/validators.go` (`NotEmpty`, `MinLen`, `MaxLen`, `IntRange`,
+   `FloatRange`, `Email`, `Pattern`) or compose with `crud.All(...)`.
+   Custom logic — DB uniqueness, cross-system lookups — fits here.
 
-2. **Per-field hook.** `MetaField.Validate(ctx, value) error` — runs
-   only if layers 1 and 2 passed for this field. This is the "main
-   place" for app-specific rules that tags can't express: uniqueness
-   checks against the DB, cross-system lookups, business invariants on
-   a single value.
+**(TBD)** Model-level cross-field hook (`MetaModel.Validate`) for rules
+like `StartDate < EndDate`. Not implemented yet; would run after every
+field-level check passes.
 
-**Across the whole submission, after all fields are done:**
-
-3. **Model-level hook.** `MetaModel.Validate(ctx, T) error` — runs only
-   if every per-field layer passed. For cross-field constraints
-   (`StartDate < EndDate`, `Country == "US" → ZIP required`, …). The
-   instance passed in is fully populated and per-field-valid; cross-
-   field checks can rely on that.
-
-All errors accumulate within a single submission rather than
-short-circuiting on the first failure — the user sees every problem at
-once, Pydantic-style. The single exception is the skip rule in (1):
-fields with a bind error don't produce additional same-field errors
-from layers 2–3.
+All errors from a single submission accumulate into one
+`ValidationErrors` map keyed by field name. The user sees every
+problem at once, Pydantic-style. The skip rule in (1) prevents
+piling up follow-on noise on the same field.
 
 ```go
-type ValidationError struct {
-    Field   string         // MetaField.Name; "" for model-level
-    Code    string         // stable identifier: "required", "min", "bind", "unique", …
-    Message string         // human-readable English (default) or app-supplied
-    Params  map[string]any // values referenced in Message (e.g. {"min": 2})
-}
+// crud/validators.go
+type ValidationErrors map[string]string  // field name → message
 
-type ValidationErrors []ValidationError
+func (e ValidationErrors) Error() string { /* "field: msg; field: msg" */ }
+
+// MetaField.FieldValidate signature
+type Validator = func(mf MetaField, instance any) error
+
+// Built-in validators
+func NotEmpty(mf MetaField, instance any) error
+func MinLen(n int) Validator
+func MaxLen(n int) Validator
+func IntRange(min, max int64) Validator
+func FloatRange(min, max float64) Validator
+func Email(mf MetaField, instance any) error
+func Pattern(re *regexp.Regexp, reason string) Validator
+func All(vs ...Validator) Validator  // first failure wins
 ```
 
-The library ships sensible default English messages for the standard
-validator tags. Callers can override per field via `MetaField.Validate`,
-or globally via a hook on `MetaModel`. `Code` stays stable so test
-assertions and structured logs don't break when wording changes.
+`DefaultBindForm` returns `ValidationErrors` (which implements `error`)
+on any failure, or nil on success. Handlers extract it with
+`errors.As(err, &verrs)` and populate `FormViewData.FieldErrors`. The
+form view renders each error in red directly under its input — or the
+field's `FormHelp` text if there is no error.
 
-`Form` and `Crud` collect the full `ValidationErrors` slice, render
-each next to the offending field, and re-fill the form with the user's
-input.
+The HTMX modal flow stays open on validation failure (via
+`HX-Retarget: #<modal-content-id>`) so the user can fix and resubmit.
+The submitted values are preserved in the re-rendered form via
+`GenFormElements` on the partially-populated instance.
+
+See `examples/crud_mem/main.go` for a working example wiring
+`FormHelp` and `FieldValidate` on Hero (Name min/max, Realm required,
+Power 0–100). `crud/validators_test.go` covers every built-in
+validator + the bind-validate pipeline.
 
 ### 6.8 Form binding
 
