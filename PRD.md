@@ -439,14 +439,17 @@ by the caller's page shell**. The library bundles no CSS and serves no
 static assets — keeps gone a true library, lets the caller pick the
 DaisyUI theme, integrates with the host app's existing Tailwind build.
 
-The example shells (`examples/*/page.templ`) load **DaisyUI v5** plus
-its **themes.css** bundle and the **Tailwind v4 browser CDN**:
+The example shells (`examples/*/page.templ`) load **DaisyUI v5** and
+the **Tailwind v4 browser CDN**:
 
 ```html
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
-<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css"/>
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 ```
+
+The base `daisyui@5` CSS already includes `light` and `dark` themes
+(per DaisyUI's docs); load `daisyui@5/themes.css` additionally only if
+you need the 30+ named themes (cupcake, retro, synthwave, …).
 
 DaisyUI v5 dropped the `-bordered` modifiers (`input-bordered` etc.) —
 the base `input` / `select` / `textarea` classes now include borders by

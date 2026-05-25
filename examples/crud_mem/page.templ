@@ -7,11 +7,12 @@ templ pageShell(title string, content templ.Component) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ title }</title>
-			<!-- DaisyUI v5 + Tailwind v4 browser CDN. The themes.css bundle
-			     provides the full set of named themes (light, dark, …)
-			     so the toggle can switch between them. -->
+			<!-- DaisyUI v5 + Tailwind v4 browser CDN. The base daisyui@5
+			     CSS already includes light + dark themes (per DaisyUI's
+			     own docs), so themes.css isn't loaded — that file only
+			     adds the 30+ alternative themes (cupcake, retro, …)
+			     which we don't use. -->
 			<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
-			<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css"/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="https://unpkg.com/htmx.org@2"></script>
 			<!-- Initial theme is applied before paint to avoid a flash. -->
