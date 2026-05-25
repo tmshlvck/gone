@@ -1,0 +1,20 @@
+# Build / test artifacts
+*.exe
+*.test
+*.out
+*.prof
+coverage.txt
+
+# Go workspace files (not committed for this module)
+go.work
+go.work.sum
+
+# Editor state
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local interim experiments / drafts. Leading underscore makes Go's
+# build tooling skip these directories automatically.
+_obsolete/

@@ -1,0 +1,189 @@
+package crud
+
+import "strconv"
+
+// ViewData structs keep handler ↔ template wiring obvious. Each handler
+// builds a single struct, passes it to one templ component. The components
+// emit page fragments (no <html>/<body>) so callers wrap them with their
+// own page shell.
+
+type DumpViewData struct {
+	DisplayName string
+	EditURL     string // empty disables the Edit link
+	Fields      []MetaField
+	Cells       []templ.Component // parallel to Fields; nil for Hidden
+}
+
+type TableViewData struct {
+	DisplayName   string
+	URLBase       string
+	Fields        []MetaField
+	Rows          []TableRow
+	CreateEnabled bool
+	EditEnabled   bool
+	DeleteEnabled bool
+	Search        string // current ?q= value, for the search input
+	SortBy        string // current ?sort= value
+	SortDesc      bool   // current ?desc=1 flag
+	Total         int64
+}
+
+type TableRow struct {
+	ID    uint
+	Cells []templ.Component // parallel to TableViewData.Fields; nil for Hidden
+}
+
+type FormViewData struct {
+	DisplayName string
+	ActionURL   string // form POST target
+	BackURL     string // "← back" link
+	SubmitText  string // button label, e.g. "Save" or "Create"
+	Fields      []MetaField
+	Inputs      []templ.Component // parallel to Fields; nil for Hidden/ReadOnly
+	ErrMsg      string
+}
+
+templ DumpView(d DumpViewData) {
+	<h1>{ d.DisplayName }</h1>
+	if d.EditURL != "" {
+		<p><a href={ templ.URL(d.EditURL) }>Edit</a></p>
+	}
+	<table>
+		for i, mf := range d.Fields {
+			if !mf.Hidden {
+				<tr>
+					<th>{ mf.DisplayName }</th>
+					<td>@d.Cells[i]</td>
+				</tr>
+			}
+		}
+	</table>
+}
+
+templ TableView(d TableViewData) {
+	<h1>{ d.DisplayName }</h1>
+	<form method="get" style="margin-bottom:.75rem">
+		<input type="search" name="q" placeholder="search…" value={ d.Search }/>
+		<button type="submit">Filter</button>
+		if d.SortBy != "" {
+			<input type="hidden" name="sort" value={ d.SortBy }/>
+			if d.SortDesc {
+				<input type="hidden" name="desc" value="1"/>
+			}
+		}
+	</form>
+	if d.CreateEnabled {
+		<p><a href={ templ.URL(d.URLBase + "/create") }>+ Create</a></p>
+	}
+	<table>
+		<thead>
+			<tr>
+				for _, mf := range d.Fields {
+					if !mf.Hidden {
+						<th>@sortHeader(d.URLBase, d.Search, mf, d.SortBy, d.SortDesc)</th>
+					}
+				}
+				if d.EditEnabled || d.DeleteEnabled {
+					<th></th>
+				}
+			</tr>
+		</thead>
+		<tbody>
+			for _, row := range d.Rows {
+				<tr>
+					for i, mf := range d.Fields {
+						if !mf.Hidden {
+							<td>@row.Cells[i]</td>
+						}
+					}
+					if d.EditEnabled || d.DeleteEnabled {
+						<td>
+							@rowActions(d.URLBase, row.ID, d.EditEnabled, d.DeleteEnabled)
+						</td>
+					}
+				</tr>
+			}
+		</tbody>
+	</table>
+	<p style="color:#888;font-size:.85em">{ strconv.FormatInt(d.Total, 10) } row(s)</p>
+}
+
+// sortHeader renders one <th> with a sort toggle link if mf.Sortable.
+templ sortHeader(urlBase, search string, mf MetaField, curSort string, curDesc bool) {
+	if mf.Sortable {
+		@sortLink(urlBase, search, mf, curSort, curDesc)
+	} else {
+		{ mf.DisplayName }
+	}
+}
+
+templ sortLink(urlBase, search string, mf MetaField, curSort string, curDesc bool) {
+	<a href={ templ.URL(sortToggleURL(urlBase, search, mf.Name, curSort, curDesc)) }>
+		{ mf.DisplayName }
+		if curSort == mf.Name {
+			if curDesc {
+				{ " ↓" }
+			} else {
+				{ " ↑" }
+			}
+		}
+	</a>
+}
+
+templ rowActions(urlBase string, id uint, editEnabled, deleteEnabled bool) {
+	if editEnabled {
+		<a href={ templ.URL(urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit") }>edit</a>
+	}
+	if editEnabled && deleteEnabled {
+		{ " · " }
+	}
+	if deleteEnabled {
+		<form method="post" action={ templ.URL(urlBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete") } style="display:inline" onsubmit="return confirm('Delete this row?')">
+			<button type="submit" style="background:none;border:none;color:#b00;cursor:pointer;padding:0;font:inherit">delete</button>
+		</form>
+	}
+}
+
+templ FormView(d FormViewData) {
+	<h1>{ d.DisplayName }</h1>
+	if d.BackURL != "" {
+		<p><a href={ templ.URL(d.BackURL) }>← back</a></p>
+	}
+	if d.ErrMsg != "" {
+		<p style="color:#b00">{ d.ErrMsg }</p>
+	}
+	<form method="post" action={ templ.URL(d.ActionURL) }>
+		for i, mf := range d.Fields {
+			if !mf.Hidden && !mf.ReadOnly {
+				<label>
+					<span class="lbl">{ mf.DisplayName }</span>
+					@d.Inputs[i]
+				</label>
+			}
+		}
+		<button type="submit">{ d.SubmitText }</button>
+	</form>
+}
+
+// sortToggleURL returns the URL that toggles sorting on the given field:
+// not-sorted → asc → desc → not-sorted.
+func sortToggleURL(urlBase, search, field, curSort string, curDesc bool) string {
+	q := "?"
+	if search != "" {
+		q += "q=" + search + "&"
+	}
+	switch {
+	case curSort != field:
+		q += "sort=" + field
+	case !curDesc:
+		q += "sort=" + field + "&desc=1"
+	default:
+		// turn sorting off
+		if search != "" {
+			q = "?q=" + search
+		} else {
+			q = ""
+		}
+	}
+	return urlBase + q
+}
