@@ -87,7 +87,7 @@ func main() {
 	// Cross-field rule: MaxRequests must be strictly larger than Port.
 	// This is intentionally arbitrary so it's easy to violate in the demo
 	// (Port=8443 and MaxRequests=100 fails; MaxRequests=100_000 passes).
-	mm.Validate = func(mm crud.MetaModel[ExampleConfig], instance ExampleConfig) error {
+	mm.Validate = func(instance ExampleConfig) error {
 		if instance.MaxRequests <= uint64(instance.Port) {
 			return fmt.Errorf("Max requests (%d) must be greater than Port (%d)",
 				instance.MaxRequests, instance.Port)

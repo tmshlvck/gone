@@ -65,8 +65,8 @@ type MetaField struct {
 	FromStrings func(mf MetaField, strs []string, instance any) error
 
 	// FieldValidate runs after FromStrings has populated the field. It
-	// receives only the field's own value (not the whole struct) — use
-	// MetaModel.Validate for cross-field rules. Helpers in
+	// receives only the field's own value — no MetaField, no instance.
+	// Cross-field rules belong on MetaModel.Validate. Helpers in
 	// validators.go (NotEmpty, MinLen, …) plus All(...) for composition.
 	// nil = no validation for this field.
 	FieldValidate Validator
@@ -86,12 +86,13 @@ type MetaModel[T any] struct {
 	GenFormElements func(mm MetaModel[T], instance T) []templ.Component
 	BindForm        func(mm MetaModel[T], form map[string][]string, out *T) error
 
-	// Validate is the user-defined cross-field validator. nil = no
-	// model-level validation. Runs in DefaultBindForm after every
-	// per-field validator passes. A non-nil error becomes the
+	// Validate is the user-defined cross-field validator. It receives
+	// only the populated instance — no MetaModel, no extra context. nil
+	// = no model-level validation. Runs in DefaultBindForm after every
+	// per-field validator passes; a non-nil error becomes the
 	// ValidationErrors entry under ModelLevelKey ("") and rejects the
 	// form submission.
-	Validate func(mm MetaModel[T], instance T) error
+	Validate func(instance T) error
 }
 
 // DeriveMetaModel reflects T, builds default MetaFields, and installs the
@@ -263,7 +264,7 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 			if !fv.IsValid() {
 				continue
 			}
-			if err := mf.FieldValidate(mf, fv.Interface()); err != nil {
+			if err := mf.FieldValidate(fv.Interface()); err != nil {
 				verrs[mf.Name] = err.Error()
 			}
 		}
@@ -271,7 +272,7 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 	// Model-level cross-field validation runs only if every field
 	// passed — otherwise its preconditions may not hold.
 	if len(verrs) == 0 && mm.Validate != nil {
-		if err := mm.Validate(mm, *out); err != nil {
+		if err := mm.Validate(*out); err != nil {
 			verrs[ModelLevelKey] = err.Error()
 		}
 	}

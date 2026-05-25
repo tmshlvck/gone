@@ -38,17 +38,26 @@ func (e ValidationErrors) Error() string {
 	return strings.Join(parts, "; ")
 }
 
-// Validator is the per-field validation hook. It receives the field's
-// metadata and the already-extracted Go-typed value (NOT the whole
-// struct), enforcing one-field-at-a-time separation of concerns.
+// Validator is the per-field validation hook. It receives only the
+// field's value — no MetaField, no surrounding struct. This keeps
+// validators trivially reusable across fields and easy to unit-test.
 //
-// Use it directly as MetaField.FieldValidate, or compose with All.
+// If a custom validator needs context (e.g. the field's DisplayName
+// for an error message), close over it at the point you assign it:
+//
+//	mm.Fields[i].FieldValidate = func(v any) error {
+//	    if v == "" {
+//	        return fmt.Errorf("%s is required", mm.Fields[i].DisplayName)
+//	    }
+//	    return nil
+//	}
+//
 // Cross-field rules belong on MetaModel.Validate instead.
-type Validator = func(mf MetaField, value any) error
+type Validator = func(value any) error
 
 // NotEmpty fails for an empty string (after trimming) or zero-length
 // slice/array/map.
-func NotEmpty(mf MetaField, value any) error {
+func NotEmpty(value any) error {
 	switch v := value.(type) {
 	case string:
 		if strings.TrimSpace(v) == "" {
@@ -64,7 +73,7 @@ func NotEmpty(mf MetaField, value any) error {
 
 // MinLen fails if a string value is shorter than n characters.
 func MinLen(n int) Validator {
-	return func(mf MetaField, value any) error {
+	return func(value any) error {
 		s, ok := value.(string)
 		if !ok {
 			return nil
@@ -78,7 +87,7 @@ func MinLen(n int) Validator {
 
 // MaxLen fails if a string value is longer than n characters.
 func MaxLen(n int) Validator {
-	return func(mf MetaField, value any) error {
+	return func(value any) error {
 		s, ok := value.(string)
 		if !ok {
 			return nil
@@ -93,7 +102,7 @@ func MaxLen(n int) Validator {
 // IntRange fails if an integer value is outside [min, max]. Accepts any
 // of Go's signed or unsigned integer types.
 func IntRange(min, max int64) Validator {
-	return func(mf MetaField, value any) error {
+	return func(value any) error {
 		var n int64
 		switch v := value.(type) {
 		case int:
@@ -128,7 +137,7 @@ func IntRange(min, max int64) Validator {
 
 // FloatRange fails if a float value is outside [min, max].
 func FloatRange(min, max float64) Validator {
-	return func(mf MetaField, value any) error {
+	return func(value any) error {
 		var f float64
 		switch v := value.(type) {
 		case float32:
@@ -150,7 +159,7 @@ var emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 // Email fails for a non-empty string that doesn't match a permissive
 // email regex. Empty strings pass — use NotEmpty separately when
 // required.
-func Email(mf MetaField, value any) error {
+func Email(value any) error {
 	s, ok := value.(string)
 	if !ok || s == "" {
 		return nil
@@ -165,7 +174,7 @@ func Email(mf MetaField, value any) error {
 // is used in the error message ("must be <reason>") and should describe
 // the format in user-friendly terms. Empty strings pass.
 func Pattern(re *regexp.Regexp, reason string) Validator {
-	return func(mf MetaField, value any) error {
+	return func(value any) error {
 		s, ok := value.(string)
 		if !ok || s == "" {
 			return nil
@@ -182,12 +191,12 @@ func Pattern(re *regexp.Regexp, reason string) Validator {
 
 // All composes validators in order. First failure short-circuits.
 func All(vs ...Validator) Validator {
-	return func(mf MetaField, value any) error {
+	return func(value any) error {
 		for _, v := range vs {
 			if v == nil {
 				continue
 			}
-			if err := v(mf, value); err != nil {
+			if err := v(value); err != nil {
 				return err
 			}
 		}

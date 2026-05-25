@@ -7,103 +7,90 @@ import (
 	"testing"
 )
 
-// Validators take MetaField + the field's value (NOT the whole
-// struct). These tests pass the value directly.
-
-func mfFor(name string) MetaField { return MetaField{Name: name} }
+// Validators take only the field's value — no MetaField, no instance.
 
 func TestNotEmpty(t *testing.T) {
-	if err := NotEmpty(mfFor("Name"), ""); err == nil {
+	if err := NotEmpty(""); err == nil {
 		t.Error("empty string should fail")
 	}
-	if err := NotEmpty(mfFor("Name"), "   "); err == nil {
+	if err := NotEmpty("   "); err == nil {
 		t.Error("whitespace-only string should fail")
 	}
-	if err := NotEmpty(mfFor("Name"), "Aragorn"); err != nil {
+	if err := NotEmpty("Aragorn"); err != nil {
 		t.Errorf("non-empty string should pass: %v", err)
 	}
-	if err := NotEmpty(mfFor("Tags"), []string{}); err == nil {
+	if err := NotEmpty([]string{}); err == nil {
 		t.Error("empty slice should fail")
 	}
-	if err := NotEmpty(mfFor("Tags"), []string{"x"}); err != nil {
+	if err := NotEmpty([]string{"x"}); err != nil {
 		t.Errorf("non-empty slice should pass: %v", err)
 	}
 }
 
 func TestMinLen_MaxLen(t *testing.T) {
-	if err := MinLen(3)(mfFor("Name"), "Al"); err == nil {
+	if err := MinLen(3)("Al"); err == nil {
 		t.Error("MinLen(3) should fail for 'Al'")
 	}
-	if err := MinLen(3)(mfFor("Name"), "Aragorn"); err != nil {
+	if err := MinLen(3)("Aragorn"); err != nil {
 		t.Errorf("MinLen(3) should pass for 'Aragorn': %v", err)
 	}
-	if err := MaxLen(10)(mfFor("Name"), strings.Repeat("x", 50)); err == nil {
+	if err := MaxLen(10)(strings.Repeat("x", 50)); err == nil {
 		t.Error("MaxLen(10) should fail for 50 chars")
 	}
 }
 
 func TestIntRange(t *testing.T) {
-	if err := IntRange(10, 20)(mfFor("Age"), 5); err == nil {
+	if err := IntRange(10, 20)(5); err == nil {
 		t.Error("5 should be out of [10,20]")
 	}
-	if err := IntRange(10, 20)(mfFor("Age"), 15); err != nil {
+	if err := IntRange(10, 20)(15); err != nil {
 		t.Errorf("15 should be in [10,20]: %v", err)
 	}
-	if err := IntRange(10, 20)(mfFor("Age"), uint64(21)); err == nil {
+	if err := IntRange(10, 20)(uint64(21)); err == nil {
 		t.Error("uint64(21) should be out of [10,20]")
 	}
 }
 
 func TestFloatRange(t *testing.T) {
-	if err := FloatRange(0.0, 1.0)(mfFor("Score"), 0.5); err != nil {
+	if err := FloatRange(0.0, 1.0)(0.5); err != nil {
 		t.Errorf("0.5 should be in [0,1]: %v", err)
 	}
-	if err := FloatRange(0.0, 1.0)(mfFor("Score"), 1.5); err == nil {
+	if err := FloatRange(0.0, 1.0)(1.5); err == nil {
 		t.Error("1.5 should be out of [0,1]")
 	}
-	if err := FloatRange(0.0, 1.0)(mfFor("Score"), float32(0.25)); err != nil {
+	if err := FloatRange(0.0, 1.0)(float32(0.25)); err != nil {
 		t.Errorf("float32 should be accepted: %v", err)
 	}
 }
 
 func TestEmail(t *testing.T) {
 	// Empty passes (use NotEmpty separately if required).
-	if err := Email(mfFor("Email"), ""); err != nil {
+	if err := Email(""); err != nil {
 		t.Errorf("empty email should pass: %v", err)
 	}
-	if err := Email(mfFor("Email"), "notanemail"); err == nil {
+	if err := Email("notanemail"); err == nil {
 		t.Error("'notanemail' should fail")
 	}
-	if err := Email(mfFor("Email"), "user@example.com"); err != nil {
+	if err := Email("user@example.com"); err != nil {
 		t.Errorf("valid email should pass: %v", err)
 	}
 }
 
 func TestPattern(t *testing.T) {
 	re := regexp.MustCompile(`^[A-Z][a-z]+$`)
-	if err := Pattern(re, "a capitalized word")(mfFor("Name"), "Aragorn"); err != nil {
+	if err := Pattern(re, "a capitalized word")("Aragorn"); err != nil {
 		t.Errorf("'Aragorn' should match: %v", err)
 	}
-	if err := Pattern(re, "a capitalized word")(mfFor("Name"), "aragorn"); err == nil {
+	if err := Pattern(re, "a capitalized word")("aragorn"); err == nil {
 		t.Error("'aragorn' should fail")
 	}
 }
 
 func TestAll_ShortCircuitsOnFirstFailure(t *testing.T) {
 	combined := All(NotEmpty, MinLen(3), MaxLen(5))
-	err := combined(mfFor("Name"), "")
+	err := combined("")
 	if err == nil || !strings.Contains(err.Error(), "required") {
 		t.Errorf("All should report the first failure (required), got: %v", err)
-	}
-}
-
-// Validator separation: NotEmpty should NOT see the whole struct, only
-// the field's value. We can't directly assert "didn't peek", but we can
-// assert it works with a raw value (no instance) — which is exactly the
-// new signature.
-func TestValidatorTakesValueOnly(t *testing.T) {
-	if err := NotEmpty(mfFor("X"), "ok"); err != nil {
-		t.Errorf("NotEmpty should accept a raw string value: %v", err)
 	}
 }
 
@@ -199,7 +186,8 @@ func TestDefaultBindForm_AllPassReturnsNil(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Cross-field MetaModel.Validate hook.
+// Cross-field MetaModel.Validate hook — receives only the populated
+// instance.
 // ──────────────────────────────────────────────────────────────────────────
 
 func TestModelValidate_RunsWhenSet_AndOnlyAfterFieldsPass(t *testing.T) {
@@ -209,9 +197,7 @@ func TestModelValidate_RunsWhenSet_AndOnlyAfterFieldsPass(t *testing.T) {
 			mm.Fields[i].FieldValidate = IntRange(0, 1000) // permissive
 		}
 	}
-	// Cross-field: Title length must equal Count's digit count. Silly
-	// but unambiguously cross-field.
-	mm.Validate = func(mm MetaModel[formModel], v formModel) error {
+	mm.Validate = func(v formModel) error {
 		digits := len(strings.TrimSpace(strings.TrimLeft(itoa(v.Count), "-")))
 		if len(v.Title) != digits {
 			return errors.New("Title length must equal digits in Count")

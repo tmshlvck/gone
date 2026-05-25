@@ -149,7 +149,8 @@ type MetaField struct {
     FromStrings func(mf MetaField, strs []string, instance any) error
 
     // FieldValidate runs after FromStrings (validation pipeline §6.7).
-    FieldValidate func(mf MetaField, instance any) error
+    // Receives only the field's parsed value — no MetaField, no struct.
+    FieldValidate Validator  // == func(value any) error
 
     // Relation-only — wired by the caller after derivation. Used by
     // GenFormElement (option lists) and DisplayValue (short-name lookup).
@@ -194,11 +195,12 @@ type MetaModel[T any] struct {
     // Returns ValidationErrors (which implements error) on failure.
     BindForm func(mm MetaModel[T], form map[string][]string, out *T) error
 
-    // Validate is the user-defined cross-field validator. nil = no
-    // model-level rule. Runs after every per-field validator passes;
-    // a non-nil error is stored under ValidationErrors[""] and
-    // rejects the form. See §6.7.
-    Validate func(mm MetaModel[T], instance T) error
+    // Validate is the user-defined cross-field validator. Receives
+    // only the populated instance — no MetaModel, no extra context.
+    // nil = no model-level rule. Runs after every per-field validator
+    // passes; a non-nil error is stored under ValidationErrors[""]
+    // and rejects the form. See §6.7.
+    Validate func(instance T) error
 }
 
 // DeriveMetaModel builds a MetaModel[T] by reflecting T and installing
@@ -448,21 +450,23 @@ shape so the rendering layer is unchanged.
    `"notatime"` into `time.Time`) records the error under the field's
    name and **skips step 2 for that field** — there is no Go value to
    validate.
-2. **Per-field hook.** `MetaField.FieldValidate(mf, value)` runs only
-   if bind succeeded. The validator receives **only its own value**,
-   not the whole struct — this enforces the one-field-at-a-time
-   separation of concerns. Use the helpers in `crud/validators.go`
-   (`NotEmpty`, `MinLen`, `MaxLen`, `IntRange`, `FloatRange`, `Email`,
-   `Pattern`) or compose with `crud.All(...)`.
+2. **Per-field hook.** `MetaField.FieldValidate(value)` runs only if
+   bind succeeded. The validator receives **only its own value** — no
+   `MetaField`, no surrounding struct, nothing else. If a custom
+   validator needs context (e.g. the field's `DisplayName` for an
+   error message), it closes over that context at the point it's
+   assigned. Use the helpers in `crud/validators.go` (`NotEmpty`,
+   `MinLen`, `MaxLen`, `IntRange`, `FloatRange`, `Email`, `Pattern`)
+   or compose with `crud.All(...)`.
 
 **Across the whole submission, after all fields pass:**
 
-3. **Model-level hook.** `MetaModel.Validate(mm, instance)` is the
-   user-defined cross-field validator. nil = no model-level
-   validation. Runs only when every per-field validator passed
-   (cross-field rules typically assume the inputs are individually
-   valid). On failure, the error is stored under
-   `ValidationErrors[ModelLevelKey]` (the empty string `""`).
+3. **Model-level hook.** `MetaModel.Validate(instance)` is the
+   user-defined cross-field validator. Receives only the populated
+   instance. nil = no model-level validation. Runs only when every
+   per-field validator passed (cross-field rules typically assume the
+   inputs are individually valid). On failure, the error is stored
+   under `ValidationErrors[ModelLevelKey]` (the empty string `""`).
 
 All errors from a single submission accumulate into one
 `ValidationErrors` map. The user sees every per-field problem at once,
@@ -476,16 +480,16 @@ const ModelLevelKey = ""
 
 func (e ValidationErrors) Error() string  // "field: msg; field: msg; …"
 
-// Validator signature — takes the field's value, NOT the whole struct.
-type Validator = func(mf MetaField, value any) error
+// Validator signature — value only, no metadata.
+type Validator = func(value any) error
 
 // Built-in validators
-func NotEmpty(mf MetaField, value any) error
+func NotEmpty(value any) error
 func MinLen(n int) Validator
 func MaxLen(n int) Validator
 func IntRange(min, max int64) Validator
 func FloatRange(min, max float64) Validator
-func Email(mf MetaField, value any) error
+func Email(value any) error
 func Pattern(re *regexp.Regexp, reason string) Validator
 func All(vs ...Validator) Validator  // first failure wins
 ```
