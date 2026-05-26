@@ -50,18 +50,29 @@ type MetaField struct {
 	Sortable      bool // column header is a sort link
 	Searchable    bool // included in case-insensitive substring search
 
+	// Relation metadata — populated by DeriveMetaModel from reflection +
+	// gorm tags. RelatedCRUD is left nil; the caller wires it after
+	// derivation (because the related CRUD usually lives in the
+	// application, not the model package).
+	RelationKind   RelationKind
+	RelatedCRUD    CRUDTableInterface
+	FKFieldName    string // RelationSingle only — sibling FK uint, e.g. "OwnerID" for "Owner Hero"
+	FormFieldName  string // POST form key for the input (defaults to Name; relation single uses FKFieldName)
+
 	// DisplayValue renders the field's typed Go value as a templ.Component
 	// (a single table cell or dump entry). value is the already-extracted
 	// field value, not the whole instance.
 	DisplayValue func(mf MetaField, value any) templ.Component
 
 	// GenFormElement renders an <input> / <select> / etc. pre-filled with
-	// value. Form name attribute is mf.Name.
+	// value. Form name attribute is mf.Name (or mf.FormFieldName for
+	// relations).
 	GenFormElement func(mf MetaField, value any) templ.Component
 
 	// FromStrings parses wire form values into the field's Go type and
-	// writes them into instance via reflection. strs is form[mf.Name];
-	// an empty slice means the field was absent (e.g. unchecked checkbox).
+	// writes them into instance via reflection. strs is form[mf.Name]
+	// (or form[mf.FormFieldName] for relations); an empty slice means the
+	// field was absent (e.g. unchecked checkbox).
 	FromStrings func(mf MetaField, strs []string, instance any) error
 
 	// FieldValidate runs after FromStrings has populated the field. It
@@ -136,6 +147,22 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 		mm.Fields = append(mm.Fields, deriveField(f))
 	}
 
+	// Post-process: hide FK fields that already drive a sibling relation.
+	// E.g. for `Owner Hero` + `OwnerID uint`, the Owner field carries the
+	// <select> with name="OwnerID"; the bare OwnerID field would otherwise
+	// render a duplicate number input.
+	fkOwners := map[string]bool{}
+	for _, mf := range mm.Fields {
+		if mf.RelationKind == RelationSingle && mf.FKFieldName != "" {
+			fkOwners[mf.FKFieldName] = true
+		}
+	}
+	for i := range mm.Fields {
+		if fkOwners[mm.Fields[i].Name] {
+			mm.Fields[i].Hidden = true
+		}
+	}
+
 	mm.DisplayValues = DefaultDisplayValues[T]
 	mm.GenFormElements = DefaultGenFormElements[T]
 	mm.BindForm = DefaultBindForm[T]
@@ -144,17 +171,61 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 }
 
 func deriveField(f reflect.StructField) MetaField {
-	return MetaField{
+	mf := MetaField{
 		Name:           f.Name,
 		DivID:          "field_" + strings.ToLower(f.Name) + "_" + randSuffix(),
 		DisplayName:    f.Name,
 		FormInputType:  inputTypeFor(f.Type),
 		Sortable:       isSortableKind(f.Type),
 		Searchable:     isSearchableKind(f.Type),
+		FormFieldName:  f.Name,
 		DisplayValue:   DefaultDisplayValue,
 		GenFormElement: DefaultGenFormElement,
 		FromStrings:    DefaultFromStrings,
 	}
+
+	// Detect relations: struct (non-time.Time) → single; slice-of-struct
+	// → many2many or has-many based on the gorm tag.
+	t := f.Type
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	timeType := reflect.TypeOf(time.Time{})
+	gormTag := f.Tag.Get("gorm")
+
+	switch {
+	case t.Kind() == reflect.Struct && t != timeType:
+		mf.RelationKind = RelationSingle
+		mf.FKFieldName = f.Name + "ID"
+		mf.FormFieldName = mf.FKFieldName
+		mf.DisplayValue = relationSingleDisplay
+		mf.GenFormElement = relationSingleFormElement
+		mf.FromStrings = relationSingleFromStrings
+		mf.Sortable = false
+		mf.Searchable = false
+	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Struct && t.Elem() != timeType:
+		// Distinguish many2many vs has-many via the gorm tag.
+		switch {
+		case strings.Contains(gormTag, "many2many"):
+			mf.RelationKind = RelationMany2Many
+			mf.Multiple = true
+			mf.DisplayValue = relationMultipleDisplay
+			mf.GenFormElement = relationMultipleFormElement
+			mf.FromStrings = relationMultipleFromStrings
+		default:
+			// foreignKey:... or no tag — treat as has-many: read-only on
+			// the parent form, but visible in the dump/list.
+			mf.RelationKind = RelationHasMany
+			mf.Multiple = true
+			mf.ReadOnly = true
+			mf.DisplayValue = relationMultipleDisplay
+			mf.GenFormElement = nil // never rendered (ReadOnly)
+			mf.FromStrings = relationHasManyFromStrings
+		}
+		mf.Sortable = false
+		mf.Searchable = false
+	}
+	return mf
 }
 
 func isSortableKind(t reflect.Type) bool {
@@ -226,6 +297,9 @@ func DefaultDisplayValues[T any](mm MetaModel[T], instance T) []templ.Component 
 }
 
 // DefaultGenFormElements is the form analogue of DefaultDisplayValues.
+// For RelationSingle fields, the renderer needs the FK uint rather than
+// the embedded struct value, so this walks the sibling FKFieldName when
+// present and passes the uint to the hook.
 func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Component {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
@@ -236,11 +310,23 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 		if mf.Hidden {
 			continue
 		}
-		fv := rv.FieldByName(mf.Name)
-		if !fv.IsValid() {
+		if mf.GenFormElement == nil {
 			continue
 		}
-		out[i] = mf.GenFormElement(mf, fv.Interface())
+		var argVal any
+		if mf.RelationKind == RelationSingle && mf.FKFieldName != "" {
+			fk := rv.FieldByName(mf.FKFieldName)
+			if fk.IsValid() {
+				argVal = fk.Interface()
+			}
+		} else {
+			fv := rv.FieldByName(mf.Name)
+			if !fv.IsValid() {
+				continue
+			}
+			argVal = fv.Interface()
+		}
+		out[i] = mf.GenFormElement(mf, argVal)
 	}
 	return out
 }
@@ -266,7 +352,13 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 		if mf.Hidden || mf.ReadOnly {
 			continue
 		}
-		strs := form[mf.Name]
+		// Relations carry IDs under FormFieldName (the FK for single, the
+		// relation name for many2many). Scalars use the bare field name.
+		key := mf.FormFieldName
+		if key == "" {
+			key = mf.Name
+		}
+		strs := form[key]
 		if err := mf.FromStrings(mf, strs, out); err != nil {
 			verrs[mf.Name] = err.Error()
 			continue

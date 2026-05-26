@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -360,6 +361,25 @@ func isHTMXRequest(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
+// isOnOwnPage reports whether the HTMX request originated from a page
+// that contains this CRUDTable's list view. We use HX-Current-URL,
+// which HTMX sets to the browser's current URL. When the request came
+// from a different page (e.g. a "+ new" button in a foreign relation
+// widget) we cannot swap the list fragment because the target div
+// isn't in the DOM — callers downgrade to "close modal, no swap" in
+// that case. Browser (non-HTMX) submits return true: they redirect.
+func (c *CRUDTable[T]) isOnOwnPage(r *http.Request) bool {
+	cur := r.Header.Get("HX-Current-URL")
+	if cur == "" {
+		return true
+	}
+	u, err := url.Parse(cur)
+	if err != nil {
+		return true
+	}
+	return strings.HasPrefix(u.Path, c.URLBase)
+}
+
 // authzGate returns true (and lets the handler run) when the requesting
 // user is allowed to perform the named action. Denials send 403 and
 // return false. action ∈ {"list","read","create","update","delete"}.
@@ -577,6 +597,13 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		// Return the updated rows fragment; close the modal client-side
 		// via the bridged event handler.
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q}`, c.ModalID))
+		if !c.isOnOwnPage(r) {
+			// Cross-page create (e.g. opened from a relation "+" button).
+			// The list fragment can't go anywhere — there's no table on
+			// the current page. Close the modal and swap nothing.
+			w.Header().Set("HX-Reswap", "none")
+			return "", nil
+		}
 		d, err := c.buildTableViewData(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

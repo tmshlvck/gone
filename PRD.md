@@ -432,11 +432,14 @@ now both paths render through the same shared `FormView` templ.
   `Searchable` fields) and sort (any comparable kind + `time.Time`).
   The mutex protects the whole map. Keeps a struct's `ID` field in
   sync with the map key if present.
-- **`DeriveGormCRUDTable[T]`** *(TBD)* — reads/writes via `*gorm.DB`.
-  Preloads top-level relations via `clause.Associations` on detail
-  reads; flat on list reads. Search compiles to `db.Where("col LIKE ?
-  OR col2 LIKE ?", q, q)` against `Searchable` fields enumerated from
-  the schema at Derive time.
+- **`DeriveGormCRUDTable[T]`** — reads/writes via `*gorm.DB`.
+  Preloads `clause.Associations` on both detail and list reads (the
+  table view needs the related short-names to render). Search compiles
+  to `db.Where("col LIKE ? OR col2 LIKE ?", needle, needle)` against
+  `Searchable` field columns resolved through GORM's NamingStrategy at
+  Derive time. Updates wrap `Save` in a transaction with one
+  `Association(<m2m>).Replace(slice)` per RelationMany2Many field, so
+  the picker selections persist atomically.
 - ~~**`DeriveStructCRUDTable[T]`**~~ — removed. Earlier drafts
   speculated a "table" backed by a single `*T` instance, but a struct
   isn't a table. The single-instance use case is fully covered by
@@ -450,11 +453,16 @@ HTTP response.
 **Implementation status (2026-05-26):** `CRUDTable[T]`, `Route`
 (partials only, no PageShell), `RenderComponent`, GET /{id}/display
 (barebone fragment), `DisplayView` / `TableView` / `FormView` (the
-two single-instance views are barebone), `DeriveMapCRUDTable[T]`, and
-`AuthzInterface` wired into every route ship and are exercised by
-`examples/crud_mem` and `examples/form_mem`. `CRUDTableInterface`'s
-`SearchOptions` / `GetOptionsByID` are deferred until the first
-relation example needs them. `DeriveGormCRUDTable` is the next backend.
+two single-instance views are barebone), `DeriveMapCRUDTable[T]`,
+`DeriveGormCRUDTable[T]`, `AuthzInterface` wired into every route,
+and the relation pipeline (`CRUDTableInterface`, `DefaultShortValue`,
+`MetaField.RelatedCRUD`, `RelationKind` detection in `DeriveMetaModel`,
+auto-hide of sibling FK fields, `<select>` + multi-`<select>` form
+elements, "+ new" relation-create button, cross-page modal handling
+in `handleCreatePost`) all ship. Exercised by `examples/crud_mem`,
+`examples/form_mem`, and `examples/crud_gorm` (the latter with
+Hero/Weapon/Skill — 1:N + N:M relations, ~50/60/12 seeded rows for
+pagination).
 
 **Open: URLBase plurality.** Default is `"/" + strings.ToLower(mm.Name)`
 which gives `/hero` for `Hero`. Apps almost always want `/heroes`. The
