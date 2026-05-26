@@ -79,25 +79,26 @@ func main() {
 	}
 	mm.DisplayName = "Heroes"
 
-	// Per-field tweaks reach each MetaField via FindField; the helper
-	// `must` panics on a typo so a renamed model surfaces immediately.
+	// Per-field tweaks reach each MetaField via MustFindField, which
+	// panics on a typo so a renamed model surfaces immediately (stdlib
+	// regexp.MustCompile precedent — same idiom).
 	{
-		f := must(mm.FindField("ID"))
+		f := mm.MustFindField("ID")
 		f.ReadOnly = true
 		f.Sortable = true
 	}
 	{
-		f := must(mm.FindField("Name"))
+		f := mm.MustFindField("Name")
 		f.FormHelp = "Display name, 2–30 characters."
 		f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))
 	}
 	{
-		f := must(mm.FindField("Realm"))
+		f := mm.MustFindField("Realm")
 		f.FormHelp = "Origin (e.g. Gondor, Mirkwood)."
 		f.FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
 	}
 	{
-		f := must(mm.FindField("Power"))
+		f := mm.MustFindField("Power")
 		f.FormHelp = "Power level, 0–100."
 		f.FieldValidate = crud.IntRange(0, 100)
 	}
@@ -133,12 +134,3 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-// must returns f, exiting fatally if err != nil — convenient with
-// MetaModel.FindField for one-line per-field setup. Field-name typos
-// surface as a clean log.Fatal at startup, not at form render.
-func must(f *crud.MetaField, err error) *crud.MetaField {
-	if err != nil {
-		log.Fatal(err)
-	}
-	return f
-}

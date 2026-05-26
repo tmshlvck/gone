@@ -140,19 +140,13 @@ func pickN[T any](rng *rand.Rand, src []T, n int) []T {
 	return out
 }
 
-// must returns f after fatally logging err — convenient for one-line
-// per-field setup via FindField: must(mm.FindField("Name")).FormHelp = …
-func must(f *crud.MetaField, err error) *crud.MetaField {
-	if err != nil {
-		log.Fatal(err)
-	}
-	return f
-}
-
 // buildTables derives the three CRUDTables, configures every MetaField
 // in one place (no per-model helpers — every customization is reachable
 // from this function), and wires the cross-table RelatedCRUD pointers
 // so relation pickers know which CRUD to pull options from.
+//
+// MustFindField panics on a typo / renamed field, so the program
+// fails fast at startup rather than at form-render time.
 func buildTables(db *gorm.DB) (
 	heroTable crud.CRUDTable[Hero],
 	weaponTable crud.CRUDTable[Weapon],
@@ -175,53 +169,53 @@ func buildTables(db *gorm.DB) (
 	skillMM.DisplayName = "Skills"
 
 	// Hero MetaFields.
-	must(heroMM.FindField("ID")).ReadOnly = true
+	heroMM.MustFindField("ID").ReadOnly = true
 	{
-		f := must(heroMM.FindField("Name"))
+		f := heroMM.MustFindField("Name")
 		f.FormHelp = "Display name, 2–40 characters."
 		f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(40))
 	}
 	{
-		f := must(heroMM.FindField("Realm"))
+		f := heroMM.MustFindField("Realm")
 		f.FormHelp = "Origin (e.g. Gondor, Mirkwood)."
 		f.FieldValidate = crud.MaxLen(40)
 	}
 	{
-		f := must(heroMM.FindField("Power"))
+		f := heroMM.MustFindField("Power")
 		f.FormHelp = "Power level, 0–100."
 		f.FieldValidate = crud.IntRange(0, 100)
 	}
 	{
-		f := must(heroMM.FindField("Weapons"))
+		f := heroMM.MustFindField("Weapons")
 		f.DisplayName = "Weapons (read-only)"
 		f.FormHelp = "Edit weapons individually via /weapons."
 	}
-	must(heroMM.FindField("Skills")).FormHelp = "Hold Ctrl/Cmd to pick multiple."
+	heroMM.MustFindField("Skills").FormHelp = "Hold Ctrl/Cmd to pick multiple."
 
 	// Weapon MetaFields.
-	must(weaponMM.FindField("ID")).ReadOnly = true
-	must(weaponMM.FindField("Name")).FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(50))
-	must(weaponMM.FindField("Kind")).FormHelp = "Weapon type (sword, axe, …)."
+	weaponMM.MustFindField("ID").ReadOnly = true
+	weaponMM.MustFindField("Name").FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(50))
+	weaponMM.MustFindField("Kind").FormHelp = "Weapon type (sword, axe, …)."
 	{
-		f := must(weaponMM.FindField("Damage"))
+		f := weaponMM.MustFindField("Damage")
 		f.FormHelp = "Damage rating, 1–100."
 		f.FieldValidate = crud.IntRange(0, 100)
 	}
-	must(weaponMM.FindField("Owner")).FormHelp = "Wielder. Pick one or use + to create a new hero."
+	weaponMM.MustFindField("Owner").FormHelp = "Wielder. Pick one or use + to create a new hero."
 
 	// Skill MetaFields.
-	must(skillMM.FindField("ID")).ReadOnly = true
-	must(skillMM.FindField("Name")).FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
-	must(skillMM.FindField("School")).FormHelp = "Combat / Magic / Roguery / ..."
+	skillMM.MustFindField("ID").ReadOnly = true
+	skillMM.MustFindField("Name").FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
+	skillMM.MustFindField("School").FormHelp = "Combat / Magic / Roguery / ..."
 	{
-		f := must(skillMM.FindField("Level"))
+		f := skillMM.MustFindField("Level")
 		f.FormHelp = "Mastery, 1–10."
 		f.FieldValidate = crud.IntRange(0, 10)
 	}
 	// Skill ↔ Hero is m2m editable in principle, but the app flow
 	// assigns skills via the Hero form — keep Heroes ReadOnly so it
 	// shows in the dump but is skipped in the Skill form.
-	must(skillMM.FindField("Heroes")).ReadOnly = true
+	skillMM.MustFindField("Heroes").ReadOnly = true
 
 	// Now build the CRUDTables. RelatedCRUD must be set AFTER this step
 	// because we need the CRUDTable pointers to satisfy the interface.
@@ -235,10 +229,10 @@ func buildTables(db *gorm.DB) (
 	weaponTable.PageSize = 10
 	skillTable.PageSize = 8
 
-	must(heroTable.MetaData.FindField("Weapons")).RelatedCRUD = &weaponTable
-	must(heroTable.MetaData.FindField("Skills")).RelatedCRUD = &skillTable
-	must(weaponTable.MetaData.FindField("Owner")).RelatedCRUD = &heroTable
-	must(skillTable.MetaData.FindField("Heroes")).RelatedCRUD = &heroTable
+	heroTable.MetaData.MustFindField("Weapons").RelatedCRUD = &weaponTable
+	heroTable.MetaData.MustFindField("Skills").RelatedCRUD = &skillTable
+	weaponTable.MetaData.MustFindField("Owner").RelatedCRUD = &heroTable
+	skillTable.MetaData.MustFindField("Heroes").RelatedCRUD = &heroTable
 	return
 }
 

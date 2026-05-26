@@ -162,6 +162,20 @@ func TestFindField(t *testing.T) {
 	}
 }
 
+func TestMustFindField(t *testing.T) {
+	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm.MustFindField("Port").FormHelp = "TCP port"
+	if mm.Fields[1].FormHelp != "TCP port" {
+		t.Errorf("MustFindField did not mutate in place")
+	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("MustFindField should panic on missing field")
+		}
+	}()
+	mm.MustFindField("Nope")
+}
+
 func TestDefaultDisplayValues_RenderShape(t *testing.T) {
 	mm, _ := DeriveMetaModel[sampleConfig]()
 	v := sampleConfig{

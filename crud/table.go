@@ -355,29 +355,6 @@ func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) 
 // redirect / error directly and returns ("", nil) to signal "no fragment".
 type handlerFunc func(w http.ResponseWriter, r *http.Request) (title string, fragment templ.Component)
 
-// isHTMXRequest reports whether r came from HTMX (so we should respond
-// with a partial fragment instead of redirecting).
-func isHTMXRequest(r *http.Request) bool {
-	return r.Header.Get("HX-Request") == "true"
-}
-
-// modalIDsFromHeader returns (modal, body) IDs based on the originating
-// HX-Target header.
-//   - HX-Target == ModalL2BodyID → L2 (nested "+ create new" from a
-//     relation picker inside an L1 form).
-//   - anything else → L1 (table's own create/edit modal).
-//
-// HTMX sets HX-Target to the id attribute of the element targeted by
-// hx-target. The library renders the +Create / per-row edit buttons
-// with hx-target=#ModalL1BodyID and the relation "+" button with
-// hx-target=#ModalL2BodyID, so the level is unambiguous.
-func modalIDsFromHeader(r *http.Request) (modalID, bodyID string) {
-	target := r.Header.Get("HX-Target")
-	if target == ModalL2BodyID {
-		return ModalL2ID, ModalL2BodyID
-	}
-	return ModalL1ID, ModalL1BodyID
-}
 
 // authzGate returns true (and lets the handler run) when the requesting
 // user is allowed to perform the named action. Denials send 403 and
@@ -536,30 +513,6 @@ func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]st
 		d.HXTarget = "#" + bodyID
 	}
 	return FormView(d)
-}
-
-// splitValidationErr separates a BindForm error into (perField, modelLevel).
-// When err is ValidationErrors:
-//   - the entry under ModelLevelKey ("") becomes the modelLevel message
-//     and is removed from the per-field map (so it isn't rendered twice).
-//   - the remaining entries drive per-field rendering.
-// Any other error type becomes a model-level message above the form.
-func splitValidationErr(err error) (map[string]string, string) {
-	if err == nil {
-		return nil, ""
-	}
-	var verrs ValidationErrors
-	if errors.As(err, &verrs) {
-		modelErr := verrs[ModelLevelKey]
-		fieldErrs := make(map[string]string, len(verrs))
-		for k, v := range verrs {
-			if k != ModelLevelKey {
-				fieldErrs[k] = v
-			}
-		}
-		return fieldErrs, modelErr
-	}
-	return nil, err.Error()
 }
 
 func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -750,14 +703,3 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 	return "", nil
 }
 
-func parseID(r *http.Request) (uint, bool) {
-	s := r.PathValue("id")
-	n, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return uint(n), true
-}
-
-// guard against unused imports if the file is trimmed.
-var _ = fmt.Sprintf

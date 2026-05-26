@@ -123,12 +123,11 @@ type MetaModel[T any] struct {
 // FindField returns a pointer to the named MetaField on mm so callers
 // can tweak per-field settings (FormHelp, FieldValidate, ReadOnly,
 // RelatedCRUD, …) without iterating the slice themselves. Returns an
-// error if no field matches — typically a programming error (typo /
-// renamed model), so callers usually wrap with a fail-fast helper.
+// error if no field matches.
 //
-//	if f, err := mm.FindField("Name"); err == nil {
-//	    f.FormHelp = "Display name, 2–30 characters."
-//	}
+//	f, err := mm.FindField("Name")
+//	if err != nil { return err }
+//	f.FormHelp = "Display name, 2–30 characters."
 func (mm *MetaModel[T]) FindField(name string) (*MetaField, error) {
 	for i := range mm.Fields {
 		if mm.Fields[i].Name == name {
@@ -136,6 +135,20 @@ func (mm *MetaModel[T]) FindField(name string) (*MetaField, error) {
 		}
 	}
 	return nil, fmt.Errorf("MetaModel(%s).FindField: no field %q", mm.Name, name)
+}
+
+// MustFindField is the panic-on-error variant of FindField — modeled on
+// stdlib's regexp.MustCompile. A missing field is almost always a
+// typo or a stale reference to a renamed model, so panicking at
+// startup is usually what callers want:
+//
+//	mm.MustFindField("Name").FormHelp = "Display name, 2–30 characters."
+func (mm *MetaModel[T]) MustFindField(name string) *MetaField {
+	f, err := mm.FindField(name)
+	if err != nil {
+		panic(err)
+	}
+	return f
 }
 
 // DeriveMetaModel reflects T, builds default MetaFields, and installs the

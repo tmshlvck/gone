@@ -59,39 +59,39 @@ func main() {
 	mm.HXTarget = hxTarget
 
 	// Per-field metadata: display names, help text, and field validators
-	// — each tweak reaches its field via MetaModel.FindField, so a typo
-	// surfaces as a startup log.Fatal rather than a silently-skipped case.
+	// — each tweak reaches its field via MetaModel.MustFindField, which
+	// panics on a typo so a renamed model surfaces immediately.
 	{
-		f := must(mm.FindField("Hostname"))
+		f := mm.MustFindField("Hostname")
 		f.FormHelp = "FQDN or short host, 1–253 chars."
 		f.FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(253))
 	}
 	{
-		f := must(mm.FindField("BindAddress"))
+		f := mm.MustFindField("BindAddress")
 		f.DisplayName = "Bind address"
 		f.FormHelp = "IPv4 or IPv6 the server listens on."
 		f.FieldValidate = crud.NotEmpty
 	}
 	{
-		f := must(mm.FindField("Port"))
+		f := mm.MustFindField("Port")
 		f.FormHelp = "TCP port, 1–65535."
 		f.FieldValidate = crud.IntRange(1, 65535)
 	}
-	must(mm.FindField("EnableTLS")).DisplayName = "TLS enabled"
+	mm.MustFindField("EnableTLS").DisplayName = "TLS enabled"
 	{
-		f := must(mm.FindField("MaxRequests"))
+		f := mm.MustFindField("MaxRequests")
 		f.DisplayName = "Max requests"
 		f.FormHelp = "Concurrent request cap, must exceed the port number."
 		f.FieldValidate = crud.IntRange(1, 10_000_000)
 	}
 	{
-		f := must(mm.FindField("Threshold"))
+		f := mm.MustFindField("Threshold")
 		f.FormHelp = "CPU load shed threshold, 0.0–1.0."
 		f.FieldValidate = crud.FloatRange(0.0, 1.0)
 	}
-	must(mm.FindField("StartTime")).DisplayName = "Start time"
+	mm.MustFindField("StartTime").DisplayName = "Start time"
 	{
-		f := must(mm.FindField("AdminEmail"))
+		f := mm.MustFindField("AdminEmail")
 		f.DisplayName = "Admin email"
 		f.FormInputType = "email"
 		f.FieldValidate = crud.All(crud.NotEmpty, crud.Email)
@@ -147,12 +147,3 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-// must returns f, exiting fatally if err != nil — convenient with
-// MetaModel.FindField for one-line per-field setup. Field-name typos
-// surface as a clean log.Fatal at startup, not at form render.
-func must(f *crud.MetaField, err error) *crud.MetaField {
-	if err != nil {
-		log.Fatal(err)
-	}
-	return f
-}
