@@ -7,14 +7,16 @@ import (
 
 // ──────────────────────────────────────────────────────────────────────────
 // View data structs
+//
+// DisplayViewData and FormViewData are intentionally MINIMAL. Each carries
+// only the data the templ needs to render the field rows. URLs and chrome
+// (card wrapper, Edit / Cancel buttons, page title) live on the caller —
+// the library's Render*Component methods read those from MetaModel.
 // ──────────────────────────────────────────────────────────────────────────
 
-type DumpViewData struct {
-	DisplayName  string
-	EditURL      string // empty disables the Edit link
-	EditHXTarget string // if set, the Edit link uses hx-get into this target
-	Fields       []MetaField
-	Cells        []templ.Component // parallel to Fields; nil for Hidden
+type DisplayViewData struct {
+	Fields []MetaField
+	Cells  []templ.Component // parallel to Fields; nil for Hidden
 }
 
 type TableViewData struct {
@@ -45,10 +47,9 @@ type TableRow struct {
 }
 
 type FormViewData struct {
-	DisplayName string
-	ActionURL   string // form POST target
-	BackURL     string // optional "back" link
-	SubmitText  string
+	DisplayName string            // optional form title; empty = no <h3>
+	ActionURL   string            // form POST target
+	SubmitText  string            // submit button label
 	Fields      []MetaField
 	Inputs      []templ.Component // parallel to Fields; nil for Hidden/ReadOnly
 	ErrMsg      string            // model-level error (cross-field, save failed, …)
@@ -59,57 +60,33 @@ type FormViewData struct {
 	// element. The browser fallback (non-HTMX) still works via the
 	// regular form action.
 	HXTarget string
-
-	// WrapInCard adds a DaisyUI card wrapper around the form. Set true
-	// for inline use (the form needs its own chrome); leave false when
-	// the form is rendered inside a modal-box that already provides
-	// chrome.
-	WrapInCard bool
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// DumpView — single-instance key/value rendering.
+// DisplayView — barebone key/value table for a single instance.
+// No card, no Edit button, no header. Caller wraps in whatever chrome
+// they want (modal-box, card, plain page).
 // ──────────────────────────────────────────────────────────────────────────
 
-templ DumpView(d DumpViewData) {
-	<div class="card bg-base-100 shadow">
-		<div class="card-body">
-			<div class="flex items-center justify-between mb-2">
-				<h2 class="card-title">{ d.DisplayName }</h2>
-				if d.EditURL != "" {
-					if d.EditHXTarget != "" {
-						<button
-							class="btn btn-outline btn-primary btn-sm"
-							hx-get={ d.EditURL }
-							hx-target={ d.EditHXTarget }
-							hx-swap="innerHTML"
-						>Edit</button>
-					} else {
-						<a href={ templ.URL(d.EditURL) } class="btn btn-outline btn-primary btn-sm">Edit</a>
-					}
+templ DisplayView(d DisplayViewData) {
+	<table class="table table-zebra">
+		<tbody>
+			for i, mf := range d.Fields {
+				if !mf.Hidden {
+					<tr>
+						<th class="w-1/3">{ mf.DisplayName }</th>
+						<td>@d.Cells[i]</td>
+					</tr>
 				}
-			</div>
-			<table class="table table-zebra">
-				<tbody>
-					for i, mf := range d.Fields {
-						if !mf.Hidden {
-							<tr>
-								<th class="w-1/3">{ mf.DisplayName }</th>
-								<td>@d.Cells[i]</td>
-							</tr>
-						}
-					}
-				</tbody>
-			</table>
-		</div>
-	</div>
+			}
+		</tbody>
+	</table>
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// TableView — full list page. #crud-list wraps the table + footer so a
-// single HTMX swap refreshes all of: rows, count, pagination. The search
-// input and + Create button sit outside the swap target so they survive
-// page transitions.
+// TableView — full list view with search, sort, pagination, and per-row
+// action buttons. #crud-list wraps the table + footer so a single HTMX
+// swap refreshes all of: rows, count, pagination.
 // ──────────────────────────────────────────────────────────────────────────
 
 templ TableView(d TableViewData) {
@@ -291,22 +268,14 @@ templ modalWrapper(modalID, contentID string) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// FormView — works inline OR inside a modal depending on HXTarget.
+// FormView — barebone form. No card, no Cancel/Back link. Caller wraps
+// in whatever chrome the page needs (modal-box for CRUDTable's modal,
+// a card for form_mem's inline view, etc.). The optional title sits
+// inside the form because it's tied to the form's purpose ("Edit X" /
+// "Create X"); the caller can leave d.DisplayName empty to omit it.
 // ──────────────────────────────────────────────────────────────────────────
 
 templ FormView(d FormViewData) {
-	if d.WrapInCard {
-		<div class="card bg-base-100 shadow">
-			<div class="card-body">
-				@formInner(d)
-			</div>
-		</div>
-	} else {
-		@formInner(d)
-	}
-}
-
-templ formInner(d FormViewData) {
 	if d.DisplayName != "" {
 		<h3 class="font-bold text-lg mb-2">{ d.DisplayName }</h3>
 	}
@@ -339,11 +308,8 @@ templ formBody(d FormViewData) {
 			@fieldRow(d, mf, d.Inputs[i])
 		}
 	}
-	<div class="flex gap-2 mt-4">
+	<div class="mt-4">
 		<button type="submit" class="btn btn-outline btn-primary">{ d.SubmitText }</button>
-		if d.BackURL != "" {
-			<a href={ templ.URL(d.BackURL) } class="btn btn-ghost">Cancel</a>
-		}
 	</div>
 }
 

@@ -266,15 +266,15 @@ func TestRowDisplayPartial(t *testing.T) {
 	if !strings.Contains(body, "Gondor") {
 		t.Errorf("expected Gondor in /1/display body: %s", body)
 	}
-	// Edit button hx-gets into the modal-content container.
-	if !strings.Contains(body, `hx-get="/items/1/edit"`) {
-		t.Errorf("expected Edit button hx-get to /items/1/edit: %s", body)
-	}
-	// No page chrome — partial only.
-	for _, forbidden := range []string{"<html", "<body"} {
+	// The display fragment is barebone — just the data table, no
+	// card/Edit button. Chrome is the caller's job.
+	for _, forbidden := range []string{"<html", "<body", "card-body", `hx-get="/items/1/edit"`} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("/display fragment must not include %q", forbidden)
 		}
+	}
+	if !strings.Contains(body, "<table") {
+		t.Errorf("/display should contain the data <table>: %s", body)
 	}
 }
 

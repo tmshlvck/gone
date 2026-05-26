@@ -185,6 +185,19 @@ type MetaModel[T any] struct {
     DivID       string           // "model_<lcname>_<rand>"
     DisplayName string           // table + form label; default: type name
 
+    // URLs + HTMX swap target. RouteForm / RouteDisplay register
+    // handlers at these URLs; Render*Component embeds them into the
+    // rendered fragment (form action, hx-post, hx-target). All three
+    // may be empty for a MetaModel embedded into a CRUDTable — the
+    // table has its own per-row URLs.
+    FormURL    string  // POST target; GET also serves the form fragment
+    DisplayURL string  // GET serves the display fragment
+    HXTarget   string  // HTMX swap container id (e.g. "#main-content")
+
+    // Authz gates every handler RouteForm / RouteDisplay register.
+    // nil = AllowAll. See §6.5.
+    Authz AuthzInterface
+
     // Model-level walks. Default implementations iterate Fields and call
     // each field's hook with the field's reflected value.
     DisplayValues   func(mm MetaModel[T], instance T) []templ.Component
@@ -206,7 +219,7 @@ type MetaModel[T any] struct {
 // DeriveMetaModel builds a MetaModel[T] by reflecting T and installing
 // default hooks. Callers post-mutate to override individual fields
 // (DisplayName, FormInputType, ReadOnly, FieldValidate, FormHelp) or the
-// model-level hooks (Validate).
+// model-level hooks (Validate, URLs, HXTarget, Authz).
 func DeriveMetaModel[T any]() (MetaModel[T], error)
 
 // DefaultDisplayValues / DefaultGenFormElements / DefaultBindForm are
@@ -217,44 +230,54 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) error
 ```
 
-**Component renderers** — embed the model in the app's own page templ:
+**Component renderers** — embed the model in the app's own page templ.
+Both renderers return **barebone** fragments: just the data table /
+form fields, no card wrap, no Edit/Cancel/Back chrome, no page title
+in the dump. The caller's pageShell (or CRUDTable's modal-box) supplies
+chrome. URLs and the HTMX swap target come from the MetaModel struct,
+not per-call ViewData — that way the declarative model carries enough
+to render itself without per-render boilerplate.
 
 ```go
-// RenderDisplayComponent returns the dump fragment for an instance.
-// Caller fills in DisplayName / EditURL / EditHXTarget on the
-// DumpViewData; the model fills in Fields and Cells.
-func (mm *MetaModel[T]) RenderDisplayComponent(instance T, d DumpViewData) templ.Component
+// RenderDisplayComponent returns the barebone display fragment for an
+// instance — just the field/value table. r is reserved for future
+// authz-driven rendering decisions (locale, hide-on-deny, …).
+func (mm *MetaModel[T]) RenderDisplayComponent(r *http.Request, instance T) templ.Component
 
-// RenderFormComponent returns the form fragment for an instance. The
-// caller fills in DisplayName / ActionURL / HXTarget / SubmitText /
-// WrapInCard / FieldErrors / ErrMsg on the FormViewData; the model
-// fills in Fields and Inputs. WrapInCard=true for inline use,
-// false when the form lives inside a modal-box that already
-// provides chrome (CRUDTable's modal flow).
-func (mm *MetaModel[T]) RenderFormComponent(instance T, d FormViewData) templ.Component
+// RenderFormComponent returns the barebone form fragment. The form's
+// title is "Edit <DisplayName>" (intrinsic to the action); action URL
+// and hx-target come from mm.FormURL / mm.HXTarget. fieldErrors /
+// modelErr drive the validation feedback (nil/"" = fresh form).
+func (mm *MetaModel[T]) RenderFormComponent(
+    r *http.Request,
+    instance T,
+    fieldErrors map[string]string,
+    modelErr string,
+) templ.Component
 ```
 
-**Partial-endpoint mounters** — register fragment-only HTTP handlers.
-No PageShell, no full-page wrapping. The app owns the page route(s)
-that embed the components above:
+**Partial-endpoint mounters** — register fragment-only HTTP handlers at
+`mm.DisplayURL` / `mm.FormURL`. No PageShell, no full-page wrapping;
+the app owns the page route(s) that embed the components above. Every
+handler runs an authz check (`mm.Authz` — nil = AllowAll) before
+touching data: GET ~ CanRead; POST ~ CanUpdate when getter ≠ nil, or
+CanCreate when getter == nil ("create new" flow).
 
 ```go
-// Mounts GET displayURL → dump fragment, with the Edit button wired
-// to editURL/hxTarget when editURL != "".
+// Mounts GET mm.DisplayURL → barebone dump fragment. No Edit button —
+// the caller's chrome (or a downstream wrapper templ) supplies it if
+// needed.
 func (mm *MetaModel[T]) RouteDisplay(
     mux *http.ServeMux,
-    displayURL string,
-    editURL, hxTarget string,
     getter func() (T, error),
 ) error
 
-// Mounts GET formURL → form fragment, POST formURL → bind + validate +
-// setter; on success returns the dump fragment (so the swap container
-// flips back to the dump); on validation failure returns the form
-// with per-field errors and the model-level alert.
+// Mounts GET mm.FormURL → form fragment, POST mm.FormURL → bind +
+// validate + setter; on success returns the dump fragment (so the
+// swap container flips back to the dump); on validation failure
+// returns the form with per-field errors and the model-level alert.
 func (mm *MetaModel[T]) RouteForm(
     mux *http.ServeMux,
-    formURL, hxTarget string,
     getter func() (T, error),
     setter func(data T) error,
 ) error
@@ -264,13 +287,13 @@ func (mm *MetaModel[T]) RouteForm(
 
 1. *Derive the metadata.* `mm := DeriveMetaModel[T]()`; set per-field
    `FormHelp` and `FieldValidate`; set model-level `mm.Validate` for
-   cross-field rules.
-2. *Bind data to routes.* `mm.RouteForm(mux, "/edit", "#main-content",
-   getter, setter)` registers the partial endpoints.
+   cross-field rules; set `mm.FormURL`, `mm.HXTarget`, `mm.Authz`.
+2. *Bind data to routes.* `mm.RouteForm(mux, getter, setter)`
+   registers the partial endpoints at `mm.FormURL` (GET + POST).
 3. *Include the component renderer.* The app's own handler for
-   `GET /` renders its page shell and embeds
-   `mm.RenderDisplayComponent(instance, DumpViewData{EditURL: "/edit",
-   EditHXTarget: "#main-content"})` inside it.
+   `GET /` renders its page shell — which supplies the card, the
+   page title, and the Edit button hx-getting to `mm.FormURL` — and
+   embeds `mm.RenderDisplayComponent(r, instance)` inside it.
 
 The library never emits `<html>`/`<body>`/`<style>` chrome. Page
 composition is the application's job — see `examples/form_mem/main.go`
@@ -330,6 +353,8 @@ func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error)
 
 // Route registers ONLY the partial endpoints. The main list URL is
 // the app's responsibility (it embeds RenderComponent in its page).
+// Every handler gates on c.Authz (CanList / CanRead / CanCreate /
+// CanUpdate / CanDelete; nil = AllowAll — see §6.5).
 // Routes:
 //   GET    {base}/rows           table fragment for HTMX swaps into #ListID
 //   GET    {base}/create         create form (target: ModalContentID)
@@ -337,13 +362,13 @@ func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error)
 //   GET    {base}/{id}/edit      edit form   (target: ModalContentID)
 //   POST   {base}/{id}/edit      submit update
 //   POST   {base}/{id}/delete    delete      (HX-Request → rows; else 303)
-//   GET    {base}/{id}/display   per-row dump fragment — the
-//                                foundation for future extended detail
-//                                views (related entities, history, …).
-//                                Currently renders the same fields as
-//                                the table row; users wire an
-//                                hx-get-to-it link from the row
-//                                actions when they want it.
+//   GET    {base}/{id}/display   per-row BAREBONE dump fragment — just
+//                                the field/value table, no card, no
+//                                Edit button. Foundation for future
+//                                extended detail views (related
+//                                entities, history, …); the caller
+//                                wraps it with whatever chrome they
+//                                want.
 func (c *CRUDTable[T]) Route(mux *http.ServeMux) error
 
 // CRUDRelationOption is the type-erased row used in cross-model relation
@@ -366,14 +391,21 @@ type CRUDTableInterface interface {
 ```
 
 **Default views.** `gone/crud` ships three templ components driven by
-`*ViewData` structs:
+`*ViewData` structs. The single-instance views are deliberately
+**barebone** — they render just the data, with no surrounding card,
+Edit / Cancel buttons, or page title in the dump. The caller's
+pageShell or the CRUDTable modal-box supplies chrome.
 
-- `DumpView(DumpViewData)` — single-instance key/value rendering. Used
-  by `form_mem` and as the "show" page in a future Dump component.
-- `TableView(TableViewData)` — multi-row list with search input,
-  sortable headers, inline edit/delete buttons.
-- `FormView(FormViewData)` — create or edit form (caller picks
-  ActionURL + SubmitText).
+- `DisplayView(DisplayViewData)` — barebone key/value table for one
+  instance. Used by `form_mem` (wrapped in the app's own card) and by
+  CRUDTable's `/{id}/display` partial.
+- `TableView(TableViewData)` — multi-row list with the table's
+  intrinsic chrome (search input, sortable headers, pagination,
+  per-row edit/delete, +Create button). The card here IS the table's
+  chrome — not the same kind of "wrapping" as for single instances.
+- `FormView(FormViewData)` — barebone create or edit form. Optional
+  intrinsic title (`d.DisplayName`, the "Edit X" / "Create X" label
+  tied to the action). Caller's modal-box / card surrounds it.
 
 The components emit page **fragments** — no `<html>/<body>/<style>`.
 The library has no `PageShell` parameter anywhere. The application
@@ -381,6 +413,17 @@ provides its own page chrome and embeds the library's
 `CRUDTable.RenderComponent` / `MetaModel.RenderDisplayComponent` /
 `MetaModel.RenderFormComponent` inside it. (Future `Admin` follows
 the same pattern with its own `RenderComponent` method.)
+
+**On the CRUDTable form path.** `CRUDTable` does not currently route
+its modal forms through `mm.RenderFormComponent`: the per-row URLs
+(`{base}/create`, `{base}/{id}/edit`) don't match `mm.FormURL`, so
+the modal handlers build `FormViewData` directly with their own URLs.
+This is a deliberate trade-off — keeping `MetaModel.FormURL` as a
+single static URL means it's predictable for `RouteForm` callers, but
+costs us code reuse inside the table. A future iteration may unify
+the two paths (`CRUDTable` calls `RenderFormComponent` with per-row
+URL overrides, or `MetaModel` learns a per-render URL extractor); for
+now both paths render through the same shared `FormView` templ.
 
 **Backends:**
 
@@ -405,12 +448,13 @@ operation succeeds and run synchronously so errors surface to the
 HTTP response.
 
 **Implementation status (2026-05-26):** `CRUDTable[T]`, `Route`
-(partials only, no PageShell), `RenderComponent`, `RouteDisplay`
-(GET /{id}/display), `DumpView` / `TableView` / `FormView`, and
-`DeriveMapCRUDTable[T]` ship and are exercised by `examples/crud_mem`.
-`CRUDTableInterface`'s `SearchOptions` / `GetOptionsByID` are deferred
-until the first relation example needs them. `DeriveGormCRUDTable` is
-the next backend.
+(partials only, no PageShell), `RenderComponent`, GET /{id}/display
+(barebone fragment), `DisplayView` / `TableView` / `FormView` (the
+two single-instance views are barebone), `DeriveMapCRUDTable[T]`, and
+`AuthzInterface` wired into every route ship and are exercised by
+`examples/crud_mem` and `examples/form_mem`. `CRUDTableInterface`'s
+`SearchOptions` / `GetOptionsByID` are deferred until the first
+relation example needs them. `DeriveGormCRUDTable` is the next backend.
 
 **Open: URLBase plurality.** Default is `"/" + strings.ToLower(mm.Name)`
 which gives `/hero` for `Hero`. Apps almost always want `/heroes`. The
@@ -442,7 +486,14 @@ type AuthzInterface interface {
 
 Taking `*http.Request` keeps the surface router-agnostic — chi handlers
 still receive `*http.Request`. A trivial `AllowAll` implementation ships
-for tests and the single-struct backend's typical use cases.
+in `gone/crud/authz.go` for tests and for the single-struct backend's
+typical use cases.
+
+`MetaModel.Authz` gates `RouteDisplay` (CanRead) and `RouteForm`
+(CanRead on GET; CanUpdate on POST, or CanCreate when the getter is
+nil — the "create new" flow). `CRUDTable.Authz` gates every partial
+endpoint by the obvious mapping (list/read/create/update/delete).
+nil = AllowAll on both.
 
 ### 6.6 Auto-derivation
 

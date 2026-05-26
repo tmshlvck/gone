@@ -1,9 +1,9 @@
-// Example: edit a single in-memory ExampleConfig struct via an auto-derived
-// MetaModel using crud.MetaModel.RouteForm + DisplayComponent — the
-// library exposes only fragment endpoints; this example owns its page
-// shell and embeds the dump component in /. Demonstrates per-field
-// validators, FormHelp, and a cross-field MetaModel.Validate
-// (MaxRequests must exceed Port).
+// Example: edit a single in-memory ExampleConfig struct via an
+// auto-derived MetaModel. The library exposes only barebone fragment
+// endpoints — this example owns its page shell and wraps both the
+// display and form fragments in its own card + title + Edit button.
+// Demonstrates per-field validators, FormHelp, and a cross-field
+// MetaModel.Validate (MaxRequests must exceed Port).
 package main
 
 import (
@@ -52,6 +52,11 @@ func main() {
 		log.Fatalf("derive: %v", err)
 	}
 	mm.DisplayName = "Server configuration"
+	// URLs and HTMX target live on the MetaModel; RouteForm picks them
+	// up, and RenderFormComponent embeds them into the form's
+	// action / hx-post / hx-target attributes.
+	mm.FormURL = formURL
+	mm.HXTarget = hxTarget
 
 	// Per-field metadata: display names, help text, and field validators.
 	for i := range mm.Fields {
@@ -109,22 +114,21 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Library registers ONLY partial endpoints — no page shell.
-	if err := mm.RouteForm(mux, formURL, hxTarget, getter, setter); err != nil {
+	// Library registers ONLY barebone fragment endpoints — no page shell,
+	// no card, no Edit button.
+	if err := mm.RouteForm(mux, getter, setter); err != nil {
 		log.Fatalf("RouteForm: %v", err)
 	}
 
-	// App owns the main page route. It embeds DisplayComponent inside
-	// its own page shell and wraps the result with the #main-content
-	// container so form swaps land in the right place.
+	// App owns the main page. It wraps the barebone DisplayComponent in
+	// its own card + title + Edit button; the swap container
+	// (#main-content) lives inside the card so HTMX swaps land in the
+	// data area without disturbing the chrome.
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		instance, _ := getter()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageShell(mm.DisplayName,
-			mm.RenderDisplayComponent(instance, crud.DumpViewData{
-				EditURL:      formURL,
-				EditHXTarget: hxTarget,
-			}),
+		if err := pageShell(mm.DisplayName, formURL, hxTarget,
+			mm.RenderDisplayComponent(r, instance),
 		).Render(r.Context(), w); err != nil {
 			log.Printf("render: %v", err)
 		}

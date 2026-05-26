@@ -1,6 +1,10 @@
 package main
 
-templ pageShell(title string, content templ.Component) {
+// pageShell wraps the barebone display fragment in the chrome the app
+// needs: a card, a title row with an Edit button, and the swap target
+// (#main-content). When the user clicks Edit, HTMX swaps the form
+// fragment into the same container; the card and title row stay put.
+templ pageShell(title, editURL, hxTarget string, content templ.Component) {
 	<!doctype html>
 	<html lang="en">
 		<head>
@@ -39,11 +43,23 @@ templ pageShell(title string, content templ.Component) {
 				</label>
 			</header>
 			<main class="container mx-auto p-4 max-w-3xl">
-				<div id="main-content">
-					@content
+				<div class="card bg-base-100 shadow">
+					<div class="card-body">
+						<div class="flex items-center justify-between mb-2">
+							<h2 class="card-title">{ title }</h2>
+							<button
+								class="btn btn-outline btn-primary btn-sm"
+								hx-get={ editURL }
+								hx-target={ hxTarget }
+								hx-swap="innerHTML"
+							>Edit</button>
+						</div>
+						<div id="main-content">
+							@content
+						</div>
+					</div>
 				</div>
 			</main>
 		</body>
 	</html>
 }
-

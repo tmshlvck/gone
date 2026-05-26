@@ -37,9 +37,8 @@ type CRUDTable[T any] struct {
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
-	PageSize      int // rows per page; 0 = no pagination
-	// Authz is not wired in this iteration; field reserved so the shape
-	// matches PRD §6.3 and so callers can store it.
+	PageSize      int            // rows per page; 0 = no pagination
+	Authz         AuthzInterface // nil = AllowAll
 
 	// Per-instance DOM IDs. Populated by Derive* with a random suffix
 	// so multiple CRUDTables can coexist on one page without collisions.
@@ -297,9 +296,13 @@ func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error)
 //	GET    {base}/{id}/edit      edit form fragment (target: ModalContent)
 //	POST   {base}/{id}/edit      submit update
 //	POST   {base}/{id}/delete    delete (HX-Request → rows fragment; else 303)
-//	GET    {base}/{id}/display   per-row dump fragment (foundation for
-//	                             future extended detail views — today it
-//	                             just renders the same fields as the table)
+//	GET    {base}/{id}/display   per-row barebone dump fragment
+//	                             (foundation for future extended detail
+//	                             views — today it just renders the same
+//	                             fields as the table)
+//
+// Every handler gates on c.Authz (CanList / CanRead / CanCreate /
+// CanUpdate / CanDelete); nil = AllowAll.
 func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
 	if mux == nil {
 		return errors.New("nil mux")
@@ -310,25 +313,25 @@ func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
 	}
 	c.URLBase = base
 
-	mux.HandleFunc("GET "+base+"/rows", c.makeFragmentHandler(c.handleListRows))
+	mux.HandleFunc("GET "+base+"/rows", c.makeFragmentHandler(c.handleListRows, "list"))
 	if c.CreateEnabled {
-		mux.HandleFunc("GET "+base+"/create", c.makeFragmentHandler(c.handleCreateForm))
-		mux.HandleFunc("POST "+base+"/create", c.makeFragmentHandler(c.handleCreatePost))
+		mux.HandleFunc("GET "+base+"/create", c.makeFragmentHandler(c.handleCreateForm, "create"))
+		mux.HandleFunc("POST "+base+"/create", c.makeFragmentHandler(c.handleCreatePost, "create"))
 	}
 	if c.EditEnabled {
-		mux.HandleFunc("GET "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditForm))
-		mux.HandleFunc("POST "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditPost))
+		mux.HandleFunc("GET "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditForm, "read"))
+		mux.HandleFunc("POST "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditPost, "update"))
 	}
 	if c.DeleteEnabled {
-		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost))
+		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost, "delete"))
 	}
-	mux.HandleFunc("GET "+base+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay))
+	mux.HandleFunc("GET "+base+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay, "read"))
 	return nil
 }
 
-// handleRowDisplay renders the dump fragment for one row. The Edit
-// button (if EditEnabled) hx-gets into the modal-content container so
-// the user can transition straight from view → edit.
+// handleRowDisplay renders the barebone dump fragment for one row. No
+// Edit button — the caller wraps the fragment with whatever chrome they
+// want (e.g. a /heroes/{id} detail page that adds Edit / Back links).
 func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
 	id, ok := parseID(r)
 	if !ok {
@@ -344,13 +347,7 @@ func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
-	d := DumpViewData{}
-	if c.EditEnabled {
-		idStr := strconv.FormatUint(uint64(id), 10)
-		d.EditURL = c.URLBase + "/" + idStr + "/edit"
-		d.EditHXTarget = "#" + c.ModalContentID
-	}
-	return "", c.MetaData.RenderDisplayComponent(row, d)
+	return "", c.MetaData.RenderDisplayComponent(r, row)
 }
 
 // handlerFunc returns the page title and the page fragment, or sends a
@@ -363,11 +360,41 @@ func isHTMXRequest(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
-// makeFragmentHandler runs h and writes its returned fragment as the
-// response body. The handler may also write the response directly and
-// return ("", nil) — e.g. for redirects and errors.
-func (c *CRUDTable[T]) makeFragmentHandler(h handlerFunc) http.HandlerFunc {
+// authzGate returns true (and lets the handler run) when the requesting
+// user is allowed to perform the named action. Denials send 403 and
+// return false. action ∈ {"list","read","create","update","delete"}.
+func (c *CRUDTable[T]) authzGate(w http.ResponseWriter, r *http.Request, action string) bool {
+	authz := authzOrAllow(c.Authz)
+	var ok bool
+	switch action {
+	case "list":
+		ok = authz.CanList(r)
+	case "read":
+		ok = authz.CanRead(r)
+	case "create":
+		ok = authz.CanCreate(r)
+	case "update":
+		ok = authz.CanUpdate(r)
+	case "delete":
+		ok = authz.CanDelete(r)
+	default:
+		ok = false
+	}
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}
+	return ok
+}
+
+// makeFragmentHandler runs h (after the authz gate) and writes its
+// returned fragment as the response body. The handler may also write
+// the response directly and return ("", nil) — e.g. for redirects and
+// errors.
+func (c *CRUDTable[T]) makeFragmentHandler(h handlerFunc, action string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !c.authzGate(w, r, action) {
+			return
+		}
 		_, frag := h(w, r)
 		if frag == nil {
 			return
@@ -473,21 +500,24 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (s
 // HX-Trigger. modelErr renders above the form; fieldErrors render below
 // each named field.
 //
-// The form is rendered via mm.RenderFormComponent with WrapInCard=false
-// because the modal-box already provides chrome (no double card).
+// FormView is barebone — the modal-box that surrounds it provides
+// chrome. CRUDTable builds FormViewData directly (rather than going
+// through mm.RenderFormComponent) because the URLs are per-action
+// (/create, /{id}/edit) and don't match mm.FormURL.
 func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]string, data T, hxFlow bool) templ.Component {
 	d := FormViewData{
 		DisplayName: "Create " + c.MetaData.DisplayName,
 		ActionURL:   c.URLBase + "/create",
-		BackURL:     c.URLBase,
 		SubmitText:  "Create",
+		Fields:      c.MetaData.Fields,
+		Inputs:      c.MetaData.GenFormElements(c.MetaData, data),
 		ErrMsg:      modelErr,
 		FieldErrors: fieldErrors,
 	}
 	if hxFlow {
 		d.HXTarget = "#" + c.ListID
 	}
-	return c.MetaData.RenderFormComponent(data, d)
+	return FormView(d)
 }
 
 // splitValidationErr separates a BindForm error into (perField, modelLevel).
@@ -563,15 +593,16 @@ func (c *CRUDTable[T]) editFormView(id uint, modelErr string, fieldErrors map[st
 	d := FormViewData{
 		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
 		ActionURL:   c.URLBase + "/" + idStr + "/edit",
-		BackURL:     c.URLBase,
 		SubmitText:  "Save",
+		Fields:      c.MetaData.Fields,
+		Inputs:      c.MetaData.GenFormElements(c.MetaData, row),
 		ErrMsg:      modelErr,
 		FieldErrors: fieldErrors,
 	}
 	if hxFlow {
 		d.HXTarget = "#" + c.ListID
 	}
-	return c.MetaData.RenderFormComponent(row, d)
+	return FormView(d)
 }
 
 func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
