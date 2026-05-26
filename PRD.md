@@ -661,15 +661,28 @@ The whole `CRUDTable` UI is HTMX-driven. The library ships:
 - HX-Request detection on delete — HTMX delete returns the refreshed
   list fragment; browser delete returns a 303 redirect.
 
-**Create / edit forms open in a DaisyUI modal.** The page contains a
-hidden `<dialog id="crud-modal">` with `#modal-content` inside it. The
-"+ Create" and per-row "edit" buttons `hx-get` the form into
-`#modal-content`; the response carries `HX-Trigger: openModal` so the
-client opens the dialog. On successful POST the server returns the
-list fragment + `HX-Trigger: closeModal`; HTMX swaps `#crud-list` *and*
-the modal closes. On validation error the server sets
-`HX-Retarget: #modal-content` so the re-rendered form lands back in
-the modal with the error visible.
+**Create / edit forms open in stacked DaisyUI modal dialogs.** The
+library exposes two well-known dialogs through
+`crud.PageModals()`, which the application embeds **once** in its page
+shell:
+
+- **L1** (`crud-modal-l1` / `crud-modal-l1-body`) — the table's own
+  create/edit forms. "+ Create" and per-row "edit" buttons `hx-get`
+  the form into `#crud-modal-l1-body`.
+- **L2** (`crud-modal-l2` / `crud-modal-l2-body`) — a stacked second
+  dialog for `+ create new` buttons inside relation pickers, so a
+  nested create can run without losing the L1 form's state.
+
+Each dialog has an X close button in the corner; backdrop click also
+closes it (HTML5 `<form method="dialog">`). The handlers detect L1
+vs L2 from the request's `HX-Target` header and respond accordingly:
+on validation error they `HX-Retarget` back to the same modal body
+(so the re-rendered form lands in the dialog); on L1 success they
+`HX-Retarget` to the table's `#table_<rand>` and return the
+refreshed `TableContent` fragment + `closeModal: l1`; on L2 success
+they `HX-Reswap: none` + `closeModal: l2`, so L1 keeps its state
+and the L1 page (or any other page) doesn't have to host the related
+table's list area.
 
 For inline use (no modal), `FormView.HXTarget` carries any element ID
 the caller chooses. `form_mem`'s example sets it to `#main-content`

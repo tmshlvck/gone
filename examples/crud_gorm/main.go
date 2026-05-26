@@ -1,10 +1,10 @@
 // Example: three GORM-backed CRUDTables — Hero, Weapon, Skill — wired
 // together with a 1:N (Hero has many Weapons) and an N:M (Hero ↔ Skill)
-// relation. Each CRUD lives at its own URL (/heroes, /weapons, /skills)
-// and uses HTMX modals for create/edit; the page shell renders all
-// three modal dialogs on every page so relation widgets' "+ new"
-// buttons can pop the right modal regardless of which table the user
-// is currently on.
+// relation. Each CRUD lives at its own URL (/heroes, /weapons, /skills);
+// HTMX uses two stacked modal dialogs at the page-shell level for
+// create/edit (L1) and for nested "+ create new" from relation pickers
+// (L2). The library exports those dialogs via crud.PageModals() — the
+// app embeds them once and every CRUDTable on every page reuses them.
 //
 // Seeds ~50 heroes / 60 weapons / 12 skills so pagination kicks in at
 // the default 10-rows-per-page.
@@ -185,16 +185,11 @@ func main() {
 	must(weaponTable.Route(mux))
 	must(skillTable.Route(mux))
 
-	// Build page shell — every page renders all three modals so a
-	// relation widget can target any of them.
-	modals := []modalDef{
-		{ID: heroTable.ModalID, ContentID: heroTable.ModalContentID},
-		{ID: weaponTable.ModalID, ContentID: weaponTable.ModalContentID},
-		{ID: skillTable.ModalID, ContentID: skillTable.ModalContentID},
-	}
-	registerPage(mux, &heroTable, "Heroes", modals)
-	registerPage(mux, &weaponTable, "Weapons", modals)
-	registerPage(mux, &skillTable, "Skills", modals)
+	// Every page-shell embeds crud.PageModals() so the two shared
+	// dialogs are in the DOM regardless of which table is on screen.
+	registerPage(mux, &heroTable, "Heroes")
+	registerPage(mux, &weaponTable, "Weapons")
+	registerPage(mux, &skillTable, "Skills")
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/heroes", http.StatusSeeOther)
@@ -283,7 +278,7 @@ func wireRelation[T any](mm *crud.MetaModel[T], fieldName string, related crud.C
 	log.Printf("wireRelation: no field %q on %s", fieldName, mm.Name)
 }
 
-func registerPage[T any](mux *http.ServeMux, tbl *crud.CRUDTable[T], title string, modals []modalDef) {
+func registerPage[T any](mux *http.ServeMux, tbl *crud.CRUDTable[T], title string) {
 	mux.HandleFunc("GET "+tbl.URLBase, func(w http.ResponseWriter, r *http.Request) {
 		comp, err := tbl.RenderComponent(r)
 		if err != nil {
@@ -291,7 +286,7 @@ func registerPage[T any](mux *http.ServeMux, tbl *crud.CRUDTable[T], title strin
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageShell(title, comp, modals).Render(r.Context(), w); err != nil {
+		if err := pageShell(title, comp).Render(r.Context(), w); err != nil {
 			log.Printf("render: %v", err)
 		}
 	})

@@ -1,15 +1,8 @@
 package main
 
-// modalDef is just an ID pair so pageShell can render the dialog markup
-// for every CRUDTable on every page. Each table's "+ create" / per-row
-// "edit" buttons swap into the matching contentID; on the user's HTMX
-// modal "openModal" trigger, the page-shell JS opens the dialog by ID.
-type modalDef struct {
-	ID        string
-	ContentID string
-}
+import "github.com/tmshlvck/gone/crud"
 
-templ pageShell(title string, content templ.Component, modals []modalDef) {
+templ pageShell(title string, content templ.Component) {
 	<!doctype html>
 	<html lang="en">
 		<head>
@@ -73,14 +66,7 @@ templ pageShell(title string, content templ.Component, modals []modalDef) {
 			<main class="container mx-auto p-4 max-w-6xl">
 				@content
 			</main>
-			for _, m := range modals {
-				<dialog id={ m.ID } class="modal">
-					<div class="modal-box max-w-2xl" id={ m.ContentID }></div>
-					<form method="dialog" class="modal-backdrop">
-						<button>close</button>
-					</form>
-				</dialog>
-			}
+			@crud.PageModals()
 		</body>
 	</html>
 }

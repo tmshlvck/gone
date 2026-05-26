@@ -33,14 +33,14 @@ type CRUDRelationOption struct {
 }
 
 // CRUDTableInterface is the non-generic surface a relation widget needs to
-// resolve options and to open the related entity's create modal.
-// *CRUDTable[T] satisfies it; relation fields hold one through
-// MetaField.RelatedCRUD.
+// resolve options and to open the related entity's create modal. Modal
+// targeting is handled by the library's fixed L2 body ID (ModalL2BodyID),
+// so the interface only carries URL + option access. *CRUDTable[T]
+// satisfies it; relation fields hold one through MetaField.RelatedCRUD.
 type CRUDTableInterface interface {
 	DisplayName() string
 	HTMXTableURL() string                                                                       // base URL — useful for Admin index / detail jumps
 	HTMXCreateURL() string                                                                      // GET this to fetch the create-form fragment
-	HTMXCreateTarget() string                                                                   // CSS selector for hx-target of the "+" button (e.g. "#modal-content_xxxx")
 	SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error)
 	GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error)
 }
@@ -103,15 +103,9 @@ func idOf(instance any) uint {
 // CRUDTableInterface implementation for *CRUDTable[T].
 // ──────────────────────────────────────────────────────────────────────────
 
-func (c *CRUDTable[T]) DisplayName() string    { return c.MetaData.DisplayName }
-func (c *CRUDTable[T]) HTMXTableURL() string   { return c.URLBase }
-func (c *CRUDTable[T]) HTMXCreateURL() string  { return c.URLBase + "/create" }
-func (c *CRUDTable[T]) HTMXCreateTarget() string {
-	if c.ModalContentID == "" {
-		return ""
-	}
-	return "#" + c.ModalContentID
-}
+func (c *CRUDTable[T]) DisplayName() string   { return c.MetaData.DisplayName }
+func (c *CRUDTable[T]) HTMXTableURL() string  { return c.URLBase }
+func (c *CRUDTable[T]) HTMXCreateURL() string { return c.URLBase + "/create" }
 
 // SearchOptions returns up to relationOptionLimit options matching search.
 func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error) {
@@ -303,16 +297,17 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 	sb.WriteString(`</select>`)
 
 	// "+ new" button — only when we have a RelatedCRUD to point at.
+	// Always targets the L2 modal body so the L1 form's state survives
+	// the nested create.
 	if mf.RelatedCRUD != nil {
-		target := mf.RelatedCRUD.HTMXCreateTarget()
 		url := mf.RelatedCRUD.HTMXCreateURL()
-		if target != "" && url != "" {
+		if url != "" {
 			sb.WriteString(fmt.Sprintf(
 				`<button type="button" class="btn btn-outline join-item"`+
-					` hx-get=%q hx-target=%q hx-swap="innerHTML"`+
+					` hx-get=%q hx-target="#%s" hx-swap="innerHTML"`+
 					` title="Create new %s">+</button>`,
 				html.EscapeString(url),
-				html.EscapeString(target),
+				ModalL2BodyID,
 				html.EscapeString(mf.RelatedCRUD.DisplayName())))
 		}
 	}

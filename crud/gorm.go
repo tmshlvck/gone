@@ -25,14 +25,12 @@ import (
 // observe it.
 func DeriveGormCRUDTable[T any](db *gorm.DB, mm MetaModel[T]) CRUDTable[T] {
 	c := CRUDTable[T]{
-		URLBase:        "/" + strings.ToLower(mm.Name),
-		MetaData:       mm,
-		CreateEnabled:  true,
-		EditEnabled:    true,
-		DeleteEnabled:  true,
-		ListID:         "table_" + randSuffix(),
-		ModalID:        "modal_" + randSuffix(),
-		ModalContentID: "modal-content_" + randSuffix(),
+		URLBase:       "/" + strings.ToLower(mm.Name),
+		MetaData:      mm,
+		CreateEnabled: true,
+		EditEnabled:   true,
+		DeleteEnabled: true,
+		ListID:        "table_" + randSuffix(),
 	}
 
 	// Resolve the column names for Searchable fields once — GORM's naming

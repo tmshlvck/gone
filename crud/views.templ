@@ -5,6 +5,20 @@ import (
 	"strconv"
 )
 
+// Modal IDs used by the library's HTMX-driven create/edit forms.
+//
+// L1 is the table's own create/edit modal. L2 is a stacked second-level
+// modal opened by the "+ create new" button inside a relation picker
+// (so a nested create can run without losing the L1 form's state).
+// Both dialogs live at the page level and are rendered once via
+// PageModals — there are no per-CRUDTable modal IDs.
+const (
+	ModalL1ID     = "crud-modal-l1"
+	ModalL1BodyID = "crud-modal-l1-body"
+	ModalL2ID     = "crud-modal-l2"
+	ModalL2BodyID = "crud-modal-l2-body"
+)
+
 // ──────────────────────────────────────────────────────────────────────────
 // View data structs
 //
@@ -35,10 +49,10 @@ type TableViewData struct {
 	PageSize      int   // rows per page; 0 = unpaged
 	NumPages      int   // ceil(Total/PageSize); 1 when unpaged
 
-	// Per-instance DOM IDs (set by CRUDTable.Route from its struct).
-	ListID         string
-	ModalID        string
-	ModalContentID string
+	// Per-instance ID for the table list wrapper. Each CRUDTable on the
+	// same page gets a unique ListID so HTMX swaps land in the right
+	// table. Modal dialogs are NOT per-instance — see ModalL1ID etc.
+	ListID string
 }
 
 type TableRow struct {
@@ -112,7 +126,7 @@ templ TableView(d TableViewData) {
 						<button
 							class="btn btn-outline btn-primary btn-sm"
 							hx-get={ d.URLBase + "/create" }
-							hx-target={ "#" + d.ModalContentID }
+							hx-target={ "#" + ModalL1BodyID }
 							hx-swap="innerHTML"
 						>+ Create</button>
 					}
@@ -123,7 +137,6 @@ templ TableView(d TableViewData) {
 			</div>
 		</div>
 	</div>
-	@modalWrapper(d.ModalID, d.ModalContentID)
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
@@ -199,7 +212,7 @@ templ rowActions(d TableViewData, id uint) {
 				type="button"
 				class="btn btn-outline btn-xs"
 				hx-get={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit" }
-				hx-target={ "#" + d.ModalContentID }
+				hx-target={ "#" + ModalL1BodyID }
 				hx-swap="innerHTML"
 			>edit</button>
 		}
@@ -258,11 +271,34 @@ templ pagination(d TableViewData) {
 	}
 }
 
-templ modalWrapper(modalID, contentID string) {
+// PageModals renders the two stacked modal dialogs the library uses for
+// create/edit forms. Embed this once at the page-shell level — both
+// dialogs use fixed IDs (ModalL1*, ModalL2*) so any CRUDTable on the
+// page can target them. The L1 dialog hosts the table's own forms;
+// the L2 dialog hosts "+ create new" forms opened from a relation
+// picker inside an L1 form.
+//
+// Each dialog has an X close button in the top-right corner; the
+// backdrop also closes the dialog on click (HTML5 <form method="dialog">).
+templ PageModals() {
+	@modalDialog(ModalL1ID, ModalL1BodyID)
+	@modalDialog(ModalL2ID, ModalL2BodyID)
+}
+
+templ modalDialog(modalID, bodyID string) {
 	<dialog id={ modalID } class="modal">
-		<div class="modal-box max-w-2xl" id={ contentID }></div>
+		<div class="modal-box max-w-2xl relative">
+			<form method="dialog">
+				<button
+					type="submit"
+					class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+					aria-label="close"
+				>✕</button>
+			</form>
+			<div id={ bodyID }></div>
+		</div>
 		<form method="dialog" class="modal-backdrop">
-			<button>close</button>
+			<button type="submit">close</button>
 		</form>
 	</dialog>
 }

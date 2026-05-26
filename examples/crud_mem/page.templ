@@ -1,5 +1,7 @@
 package main
 
+import "github.com/tmshlvck/gone/crud"
+
 templ pageShell(title string, content templ.Component) {
 	<!doctype html>
 	<html lang="en">
@@ -64,6 +66,7 @@ templ pageShell(title string, content templ.Component) {
 			<main class="container mx-auto p-4 max-w-5xl">
 				@content
 			</main>
+			@crud.PageModals()
 		</body>
 	</html>
 }
