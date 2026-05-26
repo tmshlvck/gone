@@ -252,6 +252,11 @@ func TestCreate_BindErrorReRendersForm(t *testing.T) {
 	if !strings.Contains(body, "alert-error") && !strings.Contains(body, "Power") {
 		t.Errorf("expected error rendering, got: %s", body)
 	}
+	// Field-only errors should still produce the summary banner so the
+	// user can't miss them when they're below the fold.
+	if !strings.Contains(body, "Please correct the errors below.") {
+		t.Errorf("expected field-error summary banner, got: %s", body)
+	}
 }
 
 func TestRowDisplayPartial(t *testing.T) {

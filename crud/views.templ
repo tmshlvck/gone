@@ -283,6 +283,10 @@ templ FormView(d FormViewData) {
 		<div class="alert alert-error mb-4">
 			<span>{ d.ErrMsg }</span>
 		</div>
+	} else if len(d.FieldErrors) > 0 {
+		<div class="alert alert-error mb-4">
+			<span>Please correct the errors below.</span>
+		</div>
 	}
 	if d.HXTarget != "" {
 		<form
