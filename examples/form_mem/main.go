@@ -58,35 +58,43 @@ func main() {
 	mm.FormURL = formURL
 	mm.HXTarget = hxTarget
 
-	// Per-field metadata: display names, help text, and field validators.
-	for i := range mm.Fields {
-		switch mm.Fields[i].Name {
-		case "Hostname":
-			mm.Fields[i].FormHelp = "FQDN or short host, 1–253 chars."
-			mm.Fields[i].FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(253))
-		case "BindAddress":
-			mm.Fields[i].DisplayName = "Bind address"
-			mm.Fields[i].FormHelp = "IPv4 or IPv6 the server listens on."
-			mm.Fields[i].FieldValidate = crud.NotEmpty
-		case "Port":
-			mm.Fields[i].FormHelp = "TCP port, 1–65535."
-			mm.Fields[i].FieldValidate = crud.IntRange(1, 65535)
-		case "EnableTLS":
-			mm.Fields[i].DisplayName = "TLS enabled"
-		case "MaxRequests":
-			mm.Fields[i].DisplayName = "Max requests"
-			mm.Fields[i].FormHelp = "Concurrent request cap, must exceed the port number."
-			mm.Fields[i].FieldValidate = crud.IntRange(1, 10_000_000)
-		case "Threshold":
-			mm.Fields[i].FormHelp = "CPU load shed threshold, 0.0–1.0."
-			mm.Fields[i].FieldValidate = crud.FloatRange(0.0, 1.0)
-		case "StartTime":
-			mm.Fields[i].DisplayName = "Start time"
-		case "AdminEmail":
-			mm.Fields[i].DisplayName = "Admin email"
-			mm.Fields[i].FormInputType = "email"
-			mm.Fields[i].FieldValidate = crud.All(crud.NotEmpty, crud.Email)
-		}
+	// Per-field metadata: display names, help text, and field validators
+	// — each tweak reaches its field via MetaModel.FindField, so a typo
+	// surfaces as a startup log.Fatal rather than a silently-skipped case.
+	{
+		f := must(mm.FindField("Hostname"))
+		f.FormHelp = "FQDN or short host, 1–253 chars."
+		f.FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(253))
+	}
+	{
+		f := must(mm.FindField("BindAddress"))
+		f.DisplayName = "Bind address"
+		f.FormHelp = "IPv4 or IPv6 the server listens on."
+		f.FieldValidate = crud.NotEmpty
+	}
+	{
+		f := must(mm.FindField("Port"))
+		f.FormHelp = "TCP port, 1–65535."
+		f.FieldValidate = crud.IntRange(1, 65535)
+	}
+	must(mm.FindField("EnableTLS")).DisplayName = "TLS enabled"
+	{
+		f := must(mm.FindField("MaxRequests"))
+		f.DisplayName = "Max requests"
+		f.FormHelp = "Concurrent request cap, must exceed the port number."
+		f.FieldValidate = crud.IntRange(1, 10_000_000)
+	}
+	{
+		f := must(mm.FindField("Threshold"))
+		f.FormHelp = "CPU load shed threshold, 0.0–1.0."
+		f.FieldValidate = crud.FloatRange(0.0, 1.0)
+	}
+	must(mm.FindField("StartTime")).DisplayName = "Start time"
+	{
+		f := must(mm.FindField("AdminEmail"))
+		f.DisplayName = "Admin email"
+		f.FormInputType = "email"
+		f.FieldValidate = crud.All(crud.NotEmpty, crud.Email)
 	}
 
 	// Cross-field rule: MaxRequests must be strictly larger than Port.
@@ -137,4 +145,14 @@ func main() {
 	addr := ":8080"
 	log.Printf("form_mem listening on %s — open /", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// must returns f, exiting fatally if err != nil — convenient with
+// MetaModel.FindField for one-line per-field setup. Field-name typos
+// surface as a clean log.Fatal at startup, not at form render.
+func must(f *crud.MetaField, err error) *crud.MetaField {
+	if err != nil {
+		log.Fatal(err)
+	}
+	return f
 }

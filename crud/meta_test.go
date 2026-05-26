@@ -146,6 +146,22 @@ func TestDefaultBindForm_InvalidNumberFails(t *testing.T) {
 	}
 }
 
+func TestFindField(t *testing.T) {
+	mm, _ := DeriveMetaModel[sampleConfig]()
+	f, err := mm.FindField("Port")
+	if err != nil {
+		t.Fatalf("FindField(Port): %v", err)
+	}
+	// Mutate via the returned pointer; mm.Fields should see the change.
+	f.FormHelp = "TCP port"
+	if mm.Fields[1].FormHelp != "TCP port" {
+		t.Errorf("FindField must return a pointer into mm.Fields, got copy")
+	}
+	if _, err := mm.FindField("Nope"); err == nil {
+		t.Error("expected error for unknown field")
+	}
+}
+
 func TestDefaultDisplayValues_RenderShape(t *testing.T) {
 	mm, _ := DeriveMetaModel[sampleConfig]()
 	v := sampleConfig{

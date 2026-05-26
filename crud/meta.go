@@ -120,6 +120,24 @@ type MetaModel[T any] struct {
 	Validate func(instance T) error
 }
 
+// FindField returns a pointer to the named MetaField on mm so callers
+// can tweak per-field settings (FormHelp, FieldValidate, ReadOnly,
+// RelatedCRUD, …) without iterating the slice themselves. Returns an
+// error if no field matches — typically a programming error (typo /
+// renamed model), so callers usually wrap with a fail-fast helper.
+//
+//	if f, err := mm.FindField("Name"); err == nil {
+//	    f.FormHelp = "Display name, 2–30 characters."
+//	}
+func (mm *MetaModel[T]) FindField(name string) (*MetaField, error) {
+	for i := range mm.Fields {
+		if mm.Fields[i].Name == name {
+			return &mm.Fields[i], nil
+		}
+	}
+	return nil, fmt.Errorf("MetaModel(%s).FindField: no field %q", mm.Name, name)
+}
+
 // DeriveMetaModel reflects T, builds default MetaFields, and installs the
 // model-level hooks. Caller may post-mutate the returned model — the
 // hooks read mm at call time so changes are observed.

@@ -222,6 +222,19 @@ type MetaModel[T any] struct {
 // model-level hooks (Validate, URLs, HXTarget, Authz).
 func DeriveMetaModel[T any]() (MetaModel[T], error)
 
+// FindField returns a pointer to the named MetaField (so the caller can
+// mutate FormHelp / FieldValidate / RelatedCRUD / … in place) or an
+// error if no field matches. Examples pair it with a one-line `must`
+// helper for compact per-field setup:
+//
+//   f := must(mm.FindField("Name"))
+//   f.FormHelp = "Display name, 2–30 characters."
+//   f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))
+//
+// A typo or rename surfaces as a clean log.Fatal at startup rather than
+// a silently-skipped switch case at form-render time.
+func (mm *MetaModel[T]) FindField(name string) (*MetaField, error)
+
 // DefaultDisplayValues / DefaultGenFormElements / DefaultBindForm are
 // the installed walks. Available as named functions so callers can call
 // them from custom hooks (e.g. validate, then call DefaultBindForm).

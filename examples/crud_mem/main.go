@@ -79,31 +79,27 @@ func main() {
 	}
 	mm.DisplayName = "Heroes"
 
-	// Per-field tweaks: ReadOnly on the auto-assigned ID, plus FormHelp
-	// + FieldValidate to demonstrate the help-text + per-field error
-	// rendering on the form.
-	for i := range mm.Fields {
-		switch mm.Fields[i].Name {
-		case "ID":
-			mm.Fields[i].ReadOnly = true
-			mm.Fields[i].Sortable = true
-		case "Name":
-			mm.Fields[i].FormHelp = "Display name, 2–30 characters."
-			mm.Fields[i].FieldValidate = crud.All(
-				crud.NotEmpty,
-				crud.MinLen(2),
-				crud.MaxLen(30),
-			)
-		case "Realm":
-			mm.Fields[i].FormHelp = "Origin (e.g. Gondor, Mirkwood)."
-			mm.Fields[i].FieldValidate = crud.All(
-				crud.NotEmpty,
-				crud.MaxLen(40),
-			)
-		case "Power":
-			mm.Fields[i].FormHelp = "Power level, 0–100."
-			mm.Fields[i].FieldValidate = crud.IntRange(0, 100)
-		}
+	// Per-field tweaks reach each MetaField via FindField; the helper
+	// `must` panics on a typo so a renamed model surfaces immediately.
+	{
+		f := must(mm.FindField("ID"))
+		f.ReadOnly = true
+		f.Sortable = true
+	}
+	{
+		f := must(mm.FindField("Name"))
+		f.FormHelp = "Display name, 2–30 characters."
+		f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))
+	}
+	{
+		f := must(mm.FindField("Realm"))
+		f.FormHelp = "Origin (e.g. Gondor, Mirkwood)."
+		f.FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
+	}
+	{
+		f := must(mm.FindField("Power"))
+		f.FormHelp = "Power level, 0–100."
+		f.FieldValidate = crud.IntRange(0, 100)
 	}
 
 	table := crud.DeriveMapCRUDTable[Hero](store, &mu, mm)
@@ -135,4 +131,14 @@ func main() {
 	addr := ":8080"
 	log.Printf("crud_mem listening on %s — open %s", addr, table.URLBase)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// must returns f, exiting fatally if err != nil — convenient with
+// MetaModel.FindField for one-line per-field setup. Field-name typos
+// surface as a clean log.Fatal at startup, not at form render.
+func must(f *crud.MetaField, err error) *crud.MetaField {
+	if err != nil {
+		log.Fatal(err)
+	}
+	return f
 }
