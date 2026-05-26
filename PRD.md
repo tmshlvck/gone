@@ -697,6 +697,21 @@ they `HX-Reswap: none` + `closeModal: l2`, so L1 keeps its state
 and the L1 page (or any other page) doesn't have to host the related
 table's list area.
 
+**Relation widget refresh after L2 save.** Every relation `<select>`
+the library renders carries `hx-trigger="refresh-relation from:body"
+hx-get="{relatedBase}/options" hx-vals='js:{"selected": …current
+selection…}' hx-target="this" hx-swap="innerHTML"`. The L2 success
+response adds `"refresh-relation"` alongside `closeModal: l2` in its
+`HX-Trigger` JSON. The browser dispatches that event on the body,
+every relation `<select>` re-fetches its own `<option>` list, and the
+freshly-created row appears in every relevant dropdown on the page.
+Only the option list swaps — the L1 form's other fields, the wrapper
+div, the "+" button, and the `<select>`'s own attributes (`name`,
+`multiple`, `size`) all survive. The endpoint is
+`GET {base}/options[?single=1][&selected=…]`, registered by
+`CRUDTable.Route`; belongs-to widgets pass `?single=1` so the
+response keeps the `— none —` placeholder.
+
 For inline use (no modal), `FormView.HXTarget` carries any element ID
 the caller chooses. `form_mem`'s example sets it to `#main-content`
 and swaps the dump for the form (and back to dump on save) — same

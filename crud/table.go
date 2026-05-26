@@ -327,6 +327,9 @@ func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
 		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost, "delete"))
 	}
 	mux.HandleFunc("GET "+base+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay, "read"))
+	// Relation picker option fetch — used by another CRUD's relation
+	// widget when its <select> needs to refresh after an L2 save.
+	mux.HandleFunc("GET "+base+"/options", c.makeFragmentHandler(c.handleOptions, "list"))
 	return nil
 }
 
@@ -556,15 +559,18 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		return "", nil
 	}
 	if isHTMXRequest(r) {
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q}`, modalID))
 		if modalID == ModalL2ID {
-			// Nested L2 create (from a relation "+" button) — the L1
-			// form keeps its state; there's nothing on this page to swap.
+			// Nested L2 create (from a relation "+" button) — close L2,
+			// don't touch L1's form values. The refresh-relation event
+			// makes every L1 relation widget re-fetch its <option>
+			// list so the freshly-created row appears in the dropdown.
+			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q,"refresh-relation":true}`, modalID))
 			w.Header().Set("HX-Reswap", "none")
 			return "", nil
 		}
 		// L1 success: redirect the swap from the modal body to the
 		// table's list area and return the refreshed rows.
+		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q}`, modalID))
 		w.Header().Set("HX-Retarget", "#"+c.ListID)
 		w.Header().Set("HX-Reswap", "innerHTML")
 		d, err := c.buildTableViewData(r)

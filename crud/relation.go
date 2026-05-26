@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -233,9 +234,12 @@ func relationSelectedIDs(value any) []uint {
 //   - single: name=<FKFieldName>, e.g. "OwnerID"
 //   - multiple: name=<RelationName>, e.g. "Skills"
 //
-// The "+ new" button hx-gets the related create URL into the related
-// CRUD's modal-content target. If RelatedCRUD is unset we render the
-// picker with whatever options it can (none) and skip the "+" button.
+// The "+ new" button hx-gets the related create URL into the L2 modal
+// body. The <select> itself carries hx-* attributes so it re-fetches
+// its own <option> list when a "refresh-relation" event fires (e.g.
+// after an L2 save adds a new option). Only the option list swaps —
+// the wrapper, name, multiple, size, and the "+" button all survive —
+// so the L1 form's other field values are untouched.
 func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ.Component {
 	name := mf.FormFieldName
 	if name == "" {
@@ -249,21 +253,6 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 		}
 	}
 
-	var sb strings.Builder
-	sb.WriteString(`<div class="join">`)
-
-	// The <select> input itself.
-	if isMulti {
-		sb.WriteString(fmt.Sprintf(
-			`<select name=%q multiple size="5" class="select join-item w-full">`,
-			html.EscapeString(name)))
-	} else {
-		sb.WriteString(fmt.Sprintf(
-			`<select name=%q class="select join-item w-full">`,
-			html.EscapeString(name)))
-		// Empty placeholder for "no selection" on single relations.
-		sb.WriteString(`<option value="0">— none —</option>`)
-	}
 	selSet := map[uint]struct{}{}
 	if isMulti {
 		for _, id := range multi {
@@ -272,28 +261,47 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 	} else if single != 0 {
 		selSet[single] = struct{}{}
 	}
-	// Render the resolved options. If the currently-selected ID isn't in
-	// the option list (because of a cap or stale data) we still surface
-	// it so the user knows what's stored.
-	rendered := map[uint]struct{}{}
-	for _, opt := range options {
-		sel := ""
-		if _, ok := selSet[opt.ID]; ok {
-			sel = " selected"
+
+	// Build the hx-* attributes that refresh just the <option> list on
+	// a "refresh-relation" event broadcast from the body. The endpoint
+	// is on the related CRUD (it owns the options); ?single=1 tells it
+	// to include the "— none —" placeholder for belongs-to fields.
+	//
+	// hx-vals uses single-quoted attribute delimiters so the JSON-y
+	// body's double quotes don't need escaping. The leading "js:"
+	// makes HTMX evaluate the expression in the browser; "this" is
+	// the <select> element at trigger time.
+	refreshAttrs := ""
+	if mf.RelatedCRUD != nil {
+		optsURL := mf.RelatedCRUD.HTMXTableURL() + "/options"
+		var hxVals string
+		if isMulti {
+			hxVals = `js:{"selected": [...this.selectedOptions].map(o => o.value)}`
+		} else {
+			optsURL += "?single=1"
+			hxVals = `js:{"selected": this.value}`
 		}
-		sb.WriteString(fmt.Sprintf(
-			`<option value="%d"%s>%s</option>`,
-			opt.ID, sel, html.EscapeString(opt.ShortName)))
-		rendered[opt.ID] = struct{}{}
+		refreshAttrs = fmt.Sprintf(
+			` hx-trigger="refresh-relation from:body" hx-get=%q`+
+				` hx-vals='%s' hx-target="this" hx-swap="innerHTML"`,
+			html.EscapeString(optsURL),
+			hxVals)
 	}
-	for sid := range selSet {
-		if _, ok := rendered[sid]; ok || sid == 0 {
-			continue
-		}
+
+	var sb strings.Builder
+	sb.WriteString(`<div class="join">`)
+
+	// The <select> input itself.
+	if isMulti {
 		sb.WriteString(fmt.Sprintf(
-			`<option value="%d" selected>#%d (unresolved)</option>`,
-			sid, sid))
+			`<select name=%q multiple size="5" class="select join-item w-full"%s>`,
+			html.EscapeString(name), refreshAttrs))
+	} else {
+		sb.WriteString(fmt.Sprintf(
+			`<select name=%q class="select join-item w-full"%s>`,
+			html.EscapeString(name), refreshAttrs))
 	}
+	sb.WriteString(renderOptionsHTML(options, selSet, !isMulti))
 	sb.WriteString(`</select>`)
 
 	// "+ new" button — only when we have a RelatedCRUD to point at.
@@ -314,6 +322,78 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 
 	sb.WriteString(`</div>`)
 	return templ.Raw(sb.String())
+}
+
+// renderOptionsHTML writes the <option> children of a relation <select>.
+// includeNone prepends the "— none —" placeholder (value=0) for
+// belongs-to fields; many-to-many fields don't need it.
+//
+// Currently-selected IDs that aren't in the options list are surfaced
+// as "#N (unresolved)" so the user doesn't silently lose a referenced
+// row that fell outside the option cap.
+func renderOptionsHTML(opts []CRUDRelationOption, selected map[uint]struct{}, includeNone bool) string {
+	var sb strings.Builder
+	if includeNone {
+		sel := ""
+		if _, ok := selected[0]; ok {
+			sel = " selected"
+		}
+		sb.WriteString(fmt.Sprintf(`<option value="0"%s>— none —</option>`, sel))
+	}
+	rendered := map[uint]struct{}{0: {}}
+	for _, opt := range opts {
+		sel := ""
+		if _, ok := selected[opt.ID]; ok {
+			sel = " selected"
+		}
+		sb.WriteString(fmt.Sprintf(
+			`<option value="%d"%s>%s</option>`,
+			opt.ID, sel, html.EscapeString(opt.ShortName)))
+		rendered[opt.ID] = struct{}{}
+	}
+	for sid := range selected {
+		if _, ok := rendered[sid]; ok {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf(
+			`<option value="%d" selected>#%d (unresolved)</option>`,
+			sid, sid))
+	}
+	return sb.String()
+}
+
+// handleOptions is the GET {base}/options handler. It returns the
+// <option> children of a relation <select> populated from this
+// CRUDTable's current rows.
+//
+// Query parameters:
+//   - selected=<id>: marks an option selected. Repeatable for
+//     many-to-many widgets (hx-vals sends an array → multiple
+//     selected=… params).
+//   - single=1: include the "— none —" placeholder for belongs-to
+//     widgets. Belongs-to widgets pass this so their refresh response
+//     keeps the placeholder option intact.
+//
+// The endpoint lives on the related CRUD (the one that owns the
+// options), so any relation widget anywhere on the page can refresh
+// itself by hitting this URL — no per-parent knowledge needed.
+func (c *CRUDTable[T]) handleOptions(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+	isSingle := r.URL.Query().Get("single") == "1"
+	selected := map[uint]struct{}{}
+	for _, s := range r.URL.Query()["selected"] {
+		if s == "" {
+			continue
+		}
+		if n, err := strconv.ParseUint(s, 10, 64); err == nil {
+			selected[uint(n)] = struct{}{}
+		}
+	}
+	opts, _, err := c.SearchOptions(r.Context(), "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "", nil
+	}
+	return "", templ.Raw(renderOptionsHTML(opts, selected, isSingle))
 }
 
 // relationSingleFromStrings parses the posted FK (uint) and writes it to
