@@ -306,12 +306,15 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 
 	// "+ new" button — only when we have a RelatedCRUD to point at.
 	// Always targets the L2 modal body so the L1 form's state survives
-	// the nested create.
+	// the nested create. The crud-relation-add-btn class is matched by
+	// a `display: none` rule in PageModals so the button is hidden
+	// when this same form renders inside L2 (no L3 modal exists for a
+	// nested-nested create).
 	if mf.RelatedCRUD != nil {
 		url := mf.RelatedCRUD.HTMXCreateURL()
 		if url != "" {
 			sb.WriteString(fmt.Sprintf(
-				`<button type="button" class="btn btn-outline join-item"`+
+				`<button type="button" class="btn btn-outline join-item crud-relation-add-btn"`+
 					` hx-get=%q hx-target="#%s" hx-swap="innerHTML"`+
 					` title="Create new %s">+</button>`,
 				html.EscapeString(url),

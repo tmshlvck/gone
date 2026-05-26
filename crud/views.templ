@@ -280,7 +280,13 @@ templ pagination(d TableViewData) {
 //
 // Each dialog has an X close button in the top-right corner; the
 // backdrop also closes the dialog on click (HTML5 <form method="dialog">).
+//
+// The inline <style> hides the "+" buttons on relation widgets when
+// the SAME form renders inside L2 — there is no L3 modal to host a
+// further nested create. display:none also removes the button from the
+// tab order so keyboard users can't reach it.
 templ PageModals() {
+	<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style>
 	@modalDialog(ModalL1ID, ModalL1BodyID)
 	@modalDialog(ModalL2ID, ModalL2BodyID)
 }
