@@ -74,25 +74,21 @@ func parseID(r *http.Request) (uint, bool) {
 	return uint(n), true
 }
 
-// splitValidationErr separates a BindForm error into (perField, modelLevel).
-// When err is ValidationErrors the entry under ModelLevelKey ("")
-// becomes the model-level message and is removed from the per-field map
-// (so it isn't rendered twice). Any other error type becomes a
-// model-level message above the form.
-func splitValidationErr(err error) (map[string]string, string) {
+// ValidationErrorsFromError lifts any error into a ValidationErrors map
+// so callers can feed it straight into FormOpts.Errors without separate
+// split-then-rejoin steps.
+//
+// If err is already ValidationErrors (possibly wrapped), it's returned
+// as-is. Any other error becomes a single-entry map with the message
+// under ModelLevelKey ("") — rendered as the alert banner above the
+// form. nil → nil.
+func ValidationErrorsFromError(err error) ValidationErrors {
 	if err == nil {
-		return nil, ""
+		return nil
 	}
 	var verrs ValidationErrors
 	if errors.As(err, &verrs) {
-		modelErr := verrs[ModelLevelKey]
-		fieldErrs := make(map[string]string, len(verrs))
-		for k, v := range verrs {
-			if k != ModelLevelKey {
-				fieldErrs[k] = v
-			}
-		}
-		return fieldErrs, modelErr
+		return verrs
 	}
-	return nil, err.Error()
+	return ValidationErrors{ModelLevelKey: err.Error()}
 }

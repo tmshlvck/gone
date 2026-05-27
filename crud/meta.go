@@ -84,28 +84,20 @@ type MetaField struct {
 }
 
 // MetaModel is the per-type description used to render and bind. T is the
-// model type. Hooks accept mm as their first argument so callers can
-// post-mutate the model and the hooks see the current state.
+// model type. Pure metadata + render + bind helpers — no routing state,
+// no data accessors, no authz. Those concerns belong on CRUDTable (or
+// in user-written handlers that consume RenderDisplay / RenderForm /
+// TryBindForm directly).
+//
+// Hooks accept mm as their first argument so callers can post-mutate
+// the model and the hooks see the current state.
 type MetaModel[T any] struct {
 	Fields []MetaField
 
-	Name        string // type name (e.g. "ExampleConfig")
-	DivID       string // id attribute on the model's wrapper; "model_<lcname>_<rand>"
+	Name        string // Go type name (e.g. "Hero")
+	Slug        string // url-safe singular; default lowercase(Name)
+	DivID       string // wrapper id; "model_<lcname>_<rand>"
 	DisplayName string
-
-	// FormURL / DisplayURL / HXTarget describe where the single-instance
-	// fragments live and which container HTMX swaps into. RouteForm /
-	// RouteDisplay register handlers at these URLs; Render*Component
-	// reads them when building the fragment (form action, hx-target).
-	// All three may be empty for models embedded into a CRUDTable (the
-	// table has its own per-row URLs).
-	FormURL    string // POST target for the form; GET also serves the form fragment
-	DisplayURL string // GET serves the display fragment
-	HXTarget   string // HTMX swap container id, e.g. "#main-content"
-
-	// Authz gates every handler RouteForm / RouteDisplay register.
-	// nil = AllowAll. See PRD §6.5.
-	Authz AuthzInterface
 
 	DisplayValues   func(mm MetaModel[T], instance T) []templ.Component
 	GenFormElements func(mm MetaModel[T], instance T) []templ.Component
@@ -166,6 +158,7 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 
 	mm := MetaModel[T]{
 		Name:        rt.Name(),
+		Slug:        strings.ToLower(rt.Name()),
 		DivID:       "model_" + strings.ToLower(rt.Name()) + "_" + randSuffix(),
 		DisplayName: rt.Name(),
 	}

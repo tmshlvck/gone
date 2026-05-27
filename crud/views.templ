@@ -66,14 +66,42 @@ type FormViewData struct {
 	SubmitText  string            // submit button label
 	Fields      []MetaField
 	Inputs      []templ.Component // parallel to Fields; nil for Hidden/ReadOnly
-	ErrMsg      string            // model-level error (cross-field, save failed, …)
-	FieldErrors map[string]string // per-field error messages keyed by MetaField.Name
+
+	// Errors is the raw ValidationErrors from BindForm. The template
+	// splits it: ModelLevelKey ("") → alert banner above the form;
+	// other keys → red message under their matching field.
+	Errors ValidationErrors
+
+	// SuccessMsg renders a green alert above the form when non-empty
+	// (e.g. "Saved." after a successful save in a non-modal page).
+	SuccessMsg string
 
 	// HXTarget enables HTMX submission. When non-empty, the form gets
 	// hx-post / hx-target / hx-swap so the response replaces the target
 	// element. The browser fallback (non-HTMX) still works via the
 	// regular form action.
 	HXTarget string
+}
+
+// fieldError returns the validation message for the named field, or
+// "" if there isn't one.
+func (d FormViewData) fieldError(name string) string {
+	if d.Errors == nil {
+		return ""
+	}
+	return d.Errors[name]
+}
+
+// hasFieldErrors reports whether Errors has any non-model-level entry.
+// Used to render the "Please correct the errors below." banner when
+// the model-level slot is empty but per-field errors exist.
+func (d FormViewData) hasFieldErrors() bool {
+	for k := range d.Errors {
+		if k != ModelLevelKey {
+			return true
+		}
+	}
+	return false
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -321,11 +349,16 @@ templ FormView(d FormViewData) {
 	if d.DisplayName != "" {
 		<h3 class="font-bold text-lg mb-2">{ d.DisplayName }</h3>
 	}
-	if d.ErrMsg != "" {
-		<div class="alert alert-error mb-4">
-			<span>{ d.ErrMsg }</span>
+	if d.SuccessMsg != "" {
+		<div class="alert alert-success mb-4">
+			<span>{ d.SuccessMsg }</span>
 		</div>
-	} else if len(d.FieldErrors) > 0 {
+	}
+	if msg := d.Errors[ModelLevelKey]; msg != "" {
+		<div class="alert alert-error mb-4">
+			<span>{ msg }</span>
+		</div>
+	} else if d.hasFieldErrors() {
 		<div class="alert alert-error mb-4">
 			<span>Please correct the errors below.</span>
 		</div>
@@ -366,7 +399,7 @@ templ fieldRow(d FormViewData, mf MetaField, input templ.Component) {
 	<label class="flex flex-col gap-1.5 w-full">
 		<span class="font-medium">{ mf.DisplayName }</span>
 		@input
-		if msg, ok := d.FieldErrors[mf.Name]; ok {
+		if msg := d.fieldError(mf.Name); msg != "" {
 			<span class="text-sm text-error">{ msg }</span>
 		} else if mf.FormHelp != "" {
 			<span class="text-sm opacity-60">{ mf.FormHelp }</span>

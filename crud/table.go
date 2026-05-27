@@ -368,7 +368,7 @@ func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
-	return "", c.MetaData.RenderDisplayComponent(r, row)
+	return "", c.MetaData.RenderDisplay(row)
 }
 
 // handlerFunc returns the page title and the page fragment, or sends a
@@ -519,15 +519,14 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (s
 // chrome. CRUDTable builds FormViewData directly (rather than going
 // through mm.RenderFormComponent) because the URLs are per-action
 // (/create, /{id}/edit) and don't match mm.FormURL.
-func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]string, data T, bodyID string) templ.Component {
+func (c *CRUDTable[T]) createFormView(errs ValidationErrors, data T, bodyID string) templ.Component {
 	d := FormViewData{
 		DisplayName: "Create " + c.MetaData.DisplayName,
 		ActionURL:   c.urlBase + "/create",
 		SubmitText:  "Create",
 		Fields:      c.MetaData.Fields,
 		Inputs:      c.MetaData.GenFormElements(c.MetaData, data),
-		ErrMsg:      modelErr,
-		FieldErrors: fieldErrors,
+		Errors:      errs,
 	}
 	if bodyID != "" {
 		d.HXTarget = "#" + bodyID
@@ -547,7 +546,7 @@ func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) 
 	if isHTMXRequest(r) {
 		formBodyID = bodyID
 	}
-	return "Create " + c.MetaData.DisplayName, c.createFormView("", nil, zero, formBodyID)
+	return "Create " + c.MetaData.DisplayName, c.createFormView(nil, zero, formBodyID)
 }
 
 func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -564,12 +563,11 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 			w.Header().Set("HX-Retarget", "#"+bodyID)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
-		fieldErrs, modelErr := splitValidationErr(err)
 		formBodyID := ""
 		if isHTMXRequest(r) {
 			formBodyID = bodyID
 		}
-		return "Create " + c.MetaData.DisplayName, c.createFormView(modelErr, fieldErrs, data, formBodyID)
+		return "Create " + c.MetaData.DisplayName, c.createFormView(ValidationErrorsFromError(err), data, formBodyID)
 	}
 	if _, _, err := c.Create(r.Context(), data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -601,7 +599,7 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 	return "", nil
 }
 
-func (c *CRUDTable[T]) editFormView(id uint, modelErr string, fieldErrors map[string]string, row T, bodyID string) templ.Component {
+func (c *CRUDTable[T]) editFormView(id uint, errs ValidationErrors, row T, bodyID string) templ.Component {
 	idStr := strconv.FormatUint(uint64(id), 10)
 	d := FormViewData{
 		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
@@ -609,8 +607,7 @@ func (c *CRUDTable[T]) editFormView(id uint, modelErr string, fieldErrors map[st
 		SubmitText:  "Save",
 		Fields:      c.MetaData.Fields,
 		Inputs:      c.MetaData.GenFormElements(c.MetaData, row),
-		ErrMsg:      modelErr,
-		FieldErrors: fieldErrors,
+		Errors:      errs,
 	}
 	if bodyID != "" {
 		d.HXTarget = "#" + bodyID
@@ -641,7 +638,7 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (s
 	if isHTMXRequest(r) {
 		formBodyID = bodyID
 	}
-	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, "", nil, row, formBodyID)
+	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, nil, row, formBodyID)
 }
 
 func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -671,12 +668,11 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (s
 			w.Header().Set("HX-Retarget", "#"+bodyID)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
-		fieldErrs, modelErr := splitValidationErr(err)
 		formBodyID := ""
 		if isHTMXRequest(r) {
 			formBodyID = bodyID
 		}
-		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, modelErr, fieldErrs, row, formBodyID)
+		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, ValidationErrorsFromError(err), row, formBodyID)
 	}
 	if _, err := c.Update(r.Context(), id, row); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

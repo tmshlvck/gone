@@ -1,9 +1,13 @@
-// Example: edit a single in-memory ExampleConfig struct via an
-// auto-derived MetaModel. The library exposes only barebone fragment
-// endpoints — this example owns its page shell and wraps both the
-// display and form fragments in its own card + title + Edit button.
-// Demonstrates per-field validators, FormHelp, and a cross-field
-// MetaModel.Validate (MaxRequests must exceed Port).
+// Example: edit a single in-memory ExampleConfig struct using
+// MetaModel's render/bind primitives directly — no library-managed
+// routes. The app writes its own HTTP handlers around
+// MetaModel.RenderDisplay, MetaModel.RenderForm, and
+// MetaModel.TryBindForm, picks its own URLs, and supplies its own
+// page shell.
+//
+// Demonstrates per-field validators, FormHelp, a cross-field
+// MetaModel.Validate (MaxRequests must exceed Port), and the green
+// "Saved." banner above the form after a successful POST.
 package main
 
 import (
@@ -52,11 +56,6 @@ func main() {
 		log.Fatalf("derive: %v", err)
 	}
 	mm.DisplayName = "Server configuration"
-	// URLs and HTMX target live on the MetaModel; RouteForm picks them
-	// up, and RenderFormComponent embeds them into the form's
-	// action / hx-post / hx-target attributes.
-	mm.FormURL = formURL
-	mm.HXTarget = hxTarget
 
 	// Per-field metadata: display names, help text, and field validators
 	// — each tweak reaches its field via MetaModel.MustFindField, which
@@ -108,38 +107,61 @@ func main() {
 		return nil
 	}
 
-	getter := func() (ExampleConfig, error) {
+	get := func() ExampleConfig {
 		mu.RLock()
 		defer mu.RUnlock()
-		return cfg, nil
+		return cfg
 	}
-	setter := func(next ExampleConfig) error {
+	set := func(next ExampleConfig) {
 		mu.Lock()
 		defer mu.Unlock()
 		cfg = next
-		return nil
 	}
 
 	mux := http.NewServeMux()
 
-	// Library registers ONLY barebone fragment endpoints — no page shell,
-	// no card, no Edit button.
-	if err := mm.RouteForm(mux, getter, setter); err != nil {
-		log.Fatalf("RouteForm: %v", err)
-	}
-
-	// App owns the main page. It wraps the barebone DisplayComponent in
-	// its own card + title + Edit button; the swap container
-	// (#main-content) lives inside the card so HTMX swaps land in the
-	// data area without disturbing the chrome.
+	// GET /             — full page with the dump in the working area.
+	// GET /edit         — form fragment (HTMX-swap into #main-content).
+	// POST /edit        — bind + validate + set. Returns the dump on success
+	//                     (with HX-Trigger: form-saved so the page shows
+	//                     "Saved." next time the form opens) or the form
+	//                     with errors on failure.
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		instance, _ := getter()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := pageShell(mm.DisplayName, formURL, hxTarget,
-			mm.RenderDisplayComponent(r, instance),
+			mm.RenderDisplay(get()),
 		).Render(r.Context(), w); err != nil {
 			log.Printf("render: %v", err)
 		}
+	})
+
+	formOpts := func(errs crud.ValidationErrors) crud.FormOpts {
+		return crud.FormOpts{
+			ActionURL:   formURL,
+			HXTarget:    hxTarget,
+			SubmitLabel: "Save",
+			Title:       "Edit " + mm.DisplayName,
+			Errors:      errs,
+		}
+	}
+
+	mux.HandleFunc("GET "+formURL, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = mm.RenderForm(get(), formOpts(nil)).Render(r.Context(), w)
+	})
+
+	mux.HandleFunc("POST "+formURL, func(w http.ResponseWriter, r *http.Request) {
+		instance := get()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Validation failure: re-render the form with the bound values
+		// and inline errors. Status 200 — HTMX only swaps 2xx bodies.
+		if err := mm.TryBindForm(r, &instance); err != nil {
+			_ = mm.RenderForm(instance, formOpts(crud.ValidationErrorsFromError(err))).Render(r.Context(), w)
+			return
+		}
+		set(instance)
+		// Success: swap back to the dump fragment.
+		_ = mm.RenderDisplay(get()).Render(r.Context(), w)
 	})
 
 	addr := ":8080"
