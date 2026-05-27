@@ -287,11 +287,12 @@ func setIDField[T any](data *T, id uint) {
 // strictly about components and lets the app own page composition.
 // ──────────────────────────────────────────────────────────────────────────
 
-// RenderComponent returns the TableView fragment populated from r's
-// query parameters (?q, ?sort, ?desc, ?page). Embed it inline in the
-// app's page templ for the initial render, OR call it from the app's
-// own GET {URLBase} handler to wrap in a page shell.
-func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error) {
+// Render returns the TableView fragment populated from r's query
+// parameters (?q, ?sort, ?desc, ?page) plus this table's own L1 modal
+// dialog. Embed it inline in the app's page templ for the initial
+// render, or call it from the app's own page handler to wrap in a
+// page shell.
+func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 	d, err := c.buildTableViewData(r)
 	if err != nil {
 		return nil, err

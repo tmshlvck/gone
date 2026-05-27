@@ -86,7 +86,7 @@ func newGormServer(t *testing.T) (*http.ServeMux, *CRUDTable[gormHero], *CRUDTab
 		t.Fatalf("route skill: %v", err)
 	}
 	mux.HandleFunc("GET "+htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
-		comp, err := htbl.RenderComponent(r)
+		comp, err := htbl.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

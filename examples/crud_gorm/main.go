@@ -275,7 +275,7 @@ func main() {
 
 func registerPage[T any](mux *http.ServeMux, tbl *crud.CRUDTable[T], title string) {
 	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
-		comp, err := tbl.RenderComponent(r)
+		comp, err := tbl.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

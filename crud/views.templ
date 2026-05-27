@@ -517,3 +517,34 @@ func pageRange(cur, total int) []int {
 	out = add(out, total)
 	return out
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// AdminView — sidebar + working area. Sidebar links hx-get the matching
+// {slug} URL into the working area, so switching between tables happens
+// without a full page reload. The caller embeds AdminView inside its
+// own page shell (which also embeds crud.PageModals for the shared L2
+// modal — see PRD §8).
+// ──────────────────────────────────────────────────────────────────────────
+
+templ AdminView(d AdminViewData) {
+	<div class="flex gap-6">
+		<aside class="w-56 shrink-0">
+			<ul class="menu bg-base-200 rounded-box w-full">
+				for _, e := range d.Entries {
+					<li>
+						<a
+							href={ templ.URL(e.URL) }
+							hx-get={ e.URL }
+							hx-target={ "#" + d.WorkingAreaID }
+							hx-swap="innerHTML"
+							hx-push-url="true"
+						>{ e.DisplayName }</a>
+					</li>
+				}
+			</ul>
+		</aside>
+		<main class="flex-1 min-w-0" id={ d.WorkingAreaID }>
+			<div class="opacity-50 italic">Pick a model from the sidebar.</div>
+		</main>
+	</div>
+}

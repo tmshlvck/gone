@@ -115,7 +115,7 @@ func main() {
 		log.Fatalf("route: %v", err)
 	}
 	mux.HandleFunc("GET "+table.URLBase(), func(w http.ResponseWriter, r *http.Request) {
-		comp, err := table.RenderComponent(r)
+		comp, err := table.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

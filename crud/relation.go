@@ -40,9 +40,12 @@ type CRUDRelationOption struct {
 // satisfies it; relation fields hold one through MetaField.RelatedCRUD.
 type CRUDTableInterface interface {
 	DisplayName() string
-	URLBase() string       // absolute URL prefix, e.g. "/admin/heroes"
-	HTMXTableURL() string  // URLBase + "/view"   — bare TableView fragment
-	HTMXCreateURL() string // URLBase + "/create" — create-form fragment
+	URLSlug() string                                                                       // local slug, e.g. "heroes"
+	URLBase() string                                                                       // absolute URL prefix, e.g. "/admin/heroes"
+	HTMXTableURL() string                                                                  // URLBase + "/view"   — bare TableView fragment
+	HTMXCreateURL() string                                                                 // URLBase + "/create" — create-form fragment
+	Render(r *http.Request) (templ.Component, error)                                       // table view + this table's L1 modal
+	Route(mux Mux, prefix string) error                                                    // register all CRUD endpoints
 	SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error)
 	GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error)
 }
@@ -106,6 +109,11 @@ func idOf(instance any) uint {
 // ──────────────────────────────────────────────────────────────────────────
 
 func (c *CRUDTable[T]) DisplayName() string { return c.MetaData.DisplayName }
+
+// URLSlug returns the local URL slug for this table (e.g. "heroes").
+// Mirrors the public Slug field via a method so the non-generic
+// CRUDTableInterface can read it.
+func (c *CRUDTable[T]) URLSlug() string { return c.Slug }
 
 // URLBase returns the absolute URL prefix the CRUDTable was routed
 // under (e.g. "/admin/heroes"). Set by Route; empty until then.

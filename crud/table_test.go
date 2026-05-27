@@ -37,10 +37,10 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	}
 	// CRUDTable.Route registers only partial endpoints. The "main" page
 	// route is the app's job — for tests we register a thin handler
-	// that just renders RenderComponent as a bare fragment (no page
+	// that just renders Render as a bare fragment (no page
 	// shell, since the tests only inspect HTML structure, not chrome).
 	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
-		comp, err := tbl.RenderComponent(r)
+		comp, err := tbl.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
