@@ -472,6 +472,8 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 		PageSize:      pageSize,
 		NumPages:      numPages,
 		ListID:        c.ListID,
+		L1ModalID:     L1ModalIDFromSlug(c.Slug),
+		L1BodyID:      L1BodyIDFromSlug(c.Slug),
 	}, nil
 }
 
@@ -536,17 +538,13 @@ func (c *CRUDTable[T]) createFormView(errs ValidationErrors, data T, bodyID stri
 
 func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
 	var zero T
-	modalID, bodyID := modalIDsFromHeader(r)
+	modalID, bodyID, _ := modalIDsFromHeader(r)
 	if isHTMXRequest(r) {
-		// Pop the right modal (L1 for the table's own form; L2 if this
-		// GET came from a relation widget's "+ new" button).
+		// Pop the right modal — modalID is derived from HX-Target so
+		// it correctly names this table's per-slug L1 OR the shared L2.
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"openModal":%q}`, modalID))
 	}
-	formBodyID := ""
-	if isHTMXRequest(r) {
-		formBodyID = bodyID
-	}
-	return "Create " + c.MetaData.DisplayName, c.createFormView(nil, zero, formBodyID)
+	return "Create " + c.MetaData.DisplayName, c.createFormView(nil, zero, bodyID)
 }
 
 func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -554,7 +552,7 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return "", nil
 	}
-	modalID, bodyID := modalIDsFromHeader(r)
+	modalID, bodyID, isL2 := modalIDsFromHeader(r)
 	var data T
 	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &data); err != nil {
 		if isHTMXRequest(r) {
@@ -563,18 +561,14 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 			w.Header().Set("HX-Retarget", "#"+bodyID)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
-		formBodyID := ""
-		if isHTMXRequest(r) {
-			formBodyID = bodyID
-		}
-		return "Create " + c.MetaData.DisplayName, c.createFormView(ValidationErrorsFromError(err), data, formBodyID)
+		return "Create " + c.MetaData.DisplayName, c.createFormView(ValidationErrorsFromError(err), data, bodyID)
 	}
 	if _, _, err := c.Create(r.Context(), data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
 	if isHTMXRequest(r) {
-		if modalID == ModalL2ID {
+		if isL2 {
 			// Nested L2 create (from a relation "+" button) — close L2,
 			// don't touch L1's form values. The refresh-relation event
 			// makes every L1 relation widget re-fetch its <option>
@@ -630,15 +624,11 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) (s
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
-	modalID, bodyID := modalIDsFromHeader(r)
+	modalID, bodyID, _ := modalIDsFromHeader(r)
 	if isHTMXRequest(r) {
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"openModal":%q}`, modalID))
 	}
-	formBodyID := ""
-	if isHTMXRequest(r) {
-		formBodyID = bodyID
-	}
-	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, nil, row, formBodyID)
+	return "Edit " + c.MetaData.DisplayName, c.editFormView(id, nil, row, bodyID)
 }
 
 func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
@@ -662,17 +652,13 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (s
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "", nil
 	}
-	modalID, bodyID := modalIDsFromHeader(r)
+	modalID, bodyID, isL2 := modalIDsFromHeader(r)
 	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &row); err != nil {
 		if isHTMXRequest(r) {
 			w.Header().Set("HX-Retarget", "#"+bodyID)
 			w.Header().Set("HX-Reswap", "innerHTML")
 		}
-		formBodyID := ""
-		if isHTMXRequest(r) {
-			formBodyID = bodyID
-		}
-		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, ValidationErrorsFromError(err), row, formBodyID)
+		return "Edit " + c.MetaData.DisplayName, c.editFormView(id, ValidationErrorsFromError(err), row, bodyID)
 	}
 	if _, err := c.Update(r.Context(), id, row); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -680,7 +666,7 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (s
 	}
 	if isHTMXRequest(r) {
 		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q}`, modalID))
-		if modalID == ModalL2ID {
+		if isL2 {
 			// Unlikely (no UI path opens edit in L2 today) but be safe.
 			w.Header().Set("HX-Reswap", "none")
 			return "", nil

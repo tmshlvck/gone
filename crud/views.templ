@@ -7,17 +7,26 @@ import (
 
 // Modal IDs used by the library's HTMX-driven create/edit forms.
 //
-// L1 is the table's own create/edit modal. L2 is a stacked second-level
-// modal opened by the "+ create new" button inside a relation picker
-// (so a nested create can run without losing the L1 form's state).
-// Both dialogs live at the page level and are rendered once via
-// PageModals — there are no per-CRUDTable modal IDs.
+// L1 (the table's own create/edit modal) is PER-TABLE: each CRUDTable
+// emits its own <dialog id="{slug}-modal-l1"> inside its Render()
+// output. Multiple tables on the same page never collide because
+// every slug is unique.
+//
+// L2 (the nested "+ create new" modal opened from inside an L1 form)
+// is a SHARED singleton with the fixed IDs below. Only one nested
+// create can be in flight at a time across the whole page; sharing
+// the L2 keeps the markup small. The caller embeds crud.PageModals()
+// once to put the L2 dialog in the DOM.
 const (
-	ModalL1ID     = "crud-modal-l1"
-	ModalL1BodyID = "crud-modal-l1-body"
 	ModalL2ID     = "crud-modal-l2"
 	ModalL2BodyID = "crud-modal-l2-body"
 )
+
+// L1ModalIDFromSlug / L1BodyIDFromSlug build per-table L1 IDs from a
+// CRUDTable's Slug. Exported so user-written handlers and templates
+// can reference them by the same rule the library uses.
+func L1ModalIDFromSlug(slug string) string { return slug + "-modal-l1" }
+func L1BodyIDFromSlug(slug string) string  { return slug + "-modal-l1-body" }
 
 // ──────────────────────────────────────────────────────────────────────────
 // View data structs
@@ -49,10 +58,13 @@ type TableViewData struct {
 	PageSize      int   // rows per page; 0 = unpaged
 	NumPages      int   // ceil(Total/PageSize); 1 when unpaged
 
-	// Per-instance ID for the table list wrapper. Each CRUDTable on the
-	// same page gets a unique ListID so HTMX swaps land in the right
-	// table. Modal dialogs are NOT per-instance — see ModalL1ID etc.
-	ListID string
+	// Per-instance IDs. ListID is the swap target for list refreshes.
+	// L1ModalID / L1BodyID are this table's own create/edit modal —
+	// emitted inline in TableView so multiple tables on one page never
+	// share a modal. Derived from the CRUDTable's Slug.
+	ListID    string
+	L1ModalID string
+	L1BodyID  string
 }
 
 type TableRow struct {
@@ -154,7 +166,7 @@ templ TableView(d TableViewData) {
 						<button
 							class="btn btn-outline btn-primary btn-sm"
 							hx-get={ d.URLBase + "/create" }
-							hx-target={ "#" + ModalL1BodyID }
+							hx-target={ "#" + d.L1BodyID }
 							hx-swap="innerHTML"
 						>+ Create</button>
 					}
@@ -165,6 +177,7 @@ templ TableView(d TableViewData) {
 			</div>
 		</div>
 	</div>
+	@modalDialog(d.L1ModalID, d.L1BodyID)
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
@@ -240,7 +253,7 @@ templ rowActions(d TableViewData, id uint) {
 				type="button"
 				class="btn btn-outline btn-xs"
 				hx-get={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit" }
-				hx-target={ "#" + ModalL1BodyID }
+				hx-target={ "#" + d.L1BodyID }
 				hx-swap="innerHTML"
 			>edit</button>
 		}
@@ -299,23 +312,20 @@ templ pagination(d TableViewData) {
 	}
 }
 
-// PageModals renders the two stacked modal dialogs the library uses for
-// create/edit forms. Embed this once at the page-shell level — both
-// dialogs use fixed IDs (ModalL1*, ModalL2*) so any CRUDTable on the
-// page can target them. The L1 dialog hosts the table's own forms;
-// the L2 dialog hosts "+ create new" forms opened from a relation
-// picker inside an L1 form.
+// PageModals renders the shared L2 modal dialog used for "+ create
+// new" forms opened from a relation picker inside an L1 form. Embed
+// this once at the page-shell level. (L1 dialogs are emitted by each
+// CRUDTable's Render() output — no caller action needed.)
 //
-// Each dialog has an X close button in the top-right corner; the
-// backdrop also closes the dialog on click (HTML5 <form method="dialog">).
+// The dialog has an X close button in the top-right corner; the
+// backdrop also closes it on click (HTML5 <form method="dialog">).
 //
 // The inline <style> hides the "+" buttons on relation widgets when
 // the SAME form renders inside L2 — there is no L3 modal to host a
-// further nested create. display:none also removes the button from the
-// tab order so keyboard users can't reach it.
+// further nested create. display:none also removes the button from
+// the tab order so keyboard users can't reach it.
 templ PageModals() {
 	<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style>
-	@modalDialog(ModalL1ID, ModalL1BodyID)
 	@modalDialog(ModalL2ID, ModalL2BodyID)
 }
 

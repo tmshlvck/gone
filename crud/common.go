@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/a-h/templ"
 )
@@ -49,18 +50,25 @@ func isHTMXRequest(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
-// modalIDsFromHeader returns (modalID, bodyID) based on the originating
-// HX-Target header. The library renders the L1 "+ Create" / "edit"
-// buttons with hx-target=#ModalL1BodyID and the relation widget's "+"
-// button with hx-target=#ModalL2BodyID, so the level is unambiguous.
-// Defaults to L1 (handles browser fallback when no HX-Target is set).
-func modalIDsFromHeader(r *http.Request) (modalID, bodyID string) {
-	switch r.Header.Get("HX-Target") {
-	case ModalL2BodyID:
-		return ModalL2ID, ModalL2BodyID
-	default:
-		return ModalL1ID, ModalL1BodyID
+// modalIDsFromHeader returns (modalID, bodyID, isL2) for the originating
+// modal, derived from the HX-Target request header.
+//
+//   - bodyID = the value of HX-Target (e.g. "hero-modal-l1-body" or
+//     "crud-modal-l2-body").
+//   - modalID = bodyID with the "-body" suffix stripped
+//     ("hero-modal-l1" / "crud-modal-l2").
+//   - isL2 = true iff bodyID is the shared L2 body ID.
+//
+// Browser (non-HTMX) callers have no HX-Target — returns empty strings
+// and isL2=false. Handlers that branch on level use isL2 as the test.
+func modalIDsFromHeader(r *http.Request) (modalID, bodyID string, isL2 bool) {
+	bodyID = r.Header.Get("HX-Target")
+	if bodyID == "" {
+		return "", "", false
 	}
+	modalID = strings.TrimSuffix(bodyID, "-body")
+	isL2 = bodyID == ModalL2BodyID
+	return
 }
 
 // parseID extracts the {id} path value from r and parses it to uint.
