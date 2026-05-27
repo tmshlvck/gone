@@ -219,12 +219,12 @@ func buildTables(db *gorm.DB) (
 
 	// Now build the CRUDTables. RelatedCRUD must be set AFTER this step
 	// because we need the CRUDTable pointers to satisfy the interface.
-	heroTable = crud.DeriveGormCRUDTable[Hero](db, heroMM)
-	weaponTable = crud.DeriveGormCRUDTable[Weapon](db, weaponMM)
-	skillTable = crud.DeriveGormCRUDTable[Skill](db, skillMM)
-	heroTable.URLBase = "/heroes"
-	weaponTable.URLBase = "/weapons"
-	skillTable.URLBase = "/skills"
+	heroTable = crud.DeriveGormCRUDTable[Hero](heroMM, nil, db)
+	weaponTable = crud.DeriveGormCRUDTable[Weapon](weaponMM, nil, db)
+	skillTable = crud.DeriveGormCRUDTable[Skill](skillMM, nil, db)
+	heroTable.Slug = "heroes"
+	weaponTable.Slug = "weapons"
+	skillTable.Slug = "skills"
 	heroTable.PageSize = 10
 	weaponTable.PageSize = 10
 	skillTable.PageSize = 8
@@ -253,9 +253,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	for _, err := range []error{
-		heroTable.Route(mux),
-		weaponTable.Route(mux),
-		skillTable.Route(mux),
+		heroTable.Route(mux, ""),
+		weaponTable.Route(mux, ""),
+		skillTable.Route(mux, ""),
 	} {
 		if err != nil {
 			log.Fatal(err)
@@ -274,7 +274,7 @@ func main() {
 }
 
 func registerPage[T any](mux *http.ServeMux, tbl *crud.CRUDTable[T], title string) {
-	mux.HandleFunc("GET "+tbl.URLBase, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := tbl.RenderComponent(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

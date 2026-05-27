@@ -29,17 +29,17 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	if err != nil {
 		t.Fatalf("DeriveMetaModel: %v", err)
 	}
-	tbl := DeriveMapCRUDTable[item](store, mu, mm)
-	tbl.URLBase = "/items"
+	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
+	tbl.Slug = "items"
 	mux := http.NewServeMux()
-	if err := tbl.Route(mux); err != nil {
+	if err := tbl.Route(mux, ""); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	// CRUDTable.Route registers only partial endpoints. The "main" page
 	// route is the app's job — for tests we register a thin handler
 	// that just renders RenderComponent as a bare fragment (no page
 	// shell, since the tests only inspect HTML structure, not chrome).
-	mux.HandleFunc("GET "+tbl.URLBase, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := tbl.RenderComponent(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -94,7 +94,7 @@ func TestList_TableViewHasHTMXAttrs(t *testing.T) {
 	mux, tbl := newTestServer(t)
 	_, body := get(t, mux, "/items")
 	for _, tok := range []string{
-		`hx-get="/items/rows`,
+		`hx-get="/items/view`,
 		`hx-target="#` + tbl.ListID + `"`,
 		`hx-push-url`,
 	} {
@@ -104,27 +104,27 @@ func TestList_TableViewHasHTMXAttrs(t *testing.T) {
 	}
 }
 
-func TestRowsPartial_IsFragmentNotFullPage(t *testing.T) {
+func TestViewPartial_IsFragmentNotFullPage(t *testing.T) {
 	mux, _ := newTestServer(t)
-	code, body := get(t, mux, "/items/rows")
+	code, body := get(t, mux, "/items/view")
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	// /rows is a fragment that lands inside #crud-list, so it has the
+	// /view is a fragment that lands inside #crud-list, so it has the
 	// <table> + footer but never the outer page chrome.
 	for _, forbidden := range []string{"<html", "<head", "<body", "card-body"} {
 		if strings.Contains(body, forbidden) {
-			t.Errorf("/rows must not emit %q; got: %s", forbidden, body)
+			t.Errorf("/view must not emit %q; got: %s", forbidden, body)
 		}
 	}
 	if !strings.Contains(body, "<table") {
-		t.Errorf("/rows should contain <table>; got: %s", body)
+		t.Errorf("/view should contain <table>; got: %s", body)
 	}
 	if !strings.Contains(body, "Aragorn") {
-		t.Errorf("/rows missing data rows")
+		t.Errorf("/view missing data rows")
 	}
 	if !strings.Contains(body, "row(s)") {
-		t.Errorf("/rows should include the row-count footer")
+		t.Errorf("/view should include the row-count footer")
 	}
 }
 
@@ -291,10 +291,10 @@ func TestRowDisplay_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeriveMapCRUDTable_DefaultURLBaseFromName(t *testing.T) {
+func TestDeriveMapCRUDTable_DefaultSlugFromName(t *testing.T) {
 	mm, _ := DeriveMetaModel[item]()
-	tbl := DeriveMapCRUDTable[item](map[uint]item{}, &sync.RWMutex{}, mm)
-	if tbl.URLBase != "/item" {
-		t.Errorf("default URLBase = %q, want /item", tbl.URLBase)
+	tbl := DeriveMapCRUDTable[item](mm, nil, map[uint]item{}, &sync.RWMutex{})
+	if tbl.Slug != "items" {
+		t.Errorf("default Slug = %q, want items", tbl.Slug)
 	}
 }

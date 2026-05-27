@@ -9,6 +9,19 @@ import (
 	"github.com/a-h/templ"
 )
 
+// Mux is the small surface a CRUDTable / Admin needs to register HTTP
+// handlers. Both *http.ServeMux and chi.Router satisfy it; the library
+// never asks for the concrete type, so callers wire whichever router
+// they already use.
+//
+// For chi-based callers that want to layer middleware over the library's
+// routes: use chi.Group (which stacks middleware without changing the
+// prefix). chi.Route prefixes-mounts and would double the absolute
+// paths the library registers.
+type Mux interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // HTTP / HTMX helpers shared by single.go and table.go.
 //

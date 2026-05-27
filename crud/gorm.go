@@ -22,11 +22,12 @@ import (
 //
 // The MetaModel is consulted as live state at call time: caller can
 // post-mutate (RelatedCRUD, FormHelp, ...) and the next request will
-// observe it.
-func DeriveGormCRUDTable[T any](db *gorm.DB, mm MetaModel[T]) CRUDTable[T] {
+// observe it. authz gates every route Route() registers (nil = AllowAll).
+func DeriveGormCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, db *gorm.DB) CRUDTable[T] {
 	c := CRUDTable[T]{
-		URLBase:       "/" + strings.ToLower(mm.Name),
 		MetaData:      mm,
+		Authz:         authz,
+		Slug:          defaultSlug(mm.Name),
 		CreateEnabled: true,
 		EditEnabled:   true,
 		DeleteEnabled: true,

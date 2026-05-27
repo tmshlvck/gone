@@ -40,8 +40,9 @@ type CRUDRelationOption struct {
 // satisfies it; relation fields hold one through MetaField.RelatedCRUD.
 type CRUDTableInterface interface {
 	DisplayName() string
-	HTMXTableURL() string                                                                       // base URL — useful for Admin index / detail jumps
-	HTMXCreateURL() string                                                                      // GET this to fetch the create-form fragment
+	URLBase() string       // absolute URL prefix, e.g. "/admin/heroes"
+	HTMXTableURL() string  // URLBase + "/view"   — bare TableView fragment
+	HTMXCreateURL() string // URLBase + "/create" — create-form fragment
 	SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error)
 	GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error)
 }
@@ -104,9 +105,20 @@ func idOf(instance any) uint {
 // CRUDTableInterface implementation for *CRUDTable[T].
 // ──────────────────────────────────────────────────────────────────────────
 
-func (c *CRUDTable[T]) DisplayName() string   { return c.MetaData.DisplayName }
-func (c *CRUDTable[T]) HTMXTableURL() string  { return c.URLBase }
-func (c *CRUDTable[T]) HTMXCreateURL() string { return c.URLBase + "/create" }
+func (c *CRUDTable[T]) DisplayName() string { return c.MetaData.DisplayName }
+
+// URLBase returns the absolute URL prefix the CRUDTable was routed
+// under (e.g. "/admin/heroes"). Set by Route; empty until then.
+func (c *CRUDTable[T]) URLBase() string { return c.urlBase }
+
+// HTMXTableURL returns the URL that yields the bare TableView fragment.
+// Used by Admin's sidebar links to HTMX-swap a table into the working
+// pane.
+func (c *CRUDTable[T]) HTMXTableURL() string { return c.urlBase + "/view" }
+
+// HTMXCreateURL returns the URL that yields the create-form fragment.
+// Used by relation widgets' "+ create new" button to open L2.
+func (c *CRUDTable[T]) HTMXCreateURL() string { return c.urlBase + "/create" }
 
 // SearchOptions returns up to relationOptionLimit options matching search.
 func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error) {
@@ -273,7 +285,7 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 	// the <select> element at trigger time.
 	refreshAttrs := ""
 	if mf.RelatedCRUD != nil {
-		optsURL := mf.RelatedCRUD.HTMXTableURL() + "/options"
+		optsURL := mf.RelatedCRUD.URLBase() + "/options"
 		var hxVals string
 		if isMulti {
 			hxVals = `js:{"selected": [...this.selectedOptions].map(o => o.value)}`

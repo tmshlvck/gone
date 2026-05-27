@@ -103,18 +103,18 @@ func main() {
 		f.FieldValidate = crud.IntRange(0, 100)
 	}
 
-	table := crud.DeriveMapCRUDTable[Hero](store, &mu, mm)
-	table.URLBase = "/heroes"
+	table := crud.DeriveMapCRUDTable[Hero](mm, nil, store, &mu)
+	table.Slug = "heroes"
 	table.PageSize = 10
 
 	mux := http.NewServeMux()
 	// Library registers only the partial endpoints (rows, modal forms,
 	// delete). The main /heroes page is the app's responsibility — it
 	// embeds table.MainComponent(r) inside its own page shell.
-	if err := table.Route(mux); err != nil {
+	if err := table.Route(mux, ""); err != nil {
 		log.Fatalf("route: %v", err)
 	}
-	mux.HandleFunc("GET "+table.URLBase, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+table.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := table.RenderComponent(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -126,11 +126,11 @@ func main() {
 		}
 	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, table.URLBase, http.StatusSeeOther)
+		http.Redirect(w, r, table.URLBase(), http.StatusSeeOther)
 	})
 
 	addr := ":8080"
-	log.Printf("crud_mem listening on %s — open %s", addr, table.URLBase)
+	log.Printf("crud_mem listening on %s — open %s", addr, table.URLBase())
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 

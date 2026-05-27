@@ -31,22 +31,26 @@ var ErrNotFound = errors.New("not found")
 // must supply. DeriveMapCRUDTable / DeriveGormCRUDTable populate the
 // closures; the renderer and Route handlers treat all backends uniformly.
 //
-// Modal dialogs are NOT per-instance — the library uses the shared
-// ModalL1ID / ModalL2ID constants. The application embeds
-// crud.PageModals() once in its page shell; every CRUDTable on the
-// page (and every relation widget) targets the same two dialogs.
+// urlBase is set by Route(mux, prefix) to prefix + "/" + Slug — read it
+// via HTMXTableURL / HTMXCreateURL. Slug defaults to a lowercased plural
+// of MetaData.Name; override before Route for irregular plurals.
 type CRUDTable[T any] struct {
-	URLBase       string
 	MetaData      MetaModel[T]
+	Authz         AuthzInterface // nil = AllowAll
+	Slug          string         // url-safe plural; default = lowercase(Name) + "s"
+	PageSize      int            // rows per page; 0 = library default (20)
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
-	PageSize      int            // rows per page; 0 = no pagination
-	Authz         AuthzInterface // nil = AllowAll
+
+	// urlBase becomes prefix + "/" + Slug once Route is called. Private
+	// because external readers always go through HTMXTableURL /
+	// HTMXCreateURL — the field name shouldn't be a stable API.
+	urlBase string
 
 	// ListID wraps the table + footer; HTMX swap target for list
-	// refreshes. Set by Derive* with a random suffix so multiple
-	// CRUDTables can coexist on one page without collision.
+	// refreshes. Per-instance random suffix so multiple CRUDTables
+	// can coexist on one page without collision.
 	ListID string
 
 	Get    func(ctx context.Context, id uint) (T, error)
@@ -54,6 +58,13 @@ type CRUDTable[T any] struct {
 	Create func(ctx context.Context, data T) (uint, T, error)
 	Update func(ctx context.Context, id uint, data T) (T, error)
 	Delete func(ctx context.Context, id uint) error
+}
+
+// defaultSlug returns a heuristic plural for a Go type name. Wrong for
+// irregular plurals (Hero→heros, Person→persons, Sheep→sheeps) — caller
+// overrides CRUDTable.Slug for those.
+func defaultSlug(name string) string {
+	return strings.ToLower(name) + "s"
 }
 
 // defaultPageSize is used when CRUDTable.PageSize is 0 and pagination is
@@ -67,10 +78,13 @@ const defaultPageSize = 20
 //
 // The map key is the row's ID. If T has an exported "ID" field of an
 // integer kind, Create/Update keep it in sync with the map key.
-func DeriveMapCRUDTable[T any](store map[uint]T, mu *sync.RWMutex, mm MetaModel[T]) CRUDTable[T] {
+//
+// authz gates every route Route() registers (nil = AllowAll).
+func DeriveMapCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, store map[uint]T, mu *sync.RWMutex) CRUDTable[T] {
 	c := CRUDTable[T]{
-		URLBase:       "/" + strings.ToLower(mm.Name),
 		MetaData:      mm,
+		Authz:         authz,
+		Slug:          defaultSlug(mm.Name),
 		CreateEnabled: true,
 		EditEnabled:   true,
 		DeleteEnabled: true,
@@ -285,36 +299,39 @@ func (c *CRUDTable[T]) RenderComponent(r *http.Request) (templ.Component, error)
 	return TableView(d), nil
 }
 
-// Route registers the CRUD partial endpoints on mux. The main list URL
-// (GET {URLBase}) is intentionally NOT registered — apps handle that
-// themselves by calling RenderComponent and wrapping in their page shell.
+// Route registers the CRUD partial endpoints on mux under
+// prefix + "/" + Slug. The main page URL (GET {urlBase}) is
+// intentionally NOT registered — apps handle that themselves by
+// calling Render and wrapping in their page shell.
 //
 // Routes registered (Go 1.22 method+pattern):
 //
-//	GET    {base}/rows           table fragment for HTMX swaps into #ListID
-//	GET    {base}/create         create form fragment (target: ModalContent)
-//	POST   {base}/create         submit create
-//	GET    {base}/{id}/edit      edit form fragment (target: ModalContent)
-//	POST   {base}/{id}/edit      submit update
-//	POST   {base}/{id}/delete    delete (HX-Request → rows fragment; else 303)
-//	GET    {base}/{id}/display   per-row barebone dump fragment
-//	                             (foundation for future extended detail
-//	                             views — today it just renders the same
-//	                             fields as the table)
+//	GET    {urlBase}/view              table fragment for HTMX swaps into #ListID
+//	GET    {urlBase}/create            create form fragment (target: modal body)
+//	POST   {urlBase}/create            submit create
+//	GET    {urlBase}/{id}/edit         edit form fragment (target: modal body)
+//	POST   {urlBase}/{id}/edit         submit update
+//	POST   {urlBase}/{id}/delete       delete (HX-Request → rows fragment; else 303)
+//	GET    {urlBase}/{id}/display      per-row barebone dump fragment
+//	GET    {urlBase}/options           relation-picker option list
 //
 // Every handler gates on c.Authz (CanList / CanRead / CanCreate /
 // CanUpdate / CanDelete); nil = AllowAll.
-func (c *CRUDTable[T]) Route(mux *http.ServeMux) error {
+//
+// For chi-based callers wanting middleware layering: use chi.Group
+// (which stacks middleware without changing the prefix). chi.Route
+// would prefix-mount and double the absolute paths registered here.
+func (c *CRUDTable[T]) Route(mux Mux, prefix string) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
-	base := c.URLBase
-	if base == "" {
-		base = "/" + strings.ToLower(c.MetaData.Name)
+	if c.Slug == "" {
+		c.Slug = defaultSlug(c.MetaData.Name)
 	}
-	c.URLBase = base
+	c.urlBase = prefix + "/" + strings.TrimPrefix(c.Slug, "/")
+	base := c.urlBase
 
-	mux.HandleFunc("GET "+base+"/rows", c.makeFragmentHandler(c.handleListRows, "list"))
+	mux.HandleFunc("GET "+base+"/view", c.makeFragmentHandler(c.handleListRows, "list"))
 	if c.CreateEnabled {
 		mux.HandleFunc("GET "+base+"/create", c.makeFragmentHandler(c.handleCreateForm, "create"))
 		mux.HandleFunc("POST "+base+"/create", c.makeFragmentHandler(c.handleCreatePost, "create"))
@@ -441,7 +458,7 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 	}
 	return TableViewData{
 		DisplayName:   c.MetaData.DisplayName,
-		URLBase:       c.URLBase,
+		URLBase:       c.urlBase,
 		Fields:        c.MetaData.Fields,
 		Rows:          rows,
 		CreateEnabled: c.CreateEnabled,
@@ -505,7 +522,7 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) (s
 func (c *CRUDTable[T]) createFormView(modelErr string, fieldErrors map[string]string, data T, bodyID string) templ.Component {
 	d := FormViewData{
 		DisplayName: "Create " + c.MetaData.DisplayName,
-		ActionURL:   c.URLBase + "/create",
+		ActionURL:   c.urlBase + "/create",
 		SubmitText:  "Create",
 		Fields:      c.MetaData.Fields,
 		Inputs:      c.MetaData.GenFormElements(c.MetaData, data),
@@ -580,7 +597,7 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		}
 		return "", TableContent(d)
 	}
-	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
+	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return "", nil
 }
 
@@ -588,7 +605,7 @@ func (c *CRUDTable[T]) editFormView(id uint, modelErr string, fieldErrors map[st
 	idStr := strconv.FormatUint(uint64(id), 10)
 	d := FormViewData{
 		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
-		ActionURL:   c.URLBase + "/" + idStr + "/edit",
+		ActionURL:   c.urlBase + "/" + idStr + "/edit",
 		SubmitText:  "Save",
 		Fields:      c.MetaData.Fields,
 		Inputs:      c.MetaData.GenFormElements(c.MetaData, row),
@@ -681,7 +698,7 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) (s
 		}
 		return "", TableContent(d)
 	}
-	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
+	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return "", nil
 }
 
@@ -705,7 +722,7 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 		}
 		return "", TableContent(d)
 	}
-	http.Redirect(w, r, c.URLBase, http.StatusSeeOther)
+	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return "", nil
 }
 

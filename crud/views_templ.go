@@ -208,7 +208,7 @@ func TableView(d TableViewData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
-		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.URLBase + "/rows" + extraQueryNoSearch(d))
+		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.URLBase + "/view" + extraQueryNoSearch(d))
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 118, Col: 58}
 		}
@@ -295,7 +295,7 @@ func TableView(d TableViewData) templ.Component {
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
-// and pagination footer. This is what the /rows partial returns and what
+// and pagination footer. This is what the /view partial returns and what
 // HTMX swaps into #crud-list.
 func TableContent(d TableViewData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -1302,7 +1302,7 @@ func sortToggleURL(d TableViewData, field string, rows bool) string {
 	}
 	base := d.URLBase
 	if rows {
-		base += "/rows"
+		base += "/view"
 	}
 	return encodeQuery(base, q)
 }
@@ -1314,7 +1314,7 @@ func pageURL(d TableViewData, page int, rows bool) string {
 	}
 	base := d.URLBase
 	if rows {
-		base += "/rows"
+		base += "/view"
 	}
 	return encodeQuery(base, q)
 }

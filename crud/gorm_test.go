@@ -66,10 +66,10 @@ func newGormServer(t *testing.T) (*http.ServeMux, *CRUDTable[gormHero], *CRUDTab
 	if err != nil {
 		t.Fatalf("derive skill: %v", err)
 	}
-	htbl := DeriveGormCRUDTable[gormHero](db, hmm)
-	stbl := DeriveGormCRUDTable[gormSkill](db, smm)
-	htbl.URLBase = "/heroes"
-	stbl.URLBase = "/skills"
+	htbl := DeriveGormCRUDTable[gormHero](hmm, nil, db)
+	stbl := DeriveGormCRUDTable[gormSkill](smm, nil, db)
+	htbl.Slug = "heroes"
+	stbl.Slug = "skills"
 
 	// Wire the m2m relation to Skill.
 	for i := range htbl.MetaData.Fields {
@@ -79,13 +79,13 @@ func newGormServer(t *testing.T) (*http.ServeMux, *CRUDTable[gormHero], *CRUDTab
 	}
 
 	mux := http.NewServeMux()
-	if err := htbl.Route(mux); err != nil {
+	if err := htbl.Route(mux, ""); err != nil {
 		t.Fatalf("route hero: %v", err)
 	}
-	if err := stbl.Route(mux); err != nil {
+	if err := stbl.Route(mux, ""); err != nil {
 		t.Fatalf("route skill: %v", err)
 	}
-	mux.HandleFunc("GET "+htbl.URLBase, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := htbl.RenderComponent(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

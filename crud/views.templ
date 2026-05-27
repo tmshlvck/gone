@@ -115,7 +115,7 @@ templ TableView(d TableViewData) {
 						placeholder="search…"
 						value={ d.Search }
 						class="input input-sm w-64"
-						hx-get={ d.URLBase + "/rows" + extraQueryNoSearch(d) }
+						hx-get={ d.URLBase + "/view" + extraQueryNoSearch(d) }
 						hx-target={ "#" + d.ListID }
 						hx-swap="innerHTML"
 						hx-trigger="input changed delay:300ms, search"
@@ -140,7 +140,7 @@ templ TableView(d TableViewData) {
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
-// and pagination footer. This is what the /rows partial returns and what
+// and pagination footer. This is what the /view partial returns and what
 // HTMX swaps into #crud-list.
 templ TableContent(d TableViewData) {
 	<div class="overflow-x-auto">
@@ -416,7 +416,7 @@ func sortToggleURL(d TableViewData, field string, rows bool) string {
 	}
 	base := d.URLBase
 	if rows {
-		base += "/rows"
+		base += "/view"
 	}
 	return encodeQuery(base, q)
 }
@@ -428,7 +428,7 @@ func pageURL(d TableViewData, page int, rows bool) string {
 	}
 	base := d.URLBase
 	if rows {
-		base += "/rows"
+		base += "/view"
 	}
 	return encodeQuery(base, q)
 }
