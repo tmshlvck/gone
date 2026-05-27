@@ -188,6 +188,15 @@ func DeriveMapCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, store map[
 func DeriveGormCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, db *gorm.DB) CRUDTable[T]
 ```
 
+**Slug uniqueness is required.** Two CRUDTables on the same page (or
+inside the same Admin) MUST have distinct `Slug` values. The default
+`lowercase(Name) + "s"` heuristic already gives different slugs to
+different Go types; collisions only happen if a caller deliberately
+overrides two tables to share a slug. Symptoms of a collision: the
+per-slug L1 modal IDs (`{slug}-modal-l1`) overlap, so opening one
+table's edit form may target the other's modal body. Treat this as a
+configuration bug, not a runtime case the library handles.
+
 #### Routing
 
 ```go
@@ -416,18 +425,34 @@ drop the snippet into any page shell.
 
 ## 8. HTMX modals
 
-Create / edit forms open in two stacked DaisyUI modal dialogs, both
-**owned by the CRUDTable** that renders them. IDs derive from the
-table's slug:
+Create / edit forms open in two stacked DaisyUI modal dialogs:
 
-- **L1** — `#{slug}-modal-l1` / `#{slug}-modal-l1-body` — table's own
-  create/edit forms. Opened by `+ Create` and per-row `edit` buttons.
-- **L2** — `#{slug}-modal-l2` / `#{slug}-modal-l2-body` — nested
-  create opened by a `+ new` button inside a relation widget. Hosts the
-  foreign entity's create form so the L1 form's state survives.
+- **L1 — per-table** — `#{slug}-modal-l1` / `#{slug}-modal-l1-body` —
+  the table's own create/edit forms. Emitted by each CRUDTable's
+  `Render` output. Opened by `+ Create` and per-row `edit` buttons.
+- **L2 — shared singleton** — `#crud-modal-l2` / `#crud-modal-l2-body`
+  — nested create opened by a `+ new` button inside a relation widget.
+  Hosts the foreign entity's create form so the L1 form's state
+  survives. The L2 dialog is auto-embedded inside each CRUDTable's
+  `Render` output (via the library's internal `PageModals`); if
+  multiple CRUDTables render on one page the duplicate dialogs are
+  inert (browsers tolerate, `getElementById` returns the first).
+
+**Slug uniqueness is required** for the per-table L1 IDs to stay
+distinct — see §5.4.
 
 Each dialog has an X close button in the top-right and a backdrop
 click handler (HTML5 `<form method="dialog">`).
+
+**Modal-open timing.** The flow is *fetch → response → swap → open*:
+clicking `+ Create` fires the `hx-get`; the server returns the form
+HTML plus `HX-Trigger: openModal:<id>`; HTMX swaps the form into the
+target body; the bridge JS dispatches `dialog.showModal()`. The modal
+does not appear until the response arrives, so on slow networks the
+click feels MPA-like — the page sits still until the form is ready.
+Acceptable default for admin and generic CRUD workflows; switching to
+"open immediately with spinner, then swap" is a small client-side
+change if a future use case demands it.
 
 ### Signaling outcomes
 
@@ -451,7 +476,7 @@ page re-fetches `{relatedBase}/options` (sending its current selection
 via `hx-vals='js: …'`) so the freshly-created row appears in dropdowns
 without disturbing any other in-flight form field. The "+" button on
 relation widgets that render inside L2 is hidden by a one-line CSS rule
-(`#{slug}-modal-l2 .crud-relation-add-btn { display: none }`) — no L3
+(`#crud-modal-l2 .crud-relation-add-btn { display: none }`) — no L3
 modal exists.
 
 ## 9. Pagination
