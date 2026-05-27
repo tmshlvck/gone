@@ -40,12 +40,20 @@ type CRUDRelationOption struct {
 // satisfies it; relation fields hold one through MetaField.RelatedCRUD.
 type CRUDTableInterface interface {
 	DisplayName() string
+	ModelName() string                                                                     // Go type name (e.g. "Hero")
 	URLSlug() string                                                                       // local slug, e.g. "heroes"
 	URLBase() string                                                                       // absolute URL prefix, e.g. "/admin/heroes"
 	HTMXTableURL() string                                                                  // URLBase + "/view"   — bare TableView fragment
 	HTMXCreateURL() string                                                                 // URLBase + "/create" — create-form fragment
 	Render(r *http.Request) (templ.Component, error)                                       // table view + this table's L1 modal
 	Route(mux Mux, prefix string) error                                                    // register all CRUD endpoints
+
+	// AutoWireRelations sets MetaField.RelatedCRUD on every relation
+	// field on this table whose RelatedTypeName matches a peer's
+	// ModelName(). Call once after every relevant CRUDTable has been
+	// derived; Admin's DeriveAdminAutoWire does this for you.
+	AutoWireRelations(peers []CRUDTableInterface)
+
 	SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error)
 	GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error)
 }
@@ -110,10 +118,41 @@ func idOf(instance any) uint {
 
 func (c *CRUDTable[T]) DisplayName() string { return c.MetaData.DisplayName }
 
+// ModelName returns the Go type name of the underlying model
+// (MetaData.Name) — used by Admin's auto-wire path to match
+// MetaField.RelatedTypeName against peer tables.
+func (c *CRUDTable[T]) ModelName() string { return c.MetaData.Name }
+
 // URLSlug returns the local URL slug for this table (e.g. "heroes").
 // Mirrors the public Slug field via a method so the non-generic
 // CRUDTableInterface can read it.
 func (c *CRUDTable[T]) URLSlug() string { return c.Slug }
+
+// AutoWireRelations walks this table's MetaFields and sets
+// RelatedCRUD on each relation field whose RelatedTypeName matches a
+// peer's ModelName(). Peers may include this table itself — self-
+// references are wired the same way (e.g. a self-referential Parent
+// field).
+func (c *CRUDTable[T]) AutoWireRelations(peers []CRUDTableInterface) {
+	if len(peers) == 0 {
+		return
+	}
+	byName := make(map[string]CRUDTableInterface, len(peers))
+	for _, p := range peers {
+		if name := p.ModelName(); name != "" {
+			byName[name] = p
+		}
+	}
+	for i := range c.MetaData.Fields {
+		f := &c.MetaData.Fields[i]
+		if f.RelationKind == NotRelation || f.RelatedTypeName == "" {
+			continue
+		}
+		if peer, ok := byName[f.RelatedTypeName]; ok {
+			f.RelatedCRUD = peer
+		}
+	}
+}
 
 // URLBase returns the absolute URL prefix the CRUDTable was routed
 // under (e.g. "/admin/heroes"). Set by Route; empty until then.

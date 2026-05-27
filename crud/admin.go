@@ -44,12 +44,32 @@ type Admin struct {
 // DeriveAdmin builds an Admin from a list of pre-derived CRUDTables.
 // Tables can be derived from any backend (Map, GORM, future) — Admin
 // works against the non-generic CRUDTableInterface.
+//
+// Relation wiring (MetaField.RelatedCRUD) is the caller's job in this
+// variant — set it manually on each MetaField before passing the
+// tables in. Use DeriveAdminAutoWire for the "auto-derive everything"
+// shortcut.
 func DeriveAdmin(tables []CRUDTableInterface, authz AuthzInterface) Admin {
 	return Admin{
 		Tables: tables,
 		Authz:  authz,
 		Slug:   "admin",
 	}
+}
+
+// DeriveAdminAutoWire is like DeriveAdmin but additionally auto-wires
+// every relation field's RelatedCRUD by matching the field's
+// RelatedTypeName (the Go type name of the related struct) against
+// each peer table's ModelName().
+//
+// The matching is purely name-based — passing two tables named "Hero"
+// would produce ambiguous output (last write wins). In practice that
+// doesn't happen because Go type names within one package are unique.
+func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admin {
+	for _, t := range tables {
+		t.AutoWireRelations(tables)
+	}
+	return DeriveAdmin(tables, authz)
 }
 
 // Route registers the sidebar HTMX swap endpoints under prefix.

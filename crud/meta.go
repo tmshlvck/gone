@@ -53,11 +53,13 @@ type MetaField struct {
 	// Relation metadata — populated by DeriveMetaModel from reflection +
 	// gorm tags. RelatedCRUD is left nil; the caller wires it after
 	// derivation (because the related CRUD usually lives in the
-	// application, not the model package).
-	RelationKind   RelationKind
-	RelatedCRUD    CRUDTableInterface
-	FKFieldName    string // RelationSingle only — sibling FK uint, e.g. "OwnerID" for "Owner Hero"
-	FormFieldName  string // POST form key for the input (defaults to Name; relation single uses FKFieldName)
+	// application, not the model package). Or use Admin's auto-wire
+	// path which matches RelatedTypeName against each table's ModelName.
+	RelationKind    RelationKind
+	RelatedCRUD     CRUDTableInterface
+	RelatedTypeName string // Go type name of the related model (e.g. "Hero"); empty for non-relations
+	FKFieldName     string // RelationSingle only — sibling FK uint, e.g. "OwnerID" for "Owner Hero"
+	FormFieldName   string // POST form key for the input (defaults to Name; relation single uses FKFieldName)
 
 	// DisplayValue renders the field's typed Go value as a templ.Component
 	// (a single table cell or dump entry). value is the already-extracted
@@ -220,6 +222,7 @@ func deriveField(f reflect.StructField) MetaField {
 	switch {
 	case t.Kind() == reflect.Struct && t != timeType:
 		mf.RelationKind = RelationSingle
+		mf.RelatedTypeName = t.Name()
 		mf.FKFieldName = f.Name + "ID"
 		mf.FormFieldName = mf.FKFieldName
 		mf.DisplayValue = relationSingleDisplay
@@ -228,6 +231,11 @@ func deriveField(f reflect.StructField) MetaField {
 		mf.Sortable = false
 		mf.Searchable = false
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Struct && t.Elem() != timeType:
+		elem := t.Elem()
+		for elem.Kind() == reflect.Pointer {
+			elem = elem.Elem()
+		}
+		mf.RelatedTypeName = elem.Name()
 		// Distinguish many2many vs has-many via the gorm tag.
 		switch {
 		case strings.Contains(gormTag, "many2many"):
