@@ -170,11 +170,16 @@ func main() {
 	// each peer's ModelName(), setting RelatedCRUD in place. Without
 	// this step the relation pickers would render with no options.
 	admin := crud.DeriveAdminAutoWire(tables, nil)
+	// admin.Route registers GET /admin → 303 to /admin/{first-slug}.
 	if err := admin.Route(mux, "/admin"); err != nil {
 		log.Fatalf("admin route: %v", err)
 	}
 
-	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+	// Per-slug page route — wraps admin.Render in the page-shell. One
+	// pattern catches /admin/heros, /admin/weapons, /admin/skills.
+	// Each CRUDTable's own sub-routes (/admin/heros/view, /create, …)
+	// are more specific and win the pattern match.
+	adminPage := func(w http.ResponseWriter, r *http.Request) {
 		comp, err := admin.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -184,7 +189,8 @@ func main() {
 		if err := pageShell("Admin", comp).Render(r.Context(), w); err != nil {
 			log.Printf("render: %v", err)
 		}
-	})
+	}
+	mux.HandleFunc("GET /admin/{slug}", adminPage)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})

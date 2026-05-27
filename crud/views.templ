@@ -519,32 +519,36 @@ func pageRange(cur, total int) []int {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// AdminView — sidebar + working area. Sidebar links hx-get the matching
-// {slug} URL into the working area, so switching between tables happens
-// without a full page reload. The caller embeds AdminView inside its
-// own page shell (which also embeds crud.PageModals for the shared L2
-// modal — see PRD §8).
+// AdminView — sidebar + working area with the active table inlined.
+// Sidebar links use hx-boost: each click is a fetch + body-swap (no
+// full page reload), the URL updates via hx-push-url automatically,
+// and back-button navigation works through HTMX's history cache.
+// Server-rendered active highlight on the matching entry. The caller
+// embeds AdminView inside its own page shell (which also embeds
+// crud.PageModals for the shared L2 modal — see PRD §8).
 // ──────────────────────────────────────────────────────────────────────────
 
 templ AdminView(d AdminViewData) {
 	<div class="flex gap-6">
-		<aside class="w-56 shrink-0">
+		<aside class="w-56 shrink-0" hx-boost="true">
 			<ul class="menu bg-base-200 rounded-box w-full">
 				for _, e := range d.Entries {
 					<li>
-						<a
-							href={ templ.URL(e.URL) }
-							hx-get={ e.URL }
-							hx-target={ "#" + d.WorkingAreaID }
-							hx-swap="innerHTML"
-							hx-push-url="true"
-						>{ e.DisplayName }</a>
+						if e.Active {
+							<a href={ templ.URL(e.URL) } class="menu-active" aria-current="page">{ e.DisplayName }</a>
+						} else {
+							<a href={ templ.URL(e.URL) }>{ e.DisplayName }</a>
+						}
 					</li>
 				}
 			</ul>
 		</aside>
-		<main class="flex-1 min-w-0" id={ d.WorkingAreaID }>
-			<div class="opacity-50 italic">Pick a model from the sidebar.</div>
+		<main class="flex-1 min-w-0">
+			if d.ActiveContent != nil {
+				@d.ActiveContent
+			} else {
+				<div class="opacity-50 italic">No model selected.</div>
+			}
 		</main>
 	</div>
 }
