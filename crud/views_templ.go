@@ -334,6 +334,10 @@ func TableView(d TableViewData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
+		templ_7745c5c3_Err = PageModals().Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
 		return nil
 	})
 }
@@ -439,7 +443,7 @@ func TableContent(d TableViewData) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatInt(d.Total, 10))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 219, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 220, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -490,7 +494,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 			var templ_7745c5c3_Var14 templ.SafeURL
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(sortToggleURL(d, mf.Name, false)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 228, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 229, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
@@ -503,7 +507,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.ResolveAttributeValue(sortToggleURL(d, mf.Name, true))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 229, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 230, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 			if templ_7745c5c3_Err != nil {
@@ -516,7 +520,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ListID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 230, Col: 29}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 231, Col: 29}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 			if templ_7745c5c3_Err != nil {
@@ -529,7 +533,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(sortToggleURL(d, mf.Name, false))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 232, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 233, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 			if templ_7745c5c3_Err != nil {
@@ -542,7 +546,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(mf.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 235, Col: 19}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 236, Col: 19}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -557,7 +561,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 					var templ_7745c5c3_Var19 string
 					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(" ↓")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 238, Col: 13}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 239, Col: 13}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -567,7 +571,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(" ↑")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 240, Col: 13}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 241, Col: 13}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -583,7 +587,7 @@ func sortHeader(d TableViewData, mf MetaField) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(mf.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 245, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 246, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -627,7 +631,7 @@ func rowActions(d TableViewData, id uint) templ.Component {
 			var templ_7745c5c3_Var23 string
 			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 255, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 256, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 			if templ_7745c5c3_Err != nil {
@@ -640,7 +644,7 @@ func rowActions(d TableViewData, id uint) templ.Component {
 			var templ_7745c5c3_Var24 string
 			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.L1BodyID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 256, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 257, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 			if templ_7745c5c3_Err != nil {
@@ -659,7 +663,7 @@ func rowActions(d TableViewData, id uint) templ.Component {
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 264, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 265, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 			if templ_7745c5c3_Err != nil {
@@ -672,7 +676,7 @@ func rowActions(d TableViewData, id uint) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ListID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 266, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 267, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 			if templ_7745c5c3_Err != nil {
@@ -725,7 +729,7 @@ func pagination(d TableViewData) templ.Component {
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, d.Page-1, true))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 279, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 280, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 				if templ_7745c5c3_Err != nil {
@@ -738,7 +742,7 @@ func pagination(d TableViewData) templ.Component {
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ListID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 280, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 281, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 				if templ_7745c5c3_Err != nil {
@@ -751,7 +755,7 @@ func pagination(d TableViewData) templ.Component {
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, d.Page-1, false))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 282, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 283, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 				if templ_7745c5c3_Err != nil {
@@ -776,7 +780,7 @@ func pagination(d TableViewData) templ.Component {
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(n))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 289, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 290, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
@@ -794,7 +798,7 @@ func pagination(d TableViewData) templ.Component {
 					var templ_7745c5c3_Var32 string
 					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, n, true))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 293, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 294, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 					if templ_7745c5c3_Err != nil {
@@ -807,7 +811,7 @@ func pagination(d TableViewData) templ.Component {
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ListID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 294, Col: 32}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 295, Col: 32}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 					if templ_7745c5c3_Err != nil {
@@ -820,7 +824,7 @@ func pagination(d TableViewData) templ.Component {
 					var templ_7745c5c3_Var34 string
 					templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, n, false))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 296, Col: 40}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 297, Col: 40}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 					if templ_7745c5c3_Err != nil {
@@ -833,7 +837,7 @@ func pagination(d TableViewData) templ.Component {
 					var templ_7745c5c3_Var35 string
 					templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(n))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 297, Col: 23}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 298, Col: 23}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 					if templ_7745c5c3_Err != nil {
@@ -853,7 +857,7 @@ func pagination(d TableViewData) templ.Component {
 				var templ_7745c5c3_Var36 string
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, d.Page+1, true))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 303, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 304, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 				if templ_7745c5c3_Err != nil {
@@ -866,7 +870,7 @@ func pagination(d TableViewData) templ.Component {
 				var templ_7745c5c3_Var37 string
 				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ListID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 304, Col: 31}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 305, Col: 31}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 				if templ_7745c5c3_Err != nil {
@@ -879,7 +883,7 @@ func pagination(d TableViewData) templ.Component {
 				var templ_7745c5c3_Var38 string
 				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(pageURL(d, d.Page+1, false))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 306, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 307, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 				if templ_7745c5c3_Err != nil {
@@ -905,9 +909,19 @@ func pagination(d TableViewData) templ.Component {
 }
 
 // PageModals renders the shared L2 modal dialog used for "+ create
-// new" forms opened from a relation picker inside an L1 form. Embed
-// this once at the page-shell level. (L1 dialogs are emitted by each
-// CRUDTable's Render() output — no caller action needed.)
+// new" forms opened from a relation picker inside an L1 form, plus
+// the bridge JS that listens for HX-Trigger {openModal, closeModal}
+// events and calls dialog.showModal() / dialog.close() on the
+// matching <dialog>.
+//
+// Each CRUDTable's TableView embeds PageModals automatically, so the
+// typical caller never needs to call it. Standalone callers (using
+// MetaModel.RenderForm directly inside a modal, without a CRUDTable
+// on the page) can embed it manually in their page-shell.
+//
+// The bridge JS guards itself against duplicate listener attachment
+// — if it's somehow rendered twice on a page (e.g. two CRUDTables
+// visible at once) the second invocation is a no-op.
 //
 // The dialog has an X close button in the top-right corner; the
 // backdrop also closes it on click (HTML5 <form method="dialog">).
@@ -937,7 +951,7 @@ func PageModals() templ.Component {
 			templ_7745c5c3_Var39 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style><script>\n\t\t(function(){\n\t\t\tif (window.__crudModalBridgeAttached) return;\n\t\t\twindow.__crudModalBridgeAttached = true;\n\t\t\tconst attach = () => {\n\t\t\t\tdocument.body.addEventListener('openModal', (e) => {\n\t\t\t\t\tconst m = e.detail && e.detail.value\n\t\t\t\t\t\t? document.getElementById(e.detail.value)\n\t\t\t\t\t\t: document.querySelector('dialog.modal');\n\t\t\t\t\tif (m) m.showModal();\n\t\t\t\t});\n\t\t\t\tdocument.body.addEventListener('closeModal', (e) => {\n\t\t\t\t\tif (e.detail && e.detail.value) {\n\t\t\t\t\t\tconst m = document.getElementById(e.detail.value);\n\t\t\t\t\t\tif (m) m.close();\n\t\t\t\t\t\treturn;\n\t\t\t\t\t}\n\t\t\t\t\tdocument.querySelectorAll('dialog.modal[open]').forEach(m => m.close());\n\t\t\t\t});\n\t\t\t};\n\t\t\tif (document.readyState === 'loading') {\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', attach);\n\t\t\t} else {\n\t\t\t\tattach();\n\t\t\t}\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -977,7 +991,7 @@ func modalDialog(modalID, bodyID string) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(modalID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 333, Col: 21}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 371, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 		if templ_7745c5c3_Err != nil {
@@ -990,7 +1004,7 @@ func modalDialog(modalID, bodyID string) templ.Component {
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(bodyID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 342, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 380, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 		if templ_7745c5c3_Err != nil {
@@ -1040,7 +1054,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(d.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 360, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 398, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 			if templ_7745c5c3_Err != nil {
@@ -1059,7 +1073,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var45 string
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(d.SuccessMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 364, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 402, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1078,7 +1092,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var46 string
 			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 369, Col: 14}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 407, Col: 14}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 			if templ_7745c5c3_Err != nil {
@@ -1102,7 +1116,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var47 templ.SafeURL
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 379, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 417, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -1115,7 +1129,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 381, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 419, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 			if templ_7745c5c3_Err != nil {
@@ -1128,7 +1142,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.HXTarget)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 382, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 420, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 			if templ_7745c5c3_Err != nil {
@@ -1154,7 +1168,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var50 templ.SafeURL
 			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 388, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 426, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
@@ -1213,7 +1227,7 @@ func formBody(d FormViewData) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(d.SubmitText)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 401, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 439, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 		if templ_7745c5c3_Err != nil {
@@ -1258,7 +1272,7 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 		var templ_7745c5c3_Var54 string
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(mf.DisplayName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 410, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 448, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 		if templ_7745c5c3_Err != nil {
@@ -1280,7 +1294,7 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			var templ_7745c5c3_Var55 string
 			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 413, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 451, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 			if templ_7745c5c3_Err != nil {
@@ -1298,7 +1312,7 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(mf.FormHelp)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 415, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 453, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 			if templ_7745c5c3_Err != nil {
@@ -1448,7 +1462,7 @@ func AdminView(d AdminViewData) templ.Component {
 			templ_7745c5c3_Var57 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<div class=\"flex gap-6\"><aside class=\"w-56 shrink-0\" hx-boost=\"true\"><ul class=\"menu bg-base-200 rounded-box w-full\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<div id=\"crud-admin-root\" hx-boost=\"true\" hx-target=\"#crud-admin-root\" hx-select=\"#crud-admin-root\" hx-swap=\"outerHTML\"><div class=\"flex gap-6\"><aside class=\"w-56 shrink-0\"><ul class=\"menu bg-base-200 rounded-box w-full\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1465,7 +1479,7 @@ func AdminView(d AdminViewData) templ.Component {
 				var templ_7745c5c3_Var58 templ.SafeURL
 				templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(e.URL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 538, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 583, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 				if templ_7745c5c3_Err != nil {
@@ -1478,7 +1492,7 @@ func AdminView(d AdminViewData) templ.Component {
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(e.DisplayName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 538, Col: 91}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 583, Col: 92}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1496,7 +1510,7 @@ func AdminView(d AdminViewData) templ.Component {
 				var templ_7745c5c3_Var60 templ.SafeURL
 				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(e.URL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 540, Col: 33}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 585, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {
@@ -1509,7 +1523,7 @@ func AdminView(d AdminViewData) templ.Component {
 				var templ_7745c5c3_Var61 string
 				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(e.DisplayName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 540, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 585, Col: 52}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 				if templ_7745c5c3_Err != nil {
@@ -1540,7 +1554,7 @@ func AdminView(d AdminViewData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</main></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</main></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

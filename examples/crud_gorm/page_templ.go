@@ -8,8 +8,6 @@ package main
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/tmshlvck/gone/crud"
-
 func pageShell(title string, content templ.Component) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -38,13 +36,13 @@ func pageShell(title string, content templ.Component) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `examples/crud_gorm/page.templ`, Line: 11, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `examples/crud_gorm/page.templ`, Line: 9, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\"><script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script><script src=\"https://unpkg.com/htmx.org@2\"></script><script>\n\t\t\t\t(function () {\n\t\t\t\t\tconst stored = localStorage.getItem('theme');\n\t\t\t\t\tconst dark = window.matchMedia('(prefers-color-scheme: dark)').matches;\n\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', stored || (dark ? 'dark' : 'light'));\n\t\t\t\t})();\n\t\t\t</script><script>\n\t\t\t\t// Same dispatch as crud_mem/form_mem: HX-Trigger openModal/closeModal\n\t\t\t\t// is bridged to the dialogs by their ID. Multiple modals on one\n\t\t\t\t// page — that's the whole point of the cross-table relation flow.\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', () => {\n\t\t\t\t\tdocument.body.addEventListener('openModal', (e) => {\n\t\t\t\t\t\tconst m = e.detail && e.detail.value\n\t\t\t\t\t\t\t? document.getElementById(e.detail.value)\n\t\t\t\t\t\t\t: document.querySelector('dialog.modal');\n\t\t\t\t\t\tif (m) m.showModal();\n\t\t\t\t\t});\n\t\t\t\t\tdocument.body.addEventListener('closeModal', (e) => {\n\t\t\t\t\t\tif (e.detail && e.detail.value) {\n\t\t\t\t\t\t\tconst m = document.getElementById(e.detail.value);\n\t\t\t\t\t\t\tif (m) m.close();\n\t\t\t\t\t\t\treturn;\n\t\t\t\t\t\t}\n\t\t\t\t\t\tdocument.querySelectorAll('dialog.modal[open]').forEach(m => m.close());\n\t\t\t\t\t});\n\n\t\t\t\t\tdocument.querySelectorAll('[data-theme-toggle]').forEach(el => {\n\t\t\t\t\t\tel.checked = (document.documentElement.getAttribute('data-theme') === 'dark');\n\t\t\t\t\t\tel.addEventListener('change', () => {\n\t\t\t\t\t\t\tconst t = el.checked ? 'dark' : 'light';\n\t\t\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', t);\n\t\t\t\t\t\t\tlocalStorage.setItem('theme', t);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t});\n\t\t\t</script></head><body class=\"bg-base-200 min-h-screen\"><header class=\"container mx-auto p-4 max-w-6xl flex items-center justify-between\"><nav class=\"tabs tabs-boxed\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\"><script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script><script src=\"https://unpkg.com/htmx.org@2\"></script><script>\n\t\t\t\t(function () {\n\t\t\t\t\tconst stored = localStorage.getItem('theme');\n\t\t\t\t\tconst dark = window.matchMedia('(prefers-color-scheme: dark)').matches;\n\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', stored || (dark ? 'dark' : 'light'));\n\t\t\t\t})();\n\t\t\t</script><script>\n\t\t\t\t// Theme toggle only — the modal bridge JS ships inside each\n\t\t\t\t// CRUDTable.Render output via crud.PageModals().\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', () => {\n\t\t\t\t\tdocument.querySelectorAll('[data-theme-toggle]').forEach(el => {\n\t\t\t\t\t\tel.checked = (document.documentElement.getAttribute('data-theme') === 'dark');\n\t\t\t\t\t\tel.addEventListener('change', () => {\n\t\t\t\t\t\t\tconst t = el.checked ? 'dark' : 'light';\n\t\t\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', t);\n\t\t\t\t\t\t\tlocalStorage.setItem('theme', t);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t});\n\t\t\t</script></head><body class=\"bg-base-200 min-h-screen\"><header class=\"container mx-auto p-4 max-w-6xl flex items-center justify-between\"><nav class=\"tabs tabs-boxed\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -118,15 +116,7 @@ func pageShell(title string, content templ.Component) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</main>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = crud.PageModals().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</main></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

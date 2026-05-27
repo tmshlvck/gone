@@ -1,7 +1,5 @@
 package main
 
-import "github.com/tmshlvck/gone/crud"
-
 templ pageShell(title string, content templ.Component) {
 	<!doctype html>
 	<html lang="en">
@@ -26,22 +24,9 @@ templ pageShell(title string, content templ.Component) {
 				})();
 			</script>
 			<script>
-				// Bridge HX-Trigger response headers to DaisyUI modal control,
-				// and wire the theme toggle.
+				// Theme toggle only — the modal bridge JS ships inside each
+				// CRUDTable.Render output via crud.PageModals().
 				document.addEventListener('DOMContentLoaded', () => {
-					document.body.addEventListener('openModal', (e) => {
-						// The modal id is sourced from the HX response if
-						// provided, else fall back to the first .modal on page.
-						const m = e.detail && e.detail.value
-							? document.getElementById(e.detail.value)
-							: document.querySelector('dialog.modal');
-						if (m) m.showModal();
-					});
-					document.body.addEventListener('closeModal', () => {
-						document.querySelectorAll('dialog.modal[open]').forEach(m => m.close());
-					});
-
-					// Theme toggle (the input has data-theme-toggle).
 					document.querySelectorAll('[data-theme-toggle]').forEach(el => {
 						el.checked = (document.documentElement.getAttribute('data-theme') === 'dark');
 						el.addEventListener('change', () => {
@@ -66,7 +51,6 @@ templ pageShell(title string, content templ.Component) {
 			<main class="container mx-auto p-4 max-w-5xl">
 				@content
 			</main>
-			@crud.PageModals()
 		</body>
 	</html>
 }

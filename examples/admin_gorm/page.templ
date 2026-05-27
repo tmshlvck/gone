@@ -1,7 +1,5 @@
 package main
 
-import "github.com/tmshlvck/gone/crud"
-
 templ pageShell(title string, content templ.Component) {
 	<!doctype html>
 	<html lang="en">
@@ -20,21 +18,10 @@ templ pageShell(title string, content templ.Component) {
 				})();
 			</script>
 			<script>
+				// Theme toggle only — crud.PageModals (embedded automatically
+				// in each CRUDTable.Render) ships the openModal/closeModal
+				// bridge JS itself.
 				document.addEventListener('DOMContentLoaded', () => {
-					document.body.addEventListener('openModal', (e) => {
-						const m = e.detail && e.detail.value
-							? document.getElementById(e.detail.value)
-							: document.querySelector('dialog.modal');
-						if (m) m.showModal();
-					});
-					document.body.addEventListener('closeModal', (e) => {
-						if (e.detail && e.detail.value) {
-							const m = document.getElementById(e.detail.value);
-							if (m) m.close();
-							return;
-						}
-						document.querySelectorAll('dialog.modal[open]').forEach(m => m.close());
-					});
 					document.querySelectorAll('[data-theme-toggle]').forEach(el => {
 						el.checked = (document.documentElement.getAttribute('data-theme') === 'dark');
 						el.addEventListener('change', () => {
@@ -58,7 +45,6 @@ templ pageShell(title string, content templ.Component) {
 			<main class="container mx-auto p-4 max-w-6xl">
 				@content
 			</main>
-			@crud.PageModals()
 		</body>
 	</html>
 }

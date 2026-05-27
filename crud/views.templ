@@ -178,6 +178,7 @@ templ TableView(d TableViewData) {
 		</div>
 	</div>
 	@modalDialog(d.L1ModalID, d.L1BodyID)
+	@PageModals()
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
@@ -313,9 +314,19 @@ templ pagination(d TableViewData) {
 }
 
 // PageModals renders the shared L2 modal dialog used for "+ create
-// new" forms opened from a relation picker inside an L1 form. Embed
-// this once at the page-shell level. (L1 dialogs are emitted by each
-// CRUDTable's Render() output — no caller action needed.)
+// new" forms opened from a relation picker inside an L1 form, plus
+// the bridge JS that listens for HX-Trigger {openModal, closeModal}
+// events and calls dialog.showModal() / dialog.close() on the
+// matching <dialog>.
+//
+// Each CRUDTable's TableView embeds PageModals automatically, so the
+// typical caller never needs to call it. Standalone callers (using
+// MetaModel.RenderForm directly inside a modal, without a CRUDTable
+// on the page) can embed it manually in their page-shell.
+//
+// The bridge JS guards itself against duplicate listener attachment
+// — if it's somehow rendered twice on a page (e.g. two CRUDTables
+// visible at once) the second invocation is a no-op.
 //
 // The dialog has an X close button in the top-right corner; the
 // backdrop also closes it on click (HTML5 <form method="dialog">).
@@ -326,6 +337,33 @@ templ pagination(d TableViewData) {
 // the tab order so keyboard users can't reach it.
 templ PageModals() {
 	<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style>
+	<script>
+		(function(){
+			if (window.__crudModalBridgeAttached) return;
+			window.__crudModalBridgeAttached = true;
+			const attach = () => {
+				document.body.addEventListener('openModal', (e) => {
+					const m = e.detail && e.detail.value
+						? document.getElementById(e.detail.value)
+						: document.querySelector('dialog.modal');
+					if (m) m.showModal();
+				});
+				document.body.addEventListener('closeModal', (e) => {
+					if (e.detail && e.detail.value) {
+						const m = document.getElementById(e.detail.value);
+						if (m) m.close();
+						return;
+					}
+					document.querySelectorAll('dialog.modal[open]').forEach(m => m.close());
+				});
+			};
+			if (document.readyState === 'loading') {
+				document.addEventListener('DOMContentLoaded', attach);
+			} else {
+				attach();
+			}
+		})();
+	</script>
 	@modalDialog(ModalL2ID, ModalL2BodyID)
 }
 
@@ -529,26 +567,34 @@ func pageRange(cur, total int) []int {
 // ──────────────────────────────────────────────────────────────────────────
 
 templ AdminView(d AdminViewData) {
-	<div class="flex gap-6">
-		<aside class="w-56 shrink-0" hx-boost="true">
-			<ul class="menu bg-base-200 rounded-box w-full">
-				for _, e := range d.Entries {
-					<li>
-						if e.Active {
-							<a href={ templ.URL(e.URL) } class="menu-active" aria-current="page">{ e.DisplayName }</a>
-						} else {
-							<a href={ templ.URL(e.URL) }>{ e.DisplayName }</a>
-						}
-					</li>
+	<div
+		id="crud-admin-root"
+		hx-boost="true"
+		hx-target="#crud-admin-root"
+		hx-select="#crud-admin-root"
+		hx-swap="outerHTML"
+	>
+		<div class="flex gap-6">
+			<aside class="w-56 shrink-0">
+				<ul class="menu bg-base-200 rounded-box w-full">
+					for _, e := range d.Entries {
+						<li>
+							if e.Active {
+								<a href={ templ.URL(e.URL) } class="menu-active" aria-current="page">{ e.DisplayName }</a>
+							} else {
+								<a href={ templ.URL(e.URL) }>{ e.DisplayName }</a>
+							}
+						</li>
+					}
+				</ul>
+			</aside>
+			<main class="flex-1 min-w-0">
+				if d.ActiveContent != nil {
+					@d.ActiveContent
+				} else {
+					<div class="opacity-50 italic">No model selected.</div>
 				}
-			</ul>
-		</aside>
-		<main class="flex-1 min-w-0">
-			if d.ActiveContent != nil {
-				@d.ActiveContent
-			} else {
-				<div class="opacity-50 italic">No model selected.</div>
-			}
-		</main>
+			</main>
+		</div>
 	</div>
 }
