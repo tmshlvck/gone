@@ -264,3 +264,87 @@ func itoa(n int) string {
 	}
 	return string(out)
 }
+
+func TestIPv4Addr(t *testing.T) {
+	pass := []string{"", "1.2.3.4", "0.0.0.0", "255.255.255.255", "127.0.0.1"}
+	fail := []string{"1.2.3.300", "1.2.3", "1.2.3.4.5", "2001:db8::1", "::1", "::ffff:1.2.3.4", "garbage"}
+	for _, s := range pass {
+		if err := IPv4Addr(s); err != nil {
+			t.Errorf("IPv4Addr(%q) = %v; want nil", s, err)
+		}
+	}
+	for _, s := range fail {
+		if err := IPv4Addr(s); err == nil {
+			t.Errorf("IPv4Addr(%q) = nil; want error", s)
+		}
+	}
+}
+
+func TestIPv6Addr(t *testing.T) {
+	pass := []string{"", "::1", "2001:db8::1", "fe80::1", "::ffff:1.2.3.4"}
+	fail := []string{"1.2.3.4", "2001:db8::g", "garbage", "1.2.3.4.5"}
+	for _, s := range pass {
+		if err := IPv6Addr(s); err != nil {
+			t.Errorf("IPv6Addr(%q) = %v; want nil", s, err)
+		}
+	}
+	for _, s := range fail {
+		if err := IPv6Addr(s); err == nil {
+			t.Errorf("IPv6Addr(%q) = nil; want error", s)
+		}
+	}
+}
+
+func TestIPv4Net(t *testing.T) {
+	pass := []string{"", "10.0.0.0/24", "0.0.0.0/0", "1.2.3.4/32"}
+	fail := []string{"10.0.0.0", "10.0.0.0/33", "10.0.0.0/-1", "2001:db8::/32", "garbage/24"}
+	for _, s := range pass {
+		if err := IPv4Net(s); err != nil {
+			t.Errorf("IPv4Net(%q) = %v; want nil", s, err)
+		}
+	}
+	for _, s := range fail {
+		if err := IPv4Net(s); err == nil {
+			t.Errorf("IPv4Net(%q) = nil; want error", s)
+		}
+	}
+}
+
+func TestIPv6Net(t *testing.T) {
+	pass := []string{"", "2001:db8::/32", "::/0", "::1/128"}
+	fail := []string{"2001:db8::", "2001:db8::/130", "10.0.0.0/24", "garbage/32"}
+	for _, s := range pass {
+		if err := IPv6Net(s); err != nil {
+			t.Errorf("IPv6Net(%q) = %v; want nil", s, err)
+		}
+	}
+	for _, s := range fail {
+		if err := IPv6Net(s); err == nil {
+			t.Errorf("IPv6Net(%q) = nil; want error", s)
+		}
+	}
+}
+
+func TestAny(t *testing.T) {
+	v := Any(IPv4Addr, IPv6Addr)
+	// First validator passes: ok.
+	if err := v("1.2.3.4"); err != nil {
+		t.Errorf("Any IPv4 = %v; want nil", err)
+	}
+	// Second validator passes: ok.
+	if err := v("::1"); err != nil {
+		t.Errorf("Any IPv6 = %v; want nil", err)
+	}
+	// Both fail: error joins both messages.
+	err := v("garbage")
+	if err == nil {
+		t.Fatal("Any garbage = nil; want error")
+	}
+	if !strings.Contains(err.Error(), "IPv4") || !strings.Contains(err.Error(), "IPv6") {
+		t.Errorf("Any error should mention both alternatives, got %q", err)
+	}
+	// Empty Any passes everything.
+	if err := Any()("anything"); err != nil {
+		t.Errorf("Any() with no validators should pass; got %v", err)
+	}
+}

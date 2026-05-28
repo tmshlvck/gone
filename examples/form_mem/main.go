@@ -69,7 +69,9 @@ func main() {
 		f := mm.MustFindField("BindAddress")
 		f.DisplayName = "Bind address"
 		f.FormHelp = "IPv4 or IPv6 the server listens on."
-		f.FieldValidate = crud.NotEmpty
+		// Either v4 OR v6 acceptable — Any joins their messages with
+		// " or " so a user typing "garbage" sees both alternatives.
+		f.FieldValidate = crud.All(crud.NotEmpty, crud.Any(crud.IPv4Addr, crud.IPv6Addr))
 	}
 	{
 		f := mm.MustFindField("Port")

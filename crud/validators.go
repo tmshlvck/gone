@@ -2,6 +2,7 @@ package crud
 
 import (
 	"fmt"
+	"net/netip"
 	"regexp"
 	"sort"
 	"strings"
@@ -202,4 +203,95 @@ func All(vs ...Validator) Validator {
 		}
 		return nil
 	}
+}
+
+// Any composes validators with OR semantics: passes if any validator
+// passes, fails only if every validator fails. The failure message
+// joins the individual messages with " or " so the user sees what each
+// alternative expected.
+//
+// Typical use: accept either IPv4 or IPv6:
+//
+//	f.FieldValidate = crud.Any(crud.IPv4Addr, crud.IPv6Addr)
+//
+// Empty vs returns nil (no constraint), mirroring All.
+func Any(vs ...Validator) Validator {
+	return func(value any) error {
+		var msgs []string
+		for _, v := range vs {
+			if v == nil {
+				continue
+			}
+			if err := v(value); err == nil {
+				return nil
+			} else {
+				msgs = append(msgs, err.Error())
+			}
+		}
+		if len(msgs) == 0 {
+			return nil
+		}
+		return fmt.Errorf("%s", strings.Join(msgs, " or "))
+	}
+}
+
+// IPv4Addr fails if value is a non-empty string that doesn't parse as
+// an IPv4 address. v4-mapped IPv6 ("::ffff:1.2.3.4") is rejected —
+// strict v4 only. Empty strings pass; pair with NotEmpty when required.
+func IPv4Addr(value any) error {
+	s, ok := value.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	addr, err := netip.ParseAddr(s)
+	if err != nil || !addr.Is4() {
+		return fmt.Errorf("must be a valid IPv4 address")
+	}
+	return nil
+}
+
+// IPv6Addr fails if value is a non-empty string that doesn't parse as
+// an IPv6 address. Plain IPv4 (4-byte form) is rejected; v4-mapped IPv6
+// ("::ffff:1.2.3.4") passes — it's a valid IPv6 representation.
+// Empty strings pass.
+func IPv6Addr(value any) error {
+	s, ok := value.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	addr, err := netip.ParseAddr(s)
+	if err != nil || addr.Is4() {
+		return fmt.Errorf("must be a valid IPv6 address")
+	}
+	return nil
+}
+
+// IPv4Net fails if value is a non-empty string that doesn't parse as
+// an IPv4 CIDR (e.g. "10.0.0.0/24"). The address must be IPv4 and the
+// prefix length must be 0–32. Empty strings pass.
+func IPv4Net(value any) error {
+	s, ok := value.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	prefix, err := netip.ParsePrefix(s)
+	if err != nil || !prefix.Addr().Is4() {
+		return fmt.Errorf("must be a valid IPv4 network (e.g. 10.0.0.0/24)")
+	}
+	return nil
+}
+
+// IPv6Net fails if value is a non-empty string that doesn't parse as
+// an IPv6 CIDR (e.g. "2001:db8::/32"). The address must be IPv6 and the
+// prefix length must be 0–128. Empty strings pass.
+func IPv6Net(value any) error {
+	s, ok := value.(string)
+	if !ok || s == "" {
+		return nil
+	}
+	prefix, err := netip.ParsePrefix(s)
+	if err != nil || prefix.Addr().Is4() {
+		return fmt.Errorf("must be a valid IPv6 network (e.g. 2001:db8::/32)")
+	}
+	return nil
 }
