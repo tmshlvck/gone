@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/tmshlvck/gone/authz"
 )
 
 // Admin aggregates a set of CRUDTables under a single URL prefix with a
@@ -34,7 +35,7 @@ type Admin struct {
 
 	// Authz gates Admin's own redirect endpoint. nil = AllowAll. Each
 	// child table has its own Authz gating its own routes.
-	Authz AuthzInterface
+	Authz authz.Interface
 
 	// Slug is the path segment under which Admin is mounted. Default
 	// "admin". Currently used only for documentation / future
@@ -54,10 +55,10 @@ type Admin struct {
 // variant — set it manually on each MetaField before passing the
 // tables in. Use DeriveAdminAutoWire for the "auto-derive everything"
 // shortcut.
-func DeriveAdmin(tables []CRUDTableInterface, authz AuthzInterface) Admin {
+func DeriveAdmin(tables []CRUDTableInterface, az authz.Interface) Admin {
 	return Admin{
 		Tables: tables,
-		Authz:  authz,
+		Authz:  az,
 		Slug:   "admin",
 	}
 }
@@ -70,11 +71,11 @@ func DeriveAdmin(tables []CRUDTableInterface, authz AuthzInterface) Admin {
 // The matching is purely name-based — passing two tables named "Hero"
 // would produce ambiguous output (last write wins). In practice that
 // doesn't happen because Go type names within one package are unique.
-func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admin {
+func DeriveAdminAutoWire(tables []CRUDTableInterface, az authz.Interface) Admin {
 	for _, t := range tables {
 		t.AutoWireRelations(tables)
 	}
-	return DeriveAdmin(tables, authz)
+	return DeriveAdmin(tables, az)
 }
 
 // Route mounts Admin at baseUrl + "/" + Slug (same convention as
@@ -132,13 +133,13 @@ func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, err
 	}
 	// Index redirect.
 	firstSlug := a.Tables[0].URLSlug()
-	authz := authzOrAllow(a.Authz)
+	az := authz.OrAllow(a.Authz)
 	indexPattern := a.urlBase
 	if indexPattern == "" {
 		indexPattern = "/"
 	}
 	mux.HandleFunc("GET "+indexPattern, func(w http.ResponseWriter, r *http.Request) {
-		if !authz.CanList(r) {
+		if !az.CanList(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -149,7 +150,7 @@ func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, err
 	// table's DisplayName as the page title.
 	if shell != nil {
 		mux.HandleFunc("GET "+a.urlBase+"/{slug}", func(w http.ResponseWriter, r *http.Request) {
-			if !authz.CanList(r) {
+			if !az.CanList(r) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}

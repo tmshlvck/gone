@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/tmshlvck/gone/authz"
 )
 
 // CRUDSearchResult bundles a row with the ID the backend assigned to it.
@@ -36,7 +37,7 @@ var ErrNotFound = errors.New("not found")
 // of MetaData.Name; override before Route for irregular plurals.
 type CRUDTable[T any] struct {
 	MetaData      MetaModel[T]
-	Authz         AuthzInterface // nil = AllowAll
+	Authz         authz.Interface // nil = AllowAll
 	Slug          string         // url-safe plural; default = lowercase(Name) + "s"
 	PageSize      int            // rows per page; 0 = library default (20)
 	CreateEnabled bool
@@ -85,10 +86,10 @@ const defaultPageSize = 20
 // integer kind, Create/Update keep it in sync with the map key.
 //
 // authz gates every route Route() registers (nil = AllowAll).
-func DeriveMapCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, store map[uint]T, mu *sync.RWMutex) CRUDTable[T] {
+func DeriveMapCRUDTable[T any](mm MetaModel[T], az authz.Interface, store map[uint]T, mu *sync.RWMutex) CRUDTable[T] {
 	c := CRUDTable[T]{
 		MetaData:      mm,
-		Authz:         authz,
+		Authz:         az,
 		Slug:          defaultSlug(mm.Name),
 		CreateEnabled: true,
 		EditEnabled:   true,
@@ -418,19 +419,19 @@ type handlerFunc func(w http.ResponseWriter, r *http.Request) templ.Component
 // user is allowed to perform the named action. Denials send 403 and
 // return false. action ∈ {"list","read","create","update","delete"}.
 func (c *CRUDTable[T]) authzGate(w http.ResponseWriter, r *http.Request, action string) bool {
-	authz := authzOrAllow(c.Authz)
+	az := authz.OrAllow(c.Authz)
 	var ok bool
 	switch action {
 	case "list":
-		ok = authz.CanList(r)
+		ok = az.CanList(r)
 	case "read":
-		ok = authz.CanRead(r)
+		ok = az.CanRead(r)
 	case "create":
-		ok = authz.CanCreate(r)
+		ok = az.CanCreate(r)
 	case "update":
-		ok = authz.CanUpdate(r)
+		ok = az.CanUpdate(r)
 	case "delete":
-		ok = authz.CanDelete(r)
+		ok = az.CanDelete(r)
 	default:
 		ok = false
 	}
