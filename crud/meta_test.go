@@ -196,3 +196,22 @@ func TestDefaultDisplayValues_RenderShape(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizePrefix(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"/", ""},
+		{"/admin", "/admin"},
+		{"/admin/", "/admin"},
+		{"/api/v1", "/api/v1"},
+		{"/api/v1/", "/api/v1"},
+		{"/api/v1//", "/api/v1"},
+	}
+	for _, c := range cases {
+		if got := normalizePrefix(c.in); got != c.want {
+			t.Errorf("normalizePrefix(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -86,18 +86,24 @@ func (a *Admin) Route(mux Mux, prefix string) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
-	a.urlBase = prefix
+	a.urlBase = normalizePrefix(prefix)
 	if len(a.Tables) == 0 {
 		return nil
 	}
 	firstSlug := a.Tables[0].URLSlug()
 	authz := authzOrAllow(a.Authz)
-	mux.HandleFunc("GET "+prefix, func(w http.ResponseWriter, r *http.Request) {
+	// The pattern we register is the normalized base, or "/" if Admin
+	// is mounted at root — ServeMux requires a non-empty path.
+	pattern := a.urlBase
+	if pattern == "" {
+		pattern = "/"
+	}
+	mux.HandleFunc("GET "+pattern, func(w http.ResponseWriter, r *http.Request) {
 		if !authz.CanList(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		http.Redirect(w, r, prefix+"/"+firstSlug, http.StatusSeeOther)
+		http.Redirect(w, r, a.urlBase+"/"+firstSlug, http.StatusSeeOther)
 	})
 	return nil
 }

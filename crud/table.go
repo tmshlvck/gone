@@ -329,7 +329,7 @@ func (c *CRUDTable[T]) Route(mux Mux, prefix string) error {
 	if c.Slug == "" {
 		c.Slug = defaultSlug(c.MetaData.Name)
 	}
-	c.urlBase = prefix + "/" + strings.TrimPrefix(c.Slug, "/")
+	c.urlBase = normalizePrefix(prefix) + "/" + strings.TrimPrefix(c.Slug, "/")
 	base := c.urlBase
 
 	mux.HandleFunc("GET "+base+"/view", c.makeFragmentHandler(c.handleListRows, "list"))

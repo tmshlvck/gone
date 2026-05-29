@@ -82,6 +82,18 @@ func parseID(r *http.Request) (uint, bool) {
 	return uint(n), true
 }
 
+// normalizePrefix converts any user-supplied URL prefix to a canonical
+// form: empty or "/" → "" (root mount); "/x/" → "/x"; "/x" → "/x".
+// Used by Route() to make Route(mux, "") and Route(mux, "/") behave
+// the same, and to silently swallow trailing slashes the caller might
+// have appended.
+func normalizePrefix(prefix string) string {
+	if prefix == "/" {
+		return ""
+	}
+	return strings.TrimRight(prefix, "/")
+}
+
 // ValidationErrorsFromError lifts any error into a ValidationErrors map
 // so callers can feed it straight into FormOpts.Errors without separate
 // split-then-rejoin steps.
