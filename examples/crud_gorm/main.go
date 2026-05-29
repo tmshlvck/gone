@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"net/http"
 
+	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
@@ -252,37 +253,35 @@ func main() {
 	heroTable, weaponTable, skillTable := buildTables(db)
 
 	mux := http.NewServeMux()
-	for _, err := range []error{
-		heroTable.Route(mux, ""),
-		weaponTable.Route(mux, ""),
-		skillTable.Route(mux, ""),
-	} {
-		if err != nil {
-			log.Fatal(err)
-		}
+	// Each table routes its HTMX endpoints AND its main page handler
+	// (because shell is non-nil). The shim that used to bridge
+	// table.URLBase() to pageShell is now baked in.
+	heroURL, err := heroTable.Route(mux, "", pageShell)
+	if err != nil {
+		log.Fatal(err)
 	}
-	registerPage(mux, &heroTable, "Heroes")
-	registerPage(mux, &weaponTable, "Weapons")
-	registerPage(mux, &skillTable, "Skills")
+	if _, err := weaponTable.Route(mux, "", pageShell); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := skillTable.Route(mux, "", pageShell); err != nil {
+		log.Fatal(err)
+	}
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/heroes", http.StatusSeeOther)
+		http.Redirect(w, r, heroURL, http.StatusSeeOther)
 	})
 
 	addr := ":8080"
-	log.Printf("crud_gorm listening on %s — open /heroes, /weapons, /skills", addr)
+	log.Printf("crud_gorm listening on %s — open /heros, /weapons, /skills", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-func registerPage[T any](mux *http.ServeMux, tbl *crud.CRUDTable[T], title string) {
-	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
-		comp, err := tbl.Render(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageShell(title, comp).Render(r.Context(), w); err != nil {
-			log.Printf("render: %v", err)
-		}
-	})
+// pageShell wraps the library's component output in the app's chrome
+// (templ pageLayout). Implements crud.PageShellFunc — gets (w, r,
+// title, content). Free to redirect or write headers; here it just
+// renders the templ.
+func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {
+		log.Printf("render: %v", err)
+	}
 }

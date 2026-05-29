@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net/http"
 
+	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
@@ -161,35 +162,32 @@ func main() {
 	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
 	admin := crud.DeriveAdminAutoWire(tables, nil)
 
-	// admin.Route owns the children — it auto-routes each table at
-	// /admin/{slug} and registers /admin → 303 to /admin/{first.Slug}.
+	// admin.Route owns everything under /admin:
+	//   - GET /admin → 303 to /admin/{first.Slug}
+	//   - GET /admin/{slug} → wraps admin.Render(r) in pageShell
+	//   - each child's HTMX endpoints at /admin/{slug}/view, /create, …
 	// Default slugs are "heros" / "weapons" / "skills" (lowercase+"s");
-	// the irregular Hero→heroes plural is left as-is for this demo.
-	if err := admin.Route(mux, "/admin"); err != nil {
+	// irregular plural Hero→heroes is left as-is for this demo.
+	adminURL, err := admin.Route(mux, "/admin", pageShell)
+	if err != nil {
 		log.Fatalf("admin route: %v", err)
 	}
-
-	// Per-slug page route — wraps admin.Render in the page-shell. One
-	// pattern catches /admin/heros, /admin/weapons, /admin/skills.
-	// Each CRUDTable's own sub-routes (/admin/heros/view, /create, …)
-	// are more specific and win the pattern match.
-	adminPage := func(w http.ResponseWriter, r *http.Request) {
-		comp, err := admin.Render(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageShell("Admin", comp).Render(r.Context(), w); err != nil {
-			log.Printf("render: %v", err)
-		}
-	}
-	mux.HandleFunc("GET /admin/{slug}", adminPage)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		http.Redirect(w, r, adminURL, http.StatusSeeOther)
 	})
 
 	addr := ":8080"
 	log.Printf("admin_gorm listening on %s — open /admin", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// pageShell wraps the library's component output in the app's chrome
+// (templ pageLayout). Implements crud.PageShellFunc — gets (w, r,
+// title, content). Free to redirect or write headers; here it just
+// renders the templ.
+func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {
+		log.Printf("render: %v", err)
+	}
 }

@@ -43,6 +43,11 @@ type CRUDTable[T any] struct {
 	EditEnabled   bool
 	DeleteEnabled bool
 
+	// PageTitle is passed as the title argument to Route's shell. If
+	// empty, MetaData.DisplayName is used. Only relevant when Route is
+	// called with a non-nil PageShellFunc.
+	PageTitle string
+
 	// urlBase becomes prefix + "/" + Slug once Route is called. Private
 	// because external readers always go through HTMXTableURL /
 	// HTMXCreateURL — the field name shouldn't be a stable API.
@@ -301,17 +306,27 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 }
 
 // Route registers the CRUD partial endpoints on mux at
-// baseUrl + "/" + Slug. baseUrl is the path the table's PARENT lives
-// at (root → "" or "/"; Admin → admin's own urlBase). The table
-// auto-appends its Slug — caller doesn't repeat it.
+// baseUrl + "/" + Slug, plus (when shell is non-nil) the main page
+// handler at the same urlBase. Returns the absolute urlBase the table
+// was mounted at — handy for the caller's "/ → first thing" redirect
+// or for cross-linking.
 //
-// The main page URL (GET {urlBase}) is intentionally NOT registered
-// — apps handle that themselves by calling Render and wrapping in
-// their page shell.
+// baseUrl is the path the table's PARENT lives at (root → "" or "/";
+// Admin → admin's own urlBase). The table auto-appends its Slug.
+//
+// shell, when non-nil, wraps Render(r) in app chrome. The library
+// registers GET urlBase → shell(w, r, title, content) where title is
+// PageTitle (or MetaData.DisplayName if empty). shell may redirect
+// or write headers directly — see PageShellFunc.
+//
+// shell == nil → no page handler registered. HTMX endpoints below
+// still register either way. Used by tests and by callers nesting
+// the table inside an Admin (Admin registers its own page handler).
 //
 // Routes registered (Go 1.22 method+pattern), for Slug="heroes" and
 // baseUrl="/admin":
 //
+//	GET    /admin/heroes               main page (only if shell != nil)
 //	GET    /admin/heroes/view          table fragment for HTMX swaps into #ListID
 //	GET    /admin/heroes/create        create form fragment (target: modal body)
 //	POST   /admin/heroes/create        submit create
@@ -327,9 +342,9 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 // For chi-based callers wanting middleware layering: use chi.Group
 // (preserves prefix). chi.Mount / chi.Route prefix-strip and would
 // break the absolute paths in the rendered HTML.
-func (c *CRUDTable[T]) Route(mux Mux, baseUrl string) error {
+func (c *CRUDTable[T]) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
 	if mux == nil {
-		return errors.New("nil mux")
+		return "", errors.New("nil mux")
 	}
 	if c.Slug == "" {
 		c.Slug = defaultSlug(c.MetaData.Name)
@@ -353,7 +368,26 @@ func (c *CRUDTable[T]) Route(mux Mux, baseUrl string) error {
 	// Relation picker option fetch — used by another CRUD's relation
 	// widget when its <select> needs to refresh after an L2 save.
 	mux.HandleFunc("GET "+base+"/options", c.makeFragmentHandler(c.handleOptions, "list"))
-	return nil
+
+	// Main page handler (only when shell is supplied). When shell is
+	// nil, the caller writes their own GET urlBase handler — or skips
+	// the page entirely (e.g. when this table is being managed by an
+	// Admin that owns its own page handler).
+	if shell != nil {
+		title := c.PageTitle
+		if title == "" {
+			title = c.MetaData.DisplayName
+		}
+		mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
+			comp, err := c.Render(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			shell(w, r, title, comp)
+		})
+	}
+	return base, nil
 }
 
 // handleRowDisplay renders the barebone dump fragment for one row. No

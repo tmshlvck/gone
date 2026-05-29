@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/a-h/templ"
 	"github.com/tmshlvck/gone/crud"
 )
 
@@ -108,29 +109,29 @@ func main() {
 	table.PageSize = 10
 
 	mux := http.NewServeMux()
-	// Library registers only the partial endpoints (rows, modal forms,
-	// delete). The main /heroes page is the app's responsibility — it
-	// embeds table.MainComponent(r) inside its own page shell.
-	if err := table.Route(mux, ""); err != nil {
+	// table.Route registers all HTMX endpoints AND (because shell is
+	// non-nil) the main page handler at /heroes. shell receives w/r
+	// directly so it can redirect on auth failure or write headers.
+	url, err := table.Route(mux, "", pageShell)
+	if err != nil {
 		log.Fatalf("route: %v", err)
 	}
-	mux.HandleFunc("GET "+table.URLBase(), func(w http.ResponseWriter, r *http.Request) {
-		comp, err := table.Render(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageShell("Heroes", comp).Render(r.Context(), w); err != nil {
-			log.Printf("render: %v", err)
-		}
-	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, table.URLBase(), http.StatusSeeOther)
+		http.Redirect(w, r, url, http.StatusSeeOther)
 	})
 
 	addr := ":8080"
-	log.Printf("crud_mem listening on %s — open %s", addr, table.URLBase())
+	log.Printf("crud_mem listening on %s — open %s", addr, url)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// pageShell wraps the library's component output in the app's chrome.
+// It's a PageShellFunc — gets (w, r, title, content). Free to redirect
+// or write headers directly; here we just render the templ.
+func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {
+		log.Printf("render: %v", err)
+	}
 }
 

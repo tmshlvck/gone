@@ -46,7 +46,7 @@ type CRUDTableInterface interface {
 	HTMXTableURL() string                                                                  // URLBase + "/view"   — bare TableView fragment
 	HTMXCreateURL() string                                                                 // URLBase + "/create" — create-form fragment
 	Render(r *http.Request) (templ.Component, error)                                       // table view + this table's L1 modal
-	Route(mux Mux, prefix string) error                                                    // register all CRUD endpoints
+	Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)                    // register all CRUD endpoints + (if shell != nil) main page handler
 
 	// AutoWireRelations sets MetaField.RelatedCRUD on every relation
 	// field on this table whose RelatedTypeName matches a peer's

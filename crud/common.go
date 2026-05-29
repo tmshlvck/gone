@@ -23,6 +23,34 @@ type Mux interface {
 	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
 }
 
+// PageShellFunc wraps the library's component output in the app's page
+// chrome. It receives the HTTP writer and request directly — not a
+// templ.Component to return — so the caller can write redirects,
+// custom headers, or auth failures from inside the shell.
+//
+// title is supplied by the component (CRUDTable's PageTitle field,
+// Admin's active-table DisplayName) and is typically what the shell
+// writes into <title> and any heading.
+//
+// content is the component-rendered body the shell should embed
+// inside its chrome.
+//
+// A typical implementation:
+//
+//	func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
+//	    user, _ := r.Context().Value(userKey{}).(*User)
+//	    if user == nil {
+//	        http.Redirect(w, r, "/login", http.StatusSeeOther)
+//	        return
+//	    }
+//	    w.Header().Set("Content-Type", "text/html; charset=utf-8")
+//	    appPageTemplate(title, user, content).Render(r.Context(), w)
+//	}
+//
+// nil shell on Route means "don't register a page handler" — useful
+// for tests and for fragment-only callers.
+type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, content templ.Component)
+
 // ──────────────────────────────────────────────────────────────────────────
 // HTTP / HTMX helpers shared by single.go and table.go.
 //

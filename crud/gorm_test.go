@@ -79,10 +79,10 @@ func newGormServer(t *testing.T) (*http.ServeMux, *CRUDTable[gormHero], *CRUDTab
 	}
 
 	mux := http.NewServeMux()
-	if err := htbl.Route(mux, ""); err != nil {
+	if _, err := htbl.Route(mux, "", nil); err != nil {
 		t.Fatalf("route hero: %v", err)
 	}
-	if err := stbl.Route(mux, ""); err != nil {
+	if _, err := stbl.Route(mux, "", nil); err != nil {
 		t.Fatalf("route skill: %v", err)
 	}
 	mux.HandleFunc("GET "+htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
