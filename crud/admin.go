@@ -77,22 +77,24 @@ func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admi
 	return DeriveAdmin(tables, authz)
 }
 
-// Route mounts Admin at baseUrl. It owns everything underneath:
+// Route mounts Admin at baseUrl + "/" + Slug (same convention as
+// CRUDTable.Route). baseUrl is the parent prefix; Admin appends its
+// own Slug (default "admin"). Admin owns everything under its urlBase:
 //
-//   - Children: delegates each table's Route(mux, baseUrl, nil) —
-//     each child appends its own Slug to baseUrl, so the children end
-//     up at baseUrl/{slug}/... Children's per-slug page handlers are
-//     NOT registered (shell=nil) — Admin owns the page rendering.
-//   - GET baseUrl → 303 redirect to baseUrl/{first.Slug}.
-//   - GET baseUrl/{slug} → shell(w, r, title, body) where body is
+//   - Children: delegates each table's Route(mux, urlBase, nil) —
+//     each child appends its own Slug to urlBase, so children land at
+//     urlBase/{slug}/... Children's per-slug page handlers are NOT
+//     registered (shell=nil) — Admin owns the page rendering.
+//   - GET urlBase → 303 redirect to urlBase/{first.Slug}.
+//   - GET urlBase/{slug} → shell(w, r, title, body) where body is
 //     Admin's sidebar + working-area-with-active-table, and title is
 //     the active table's DisplayName.
 //
 // shell == nil → no per-slug page handler is registered. Caller can
 // hand-roll one if they want, or compose Admin into a larger page.
 //
-// Registered patterns, for baseUrl="/admin", tables ["heros",
-// "weapons", "skills"], shell != nil:
+// Registered patterns, for baseUrl="/", Slug="admin" (default),
+// tables ["heros", "weapons", "skills"], shell != nil:
 //
 //	GET  /admin                       → 303 to /admin/heros
 //	GET  /admin/heros                 → page (sidebar + heros table)
@@ -102,8 +104,8 @@ func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admi
 //	GET  /admin/weapons/view, …       → routed by weapons table
 //	GET  /admin/skills/view, …        → routed by skills table
 //
-// baseUrl = "" or "/" mounts Admin at root; redirect registers at
-// GET /.
+// To mount Admin at the root (no /admin segment), set Admin.Slug = ""
+// before Route — urlBase becomes baseUrl itself.
 //
 // Returns the absolute urlBase Admin was mounted at — useful for the
 // caller's "/ → admin" redirect.
@@ -112,6 +114,9 @@ func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, err
 		return "", errors.New("nil mux")
 	}
 	a.urlBase = normalizePrefix(baseUrl)
+	if a.Slug != "" {
+		a.urlBase = a.urlBase + "/" + strings.TrimPrefix(a.Slug, "/")
+	}
 	if len(a.Tables) == 0 {
 		return a.urlBase, nil
 	}

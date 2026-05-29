@@ -162,13 +162,14 @@ func main() {
 	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
 	admin := crud.DeriveAdminAutoWire(tables, nil)
 
-	// admin.Route owns everything under /admin:
+	// admin.Route mounts Admin at baseUrl + "/" + Admin.Slug — here
+	// "/" + "admin" = "/admin". The library auto-routes:
 	//   - GET /admin → 303 to /admin/{first.Slug}
 	//   - GET /admin/{slug} → wraps admin.Render(r) in pageShell
 	//   - each child's HTMX endpoints at /admin/{slug}/view, /create, …
-	// Default slugs are "heros" / "weapons" / "skills" (lowercase+"s");
-	// irregular plural Hero→heroes is left as-is for this demo.
-	adminURL, err := admin.Route(mux, "/admin", pageShell)
+	// Default child slugs are "heros" / "weapons" / "skills"
+	// (lowercase+"s"); irregular plural Hero→heroes is left as-is.
+	adminURL, err := admin.Route(mux, "/", pageShell)
 	if err != nil {
 		log.Fatalf("admin route: %v", err)
 	}
