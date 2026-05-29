@@ -1,4 +1,8 @@
-# gone — Go Object Navigation Elements — PRD
+# gone/crud — PRD
+
+> Design document for the `gone/crud` package — CRUD UI from a model.
+> For the auth/CSRF/RBAC design see [`PRD-AUTH.md`](PRD-AUTH.md).
+> For the user-facing reference see [`docs/CRUD.md`](docs/CRUD.md).
 
 ## 1. Purpose
 

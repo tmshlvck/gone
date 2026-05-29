@@ -1,8 +1,8 @@
 # gone/crud — CRUD UI from a model
 
 This document is the user-facing reference for `github.com/tmshlvck/gone/crud`.
-For project intent and the unbuilt roadmap, see `PRD.md` and
-[`TODO.md`](../TODO.md).
+For the design rationale see [`PRD-CRUD.md`](../PRD-CRUD.md). For the
+parallel auth/CSRF/RBAC design see [`PRD-AUTH.md`](../PRD-AUTH.md).
 
 ## What it does
 

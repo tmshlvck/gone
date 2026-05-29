@@ -161,9 +161,12 @@ go run ./examples/admin_gorm
 
 - [`docs/CRUD.md`](docs/CRUD.md) — full API reference, design notes,
   modal flow, validation pipeline, composition trade-offs.
-- [`PRD.md`](PRD.md) — design document (target API + rationale).
-- [`TODO.md`](TODO.md) — sketched-but-unbuilt: auth, CSRF, RBAC, JSON
-  API, OIDC. Not in scope today.
+- [`PRD-CRUD.md`](PRD-CRUD.md) — design document for the CRUD package
+  (target API + rationale).
+- [`PRD-AUTH.md`](PRD-AUTH.md) — design document for the auth /
+  CSRF / RBAC packages (work in progress).
+- [`TODO.md`](TODO.md) — sketched-but-unbuilt features outside the
+  auth scope (JSON API, observability, etc.).
 
 ## Status
 
