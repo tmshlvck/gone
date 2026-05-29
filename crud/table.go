@@ -300,44 +300,41 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 	return TableView(d), nil
 }
 
-// Route registers the CRUD partial endpoints on mux. urlBase is the
-// absolute URL path this CRUDTable lives at — e.g. "/heroes" for a
-// standalone table, "/admin/heroes" when nested under an Admin.
-// (Admin.Route constructs that for you when it routes its children;
-// see Admin's docs.)
+// Route registers the CRUD partial endpoints on mux at
+// baseUrl + "/" + Slug. baseUrl is the path the table's PARENT lives
+// at (root → "" or "/"; Admin → admin's own urlBase). The table
+// auto-appends its Slug — caller doesn't repeat it.
 //
 // The main page URL (GET {urlBase}) is intentionally NOT registered
 // — apps handle that themselves by calling Render and wrapping in
 // their page shell.
 //
-// Routes registered (Go 1.22 method+pattern):
+// Routes registered (Go 1.22 method+pattern), for Slug="heroes" and
+// baseUrl="/admin":
 //
-//	GET    {urlBase}/view              table fragment for HTMX swaps into #ListID
-//	GET    {urlBase}/create            create form fragment (target: modal body)
-//	POST   {urlBase}/create            submit create
-//	GET    {urlBase}/{id}/edit         edit form fragment (target: modal body)
-//	POST   {urlBase}/{id}/edit         submit update
-//	POST   {urlBase}/{id}/delete       delete (HX-Request → rows fragment; else 303)
-//	GET    {urlBase}/{id}/display      per-row barebone dump fragment
-//	GET    {urlBase}/options           relation-picker option list
+//	GET    /admin/heroes/view          table fragment for HTMX swaps into #ListID
+//	GET    /admin/heroes/create        create form fragment (target: modal body)
+//	POST   /admin/heroes/create        submit create
+//	GET    /admin/heroes/{id}/edit     edit form fragment (target: modal body)
+//	POST   /admin/heroes/{id}/edit     submit update
+//	POST   /admin/heroes/{id}/delete   delete (HX-Request → rows fragment; else 303)
+//	GET    /admin/heroes/{id}/display  per-row barebone dump fragment
+//	GET    /admin/heroes/options       relation-picker option list
 //
 // Every handler gates on c.Authz (CanList / CanRead / CanCreate /
 // CanUpdate / CanDelete); nil = AllowAll.
 //
-// Slug is purely metadata — used by Admin to derive child URLs; not
-// auto-appended here. urlBase is the literal path.
-//
 // For chi-based callers wanting middleware layering: use chi.Group
 // (preserves prefix). chi.Mount / chi.Route prefix-strip and would
 // break the absolute paths in the rendered HTML.
-func (c *CRUDTable[T]) Route(mux Mux, urlBase string) error {
+func (c *CRUDTable[T]) Route(mux Mux, baseUrl string) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
 	if c.Slug == "" {
 		c.Slug = defaultSlug(c.MetaData.Name)
 	}
-	c.urlBase = normalizePrefix(urlBase)
+	c.urlBase = normalizePrefix(baseUrl) + "/" + strings.TrimPrefix(c.Slug, "/")
 	base := c.urlBase
 
 	mux.HandleFunc("GET "+base+"/view", c.makeFragmentHandler(c.handleListRows, "list"))

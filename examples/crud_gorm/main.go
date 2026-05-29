@@ -253,9 +253,9 @@ func main() {
 
 	mux := http.NewServeMux()
 	for _, err := range []error{
-		heroTable.Route(mux, "/heroes"),
-		weaponTable.Route(mux, "/weapons"),
-		skillTable.Route(mux, "/skills"),
+		heroTable.Route(mux, ""),
+		weaponTable.Route(mux, ""),
+		skillTable.Route(mux, ""),
 	} {
 		if err != nil {
 			log.Fatal(err)

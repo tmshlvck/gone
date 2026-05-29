@@ -77,45 +77,46 @@ func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admi
 	return DeriveAdmin(tables, authz)
 }
 
-// Route mounts Admin at urlBase and auto-routes every child CRUDTable
-// at urlBase + "/" + table.URLSlug(). Admin owns its tables — the
-// caller doesn't (and shouldn't) call table.Route() separately.
+// Route mounts Admin at baseUrl and delegates every child CRUDTable's
+// own Route(mux, baseUrl) — each child auto-appends its Slug, so the
+// children end up at baseUrl/{slug}/... while Admin's own routes live
+// at baseUrl. Admin owns its tables; the caller doesn't (and
+// shouldn't) call table.Route() separately.
 //
-// Registered patterns, for urlBase="/admin" and tables with slugs
+// Registered patterns, for baseUrl="/admin" and tables with slugs
 // "heroes", "weapons", "skills":
 //
 //	GET  /admin                       → 303 to /admin/heroes (first table)
-//	GET  /admin/heroes/view, …        → routed by hero table itself
-//	GET  /admin/weapons/view, …       → routed by weapon table itself
-//	GET  /admin/skills/view, …        → routed by skill table itself
+//	GET  /admin/heroes/view, …        → registered by hero.Route(mux, "/admin")
+//	GET  /admin/weapons/view, …       → registered by weapon.Route(mux, "/admin")
+//	GET  /admin/skills/view, …        → registered by skill.Route(mux, "/admin")
 //
 // The per-slug page handler that wraps Admin.Render in the caller's
 // page-shell (GET /admin/{slug}) is the caller's responsibility — the
 // library has no <html> chrome.
 //
-// urlBase = "" or "/" mounts Admin at root; the index redirect
+// baseUrl = "" or "/" mounts Admin at root; the index redirect
 // registers at GET / and lands on /{first.Slug}.
-func (a *Admin) Route(mux Mux, urlBase string) error {
+func (a *Admin) Route(mux Mux, baseUrl string) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
-	a.urlBase = normalizePrefix(urlBase)
+	a.urlBase = normalizePrefix(baseUrl)
 	if len(a.Tables) == 0 {
 		return nil
 	}
-	// Auto-route every child table at {urlBase}/{slug}. The caller
-	// doesn't have to (and shouldn't) call table.Route() separately —
-	// Admin owns its tables.
+	// Delegate to every child: t.Route(mux, baseUrl) — each child
+	// appends its own Slug, so the children end up at
+	// baseUrl/{slug}/...
 	for _, t := range a.Tables {
-		slug := t.URLSlug()
-		if slug == "" {
+		if t.URLSlug() == "" {
 			return fmt.Errorf("Admin: table %q has empty URLSlug", t.DisplayName())
 		}
-		if err := t.Route(mux, a.urlBase+"/"+slug); err != nil {
+		if err := t.Route(mux, a.urlBase); err != nil {
 			return fmt.Errorf("Admin: routing %q: %w", t.DisplayName(), err)
 		}
 	}
-	// Index redirect.
+	// Index redirect — admin's own page lives at baseUrl.
 	firstSlug := a.Tables[0].URLSlug()
 	authz := authzOrAllow(a.Authz)
 	pattern := a.urlBase

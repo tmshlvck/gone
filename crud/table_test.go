@@ -32,7 +32,7 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
 	tbl.Slug = "items"
 	mux := http.NewServeMux()
-	if err := tbl.Route(mux, "/items"); err != nil {
+	if err := tbl.Route(mux, ""); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	// CRUDTable.Route registers only partial endpoints. The "main" page
