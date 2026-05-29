@@ -162,8 +162,7 @@ func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, err
 				}
 			}
 			body, err := a.Render(r)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+			if failInternal(w, err) {
 				return
 			}
 			shell(w, r, title, body)

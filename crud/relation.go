@@ -439,7 +439,7 @@ func renderOptionsHTML(opts []CRUDRelationOption, selected map[uint]struct{}, in
 // The endpoint lives on the related CRUD (the one that owns the
 // options), so any relation widget anywhere on the page can refresh
 // itself by hitting this URL — no per-parent knowledge needed.
-func (c *CRUDTable[T]) handleOptions(w http.ResponseWriter, r *http.Request) (string, templ.Component) {
+func (c *CRUDTable[T]) handleOptions(w http.ResponseWriter, r *http.Request) templ.Component {
 	isSingle := r.URL.Query().Get("single") == "1"
 	selected := map[uint]struct{}{}
 	for _, s := range r.URL.Query()["selected"] {
@@ -451,11 +451,10 @@ func (c *CRUDTable[T]) handleOptions(w http.ResponseWriter, r *http.Request) (st
 		}
 	}
 	opts, _, err := c.SearchOptions(r.Context(), "")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return "", nil
+	if failInternal(w, err) {
+		return nil
 	}
-	return "", templ.Raw(renderOptionsHTML(opts, selected, isSingle))
+	return templ.Raw(renderOptionsHTML(opts, selected, isSingle))
 }
 
 // relationSingleFromStrings parses the posted FK (uint) and writes it to

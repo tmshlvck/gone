@@ -110,6 +110,20 @@ func parseID(r *http.Request) (uint, bool) {
 	return uint(n), true
 }
 
+// failInternal writes err as a 500 and returns true. Handler should
+// short-circuit when this returns true:
+//
+//	if failInternal(w, err) { return }
+//
+// nil error is the no-op (returns false).
+func failInternal(w http.ResponseWriter, err error) bool {
+	if err == nil {
+		return false
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+	return true
+}
+
 // normalizePrefix converts any user-supplied URL prefix to a canonical
 // form: empty or "/" → "" (root mount); "/x/" → "/x"; "/x" → "/x".
 // Used by Route() to make Route(mux, "") and Route(mux, "/") behave
