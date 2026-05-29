@@ -200,28 +200,30 @@ configuration bug, not a runtime case the library handles.
 #### Routing
 
 ```go
-// Route registers all CRUD endpoints at urlBase. urlBase is the
-// component's absolute path on the mux — e.g. "/heroes" for a
-// standalone table, "/admin/heroes" when nested under an Admin
-// (Admin.Route constructs that for its children). Slug is metadata
-// only, not auto-appended.
+// Route mounts the table at baseUrl + "/" + Slug. baseUrl is the
+// parent prefix ("" or "/" = root; "/admin" = under Admin). The
+// table appends its own Slug. Returns the absolute urlBase the table
+// was mounted at.
 //
-// urlBase = "" or "/" both mount at root (the two forms normalize).
-func (c *CRUDTable[T]) Route(mux Mux, urlBase string) error
+// When shell is non-nil, Route also registers the main page handler
+// at urlBase, which renders Render(r) wrapped in shell. shell == nil
+// → no page handler (HTMX endpoints only).
+func (c *CRUDTable[T]) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
 ```
 
-For `urlBase = "/admin/heroes"`, the registered endpoints are:
+For `baseUrl = "/admin"` and `Slug = "heroes"`, the registered endpoints are:
 
-| Method | Path                              | Returns                          |
-|--------|-----------------------------------|----------------------------------|
-| GET    | `/admin/heroes/view`              | table fragment (refresh swap)    |
-| GET    | `/admin/heroes/create`            | create form fragment             |
-| POST   | `/admin/heroes/create`            | create submit                    |
-| GET    | `/admin/heroes/{id}/edit`         | edit form fragment               |
-| POST   | `/admin/heroes/{id}/edit`         | edit submit                      |
-| POST   | `/admin/heroes/{id}/delete`       | delete                           |
-| GET    | `/admin/heroes/{id}/display`      | per-row dump fragment            |
-| GET    | `/admin/heroes/options`           | relation-picker `<option>` list  |
+| Method | Path                              | Returns                                          |
+|--------|-----------------------------------|--------------------------------------------------|
+| GET    | `/admin/heroes`                   | main page (only when `shell != nil`)             |
+| GET    | `/admin/heroes/view`              | table fragment (refresh swap)                    |
+| GET    | `/admin/heroes/create`            | create form fragment                             |
+| POST   | `/admin/heroes/create`            | create submit                                    |
+| GET    | `/admin/heroes/{id}/edit`         | edit form fragment                               |
+| POST   | `/admin/heroes/{id}/edit`         | edit submit                                      |
+| POST   | `/admin/heroes/{id}/delete`       | delete                                           |
+| GET    | `/admin/heroes/{id}/display`      | per-row dump fragment                            |
+| GET    | `/admin/heroes/options`           | relation-picker `<option>` list                  |
 
 Every handler gates on `c.Authz` (CanList / CanRead / CanCreate /
 CanUpdate / CanDelete; nil → AllowAll).
@@ -263,11 +265,14 @@ Non-generic surface for cross-model relation pickers and `Admin`:
 ```go
 type CRUDTableInterface interface {
     DisplayName() string
-    Slug() string
-    Route(mux Mux, prefix string) error
+    ModelName() string                                  // Go type name; used by Admin auto-wire
+    URLSlug() string                                    // local URL segment
+    URLBase() string                                    // absolute URL after Route
+    HTMXTableURL() string                               // URLBase + "/view"
+    HTMXCreateURL() string                              // URLBase + "/create"
     Render(r *http.Request) (templ.Component, error)
-    HTMXTableURL() string
-    HTMXCreateURL() string
+    Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
+    AutoWireRelations(peers []CRUDTableInterface)
     SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error)
     GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error)
 }
@@ -279,55 +284,73 @@ type CRUDRelationOption struct {
 }
 ```
 
+`PageShellFunc` is the only chrome boundary between library and app:
+
+```go
+// Receives w, r, title (provided by the component), and content (the
+// fragment to wrap). Free to redirect or write headers — useful for
+// auth checks. nil on Route means "don't register a page handler".
+type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, content templ.Component)
+```
+
 ### 5.6 `Admin`
 
-Aggregates multiple CRUDTables under one URL prefix with a sidebar.
+Aggregates multiple CRUDTables under one URL prefix with an HTMX-boosted
+sidebar. Auto-routes its children.
 
 ```go
 type Admin struct {
     Tables []CRUDTableInterface
     Authz  AuthzInterface
-    Slug   string  // default "admin"
+    Slug   string  // default "admin"; Admin.Route appends to baseUrl
 }
 
 func DeriveAdmin(tables []CRUDTableInterface, authz AuthzInterface) Admin
+func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admin
 
-func (a *Admin) Route(mux Mux, urlBase string) error
+func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
 func (a *Admin) Render(r *http.Request) (templ.Component, error)
 ```
 
-`Admin.Route(mux, "/admin")` registers, for tables with slugs
-`heroes`, `weapons`, `skills`:
+`Admin.Route(mux, "/", shell)` with `Admin.Slug = "admin"` (default) and
+child tables with slugs `heroes`, `weapons`, `skills` registers:
 
-| Method | Path                                    | Returns                                           |
-|--------|-----------------------------------------|---------------------------------------------------|
-| GET    | `/admin`                                | 303 redirect to `/admin/heroes` (first table)     |
-| GET    | `/admin/heroes/view`, `/create`, etc.   | routed by hero table itself (Admin auto-routes it)|
-| GET    | `/admin/weapons/view`, …                | routed by weapon table itself                     |
-| GET    | `/admin/skills/view`, …                 | routed by skill table itself                      |
+| Method | Path                                    | Returns                                                |
+|--------|-----------------------------------------|--------------------------------------------------------|
+| GET    | `/admin`                                | 303 redirect to `/admin/heroes` (first table)          |
+| GET    | `/admin/{slug}`                         | full page (sidebar + active table) wrapped in `shell`  |
+| GET    | `/admin/heroes/view`, `/create`, etc.   | routed by hero table itself (Admin auto-routes it)     |
+| GET    | `/admin/weapons/view`, …                | routed by weapon table itself                          |
+| GET    | `/admin/skills/view`, …                 | routed by skill table itself                           |
 
 **Admin owns its children.** `Admin.Route` calls each child table's
-`Route(mux, urlBase + "/" + table.URLSlug())` internally — the caller
-doesn't (and shouldn't) call `table.Route()` separately. The per-slug
-page handler that wraps `admin.Render` in the caller's page-shell
-(`GET /admin/{slug}`) is the caller's responsibility — the library
-emits no `<html>` chrome.
+`Route(mux, admin.urlBase, nil)` internally — the caller doesn't (and
+shouldn't) call `table.Route()` separately. Children are routed with
+`shell == nil` so they don't register their own page handler; Admin's
+own per-slug page handler renders the sidebar + active table inside
+the caller's chrome.
 
-Sidebar links use `hx-boost` so each click is a body-swap of
-`#crud-admin-root` (not the whole body — so embedding Admin inside a
-larger layout preserves surrounding chrome). The URL updates via
-`hx-push-url`; back-button walks HTMX's history cache.
+`DeriveAdminAutoWire` additionally calls each child's `AutoWireRelations`
+so cross-table `RelatedCRUD` pointers are filled in automatically from
+matching Go type names (`MetaField.RelatedTypeName` ↔ peer
+`MetaModel.Name`).
 
-For the standalone case (`/admin` reached directly in the browser), the
-caller writes a tiny page-shell route that wraps `admin.Render(r)` —
-the library never emits page chrome.
+Sidebar links use `hx-boost` with `hx-target="#crud-admin-root"`
+(scoped to the admin subtree only), so embedding Admin inside a larger
+layout preserves surrounding chrome. The URL updates via `hx-push-url`;
+back-button walks HTMX's history cache.
+
+To mount Admin at the root (no `/admin` segment), set `Admin.Slug = ""`
+before `Route` — `urlBase` becomes `baseUrl` itself.
 
 ### Standalone vs nested CRUDTables
 
-A CRUDTable can be used without Admin — just call `Route(mux, "/heroes")`
-directly. When wrapped in Admin, the user only configures the table's
-`Slug` field (defaults to `lowercase(Name) + "s"`); Admin reads it to
-construct the table's `urlBase = urlBase(admin) + "/" + slug`.
+A CRUDTable can be used standalone — just call `Route(mux, "/", shell)`
+with `Slug = "heroes"` and it lives at `/heroes` with its own page
+handler. When the table is composed under an Admin, Admin handles the
+routing — caller just lists tables in `DeriveAdmin` and calls
+`Admin.Route`. Tables' `Slug` field is the URL segment Admin reads to
+construct each child's `urlBase`.
 
 ### chi sub-routers and the absolute-URL constraint
 
