@@ -2,6 +2,7 @@ package crud
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -76,24 +77,47 @@ func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admi
 	return DeriveAdmin(tables, authz)
 }
 
-// Route registers GET prefix → 303 redirect to /{first table slug}.
-// The caller's page handler at GET prefix/{slug} wraps Admin.Render in
-// its page-shell; this redirect lands a visit to bare /admin on the
-// first model so the sidebar isn't pointing at "no selection".
+// Route mounts Admin at urlBase and auto-routes every child CRUDTable
+// at urlBase + "/" + table.URLSlug(). Admin owns its tables — the
+// caller doesn't (and shouldn't) call table.Route() separately.
 //
-// If the table list is empty, Route is a no-op.
-func (a *Admin) Route(mux Mux, prefix string) error {
+// Registered patterns, for urlBase="/admin" and tables with slugs
+// "heroes", "weapons", "skills":
+//
+//	GET  /admin                       → 303 to /admin/heroes (first table)
+//	GET  /admin/heroes/view, …        → routed by hero table itself
+//	GET  /admin/weapons/view, …       → routed by weapon table itself
+//	GET  /admin/skills/view, …        → routed by skill table itself
+//
+// The per-slug page handler that wraps Admin.Render in the caller's
+// page-shell (GET /admin/{slug}) is the caller's responsibility — the
+// library has no <html> chrome.
+//
+// urlBase = "" or "/" mounts Admin at root; the index redirect
+// registers at GET / and lands on /{first.Slug}.
+func (a *Admin) Route(mux Mux, urlBase string) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
-	a.urlBase = normalizePrefix(prefix)
+	a.urlBase = normalizePrefix(urlBase)
 	if len(a.Tables) == 0 {
 		return nil
 	}
+	// Auto-route every child table at {urlBase}/{slug}. The caller
+	// doesn't have to (and shouldn't) call table.Route() separately —
+	// Admin owns its tables.
+	for _, t := range a.Tables {
+		slug := t.URLSlug()
+		if slug == "" {
+			return fmt.Errorf("Admin: table %q has empty URLSlug", t.DisplayName())
+		}
+		if err := t.Route(mux, a.urlBase+"/"+slug); err != nil {
+			return fmt.Errorf("Admin: routing %q: %w", t.DisplayName(), err)
+		}
+	}
+	// Index redirect.
 	firstSlug := a.Tables[0].URLSlug()
 	authz := authzOrAllow(a.Authz)
-	// The pattern we register is the normalized base, or "/" if Admin
-	// is mounted at root — ServeMux requires a non-empty path.
 	pattern := a.urlBase
 	if pattern == "" {
 		pattern = "/"

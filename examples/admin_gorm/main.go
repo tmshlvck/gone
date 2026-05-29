@@ -154,23 +154,17 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Each table mounts under /admin/{slug}. The default slug is
-	// "heros" / "weapons" / "skills" (lowercased + "s"); for the irregular
-	// plural Hero→heroes we'd override .Slug here. We accept the default
-	// for "no manual tweaking" demo purposes.
-	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
-	for _, t := range tables {
-		if err := t.Route(mux, "/admin"); err != nil {
-			log.Fatalf("route %s: %v", t.DisplayName(), err)
-		}
-	}
-
 	// DeriveAdminAutoWire walks every table's relation fields and
 	// matches the related type name (Hero / Weapon / Skill) against
 	// each peer's ModelName(), setting RelatedCRUD in place. Without
 	// this step the relation pickers would render with no options.
+	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
 	admin := crud.DeriveAdminAutoWire(tables, nil)
-	// admin.Route registers GET /admin → 303 to /admin/{first-slug}.
+
+	// admin.Route owns the children — it auto-routes each table at
+	// /admin/{slug} and registers /admin → 303 to /admin/{first.Slug}.
+	// Default slugs are "heros" / "weapons" / "skills" (lowercase+"s");
+	// the irregular Hero→heroes plural is left as-is for this demo.
 	if err := admin.Route(mux, "/admin"); err != nil {
 		log.Fatalf("admin route: %v", err)
 	}

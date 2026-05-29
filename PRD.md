@@ -200,13 +200,17 @@ configuration bug, not a runtime case the library handles.
 #### Routing
 
 ```go
-// Route registers all CRUD endpoints under prefix + "/" + Slug.
-// urlBase becomes that absolute path; all HTMX URLs in rendered
-// fragments derive from it.
-func (c *CRUDTable[T]) Route(mux Mux, prefix string) error
+// Route registers all CRUD endpoints at urlBase. urlBase is the
+// component's absolute path on the mux — e.g. "/heroes" for a
+// standalone table, "/admin/heroes" when nested under an Admin
+// (Admin.Route constructs that for its children). Slug is metadata
+// only, not auto-appended.
+//
+// urlBase = "" or "/" both mount at root (the two forms normalize).
+func (c *CRUDTable[T]) Route(mux Mux, urlBase string) error
 ```
 
-For `Slug = "heroes"`, `prefix = "/admin"`, the registered endpoints are:
+For `urlBase = "/admin/heroes"`, the registered endpoints are:
 
 | Method | Path                              | Returns                          |
 |--------|-----------------------------------|----------------------------------|
@@ -288,28 +292,54 @@ type Admin struct {
 
 func DeriveAdmin(tables []CRUDTableInterface, authz AuthzInterface) Admin
 
-func (a *Admin) Route(mux Mux, prefix string) error
+func (a *Admin) Route(mux Mux, urlBase string) error
 func (a *Admin) Render(r *http.Request) (templ.Component, error)
 ```
 
-`Admin.Route(mux, "/admin")` registers:
+`Admin.Route(mux, "/admin")` registers, for tables with slugs
+`heroes`, `weapons`, `skills`:
 
-| Method | Path                | Returns                                            |
-|--------|---------------------|----------------------------------------------------|
-| GET    | `/admin`            | index fragment (sidebar + empty working area)      |
-| GET    | `/admin/{slug}`     | the matching table's `Render(r)` fragment          |
+| Method | Path                                    | Returns                                           |
+|--------|-----------------------------------------|---------------------------------------------------|
+| GET    | `/admin`                                | 303 redirect to `/admin/heroes` (first table)     |
+| GET    | `/admin/heroes/view`, `/create`, etc.   | routed by hero table itself (Admin auto-routes it)|
+| GET    | `/admin/weapons/view`, …                | routed by weapon table itself                     |
+| GET    | `/admin/skills/view`, …                 | routed by skill table itself                      |
 
-`Admin.Route` does **not** route the child tables — the caller does
-that explicitly. This keeps data accessors out of Admin's signature and
-lets the caller mount Admin and its tables under arbitrary prefixes.
+**Admin owns its children.** `Admin.Route` calls each child table's
+`Route(mux, urlBase + "/" + table.URLSlug())` internally — the caller
+doesn't (and shouldn't) call `table.Route()` separately. The per-slug
+page handler that wraps `admin.Render` in the caller's page-shell
+(`GET /admin/{slug}`) is the caller's responsibility — the library
+emits no `<html>` chrome.
 
-The sidebar emits HTMX-driven links: clicking "Heroes" hx-gets
-`/admin/heroes` (returning Hero table's `Render(r)`) and swaps it into
-the working pane. No page reloads.
+Sidebar links use `hx-boost` so each click is a body-swap of
+`#crud-admin-root` (not the whole body — so embedding Admin inside a
+larger layout preserves surrounding chrome). The URL updates via
+`hx-push-url`; back-button walks HTMX's history cache.
 
 For the standalone case (`/admin` reached directly in the browser), the
 caller writes a tiny page-shell route that wraps `admin.Render(r)` —
 the library never emits page chrome.
+
+### Standalone vs nested CRUDTables
+
+A CRUDTable can be used without Admin — just call `Route(mux, "/heroes")`
+directly. When wrapped in Admin, the user only configures the table's
+`Slug` field (defaults to `lowercase(Name) + "s"`); Admin reads it to
+construct the table's `urlBase = urlBase(admin) + "/" + slug`.
+
+### chi sub-routers and the absolute-URL constraint
+
+The library renders absolute URLs in HTML (hx-get, hx-post, form
+action). The component must know its full external URL — there's no
+way to "strip a prefix" later. So **don't use prefix-stripping
+sub-routers** (`http.StripPrefix`, `chi.Mount`, `chi.Route`); they hide
+the prefix from the handlers, so the rendered URLs would omit it.
+
+For chi-based callers that want middleware layering: use `chi.Group`,
+which preserves the absolute path. Pass the full external URL to
+`Route` as usual.
 
 ### 5.7 `AuthzInterface`
 

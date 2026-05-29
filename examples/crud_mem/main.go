@@ -111,7 +111,7 @@ func main() {
 	// Library registers only the partial endpoints (rows, modal forms,
 	// delete). The main /heroes page is the app's responsibility — it
 	// embeds table.MainComponent(r) inside its own page shell.
-	if err := table.Route(mux, ""); err != nil {
+	if err := table.Route(mux, "/heroes"); err != nil {
 		log.Fatalf("route: %v", err)
 	}
 	mux.HandleFunc("GET "+table.URLBase(), func(w http.ResponseWriter, r *http.Request) {

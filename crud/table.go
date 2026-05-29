@@ -300,10 +300,15 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 	return TableView(d), nil
 }
 
-// Route registers the CRUD partial endpoints on mux under
-// prefix + "/" + Slug. The main page URL (GET {urlBase}) is
-// intentionally NOT registered — apps handle that themselves by
-// calling Render and wrapping in their page shell.
+// Route registers the CRUD partial endpoints on mux. urlBase is the
+// absolute URL path this CRUDTable lives at — e.g. "/heroes" for a
+// standalone table, "/admin/heroes" when nested under an Admin.
+// (Admin.Route constructs that for you when it routes its children;
+// see Admin's docs.)
+//
+// The main page URL (GET {urlBase}) is intentionally NOT registered
+// — apps handle that themselves by calling Render and wrapping in
+// their page shell.
 //
 // Routes registered (Go 1.22 method+pattern):
 //
@@ -319,17 +324,20 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 // Every handler gates on c.Authz (CanList / CanRead / CanCreate /
 // CanUpdate / CanDelete); nil = AllowAll.
 //
+// Slug is purely metadata — used by Admin to derive child URLs; not
+// auto-appended here. urlBase is the literal path.
+//
 // For chi-based callers wanting middleware layering: use chi.Group
-// (which stacks middleware without changing the prefix). chi.Route
-// would prefix-mount and double the absolute paths registered here.
-func (c *CRUDTable[T]) Route(mux Mux, prefix string) error {
+// (preserves prefix). chi.Mount / chi.Route prefix-strip and would
+// break the absolute paths in the rendered HTML.
+func (c *CRUDTable[T]) Route(mux Mux, urlBase string) error {
 	if mux == nil {
 		return errors.New("nil mux")
 	}
 	if c.Slug == "" {
 		c.Slug = defaultSlug(c.MetaData.Name)
 	}
-	c.urlBase = normalizePrefix(prefix) + "/" + strings.TrimPrefix(c.Slug, "/")
+	c.urlBase = normalizePrefix(urlBase)
 	base := c.urlBase
 
 	mux.HandleFunc("GET "+base+"/view", c.makeFragmentHandler(c.handleListRows, "list"))
