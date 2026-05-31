@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tmshlvck/gone/authz"
+	"github.com/tmshlvck/gone/auth"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/schema"
@@ -24,7 +24,7 @@ import (
 // The MetaModel is consulted as live state at call time: caller can
 // post-mutate (RelatedCRUD, FormHelp, ...) and the next request will
 // observe it. authz gates every route Route() registers (nil = AllowAll).
-func DeriveGormCRUDTable[T any](mm MetaModel[T], az authz.Interface, db *gorm.DB) CRUDTable[T] {
+func DeriveGormCRUDTable[T any](mm MetaModel[T], az auth.Authz, db *gorm.DB) CRUDTable[T] {
 	c := CRUDTable[T]{
 		MetaData:      mm,
 		Authz:         az,

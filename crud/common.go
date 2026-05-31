@@ -8,48 +8,17 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/tmshlvck/gone/auth"
 )
 
-// Mux is the small surface a CRUDTable / Admin needs to register HTTP
-// handlers. Both *http.ServeMux and chi.Router satisfy it; the library
-// never asks for the concrete type, so callers wire whichever router
-// they already use.
-//
-// For chi-based callers that want to layer middleware over the library's
-// routes: use chi.Group (which stacks middleware without changing the
-// prefix). chi.Route prefixes-mounts and would double the absolute
-// paths the library registers.
-type Mux interface {
-	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
-}
+// Mux is re-exported from gone/auth so CRUDTable/Admin and AuthSimple
+// share a single registration interface. See auth.Mux for the
+// definition. Callers can write either crud.Mux or auth.Mux —
+// they're the same type.
+type Mux = auth.Mux
 
-// PageShellFunc wraps the library's component output in the app's page
-// chrome. It receives the HTTP writer and request directly — not a
-// templ.Component to return — so the caller can write redirects,
-// custom headers, or auth failures from inside the shell.
-//
-// title is supplied by the component (CRUDTable's PageTitle field,
-// Admin's active-table DisplayName) and is typically what the shell
-// writes into <title> and any heading.
-//
-// content is the component-rendered body the shell should embed
-// inside its chrome.
-//
-// A typical implementation:
-//
-//	func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
-//	    user, _ := r.Context().Value(userKey{}).(*User)
-//	    if user == nil {
-//	        http.Redirect(w, r, "/login", http.StatusSeeOther)
-//	        return
-//	    }
-//	    w.Header().Set("Content-Type", "text/html; charset=utf-8")
-//	    appPageTemplate(title, user, content).Render(r.Context(), w)
-//	}
-//
-// nil shell on Route means "don't register a page handler" — useful
-// for tests and for fragment-only callers.
-type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, content templ.Component)
+// PageShellFunc is re-exported from gone/auth — see auth.PageShellFunc.
+type PageShellFunc = auth.PageShellFunc
 
 // ──────────────────────────────────────────────────────────────────────────
 // HTTP / HTMX helpers shared by single.go and table.go.

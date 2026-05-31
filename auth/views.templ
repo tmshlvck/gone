@@ -1,0 +1,50 @@
+package auth
+
+// loginFormData carries the parameters loginForm needs. Bundled into a
+// struct so the templ signature stays short and the call site reads as
+// named arguments.
+type loginFormData struct {
+	Action    string // POST target (= GET path)
+	Next      string // safe redirect target after successful login
+	CSRFToken string // current session's CSRF token
+	Error     string // optional error to show above the form
+	Username  string // re-rendered after a failed POST so the user can fix the password
+}
+
+// loginForm is the body fragment rendered by GET /login. The app's
+// PageShellFunc wraps it in chrome. DaisyUI v5 classes — the app
+// ships the stylesheet via its page shell.
+templ loginForm(d loginFormData) {
+	<div class="hero min-h-[60vh]">
+		<div class="hero-content w-full max-w-sm">
+			<div class="card w-full bg-base-100 shadow-xl">
+				<div class="card-body">
+					<h1 class="card-title">Sign in</h1>
+					if d.Error != "" {
+						<div role="alert" class="alert alert-error">
+							<span>{ d.Error }</span>
+						</div>
+					}
+					<form method="post" action={ templ.SafeURL(d.Action) } class="flex flex-col gap-3">
+						<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+						<input type="hidden" name="next" value={ d.Next }/>
+						<label class="form-control">
+							<div class="label"><span class="label-text">Username</span></div>
+							<input type="text" name="username" value={ d.Username } class="input input-bordered" autofocus autocomplete="username"/>
+						</label>
+						<label class="form-control">
+							<div class="label"><span class="label-text">Password</span></div>
+							<input type="password" name="password" class="input input-bordered" autocomplete="current-password"/>
+						</label>
+						<button type="submit" class="btn btn-primary mt-2">Sign in</button>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// csrfField is the hidden input emitted by auth.CSRFField(ctx).
+templ csrfField(token string) {
+	<input type="hidden" name="csrf_token" value={ token }/>
+}

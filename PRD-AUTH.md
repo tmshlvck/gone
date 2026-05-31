@@ -1,14 +1,15 @@
-# gone/auth + gone/authz — PRD
+# gone/auth — PRD
 
 > Design document for the security primitives in `gone`: sessions,
-> CSRF, password / TOTP / OIDC login, user / group / role / permission
-> model, and the authz interface that `gone/crud` (and future
+> CSRF, password / TOTP / OIDC login, user / group model, and the
+> authorization (`Authz`) interface that `gone/crud` (and future
 > `gone/jsonapi`) gate on.
 >
 > Companion to [`PRD-CRUD.md`](PRD-CRUD.md). The CRUD package already
-> defines an authz interface (`crud.AuthzInterface`) and treats `nil`
-> as `AllowAll`; this PRD plans its move into a leaf-of-import-tree
-> `authz/` package plus the rest of the security stack on top.
+> consumes the `Authz` interface (was `crud.AuthzInterface`, then
+> `gone/authz/`, now folded into `gone/auth/`) and treats `nil` as
+> `AuthzAllowAll`. This PRD lays out the rest of the security stack
+> on top.
 >
 > Reference implementation for sessions + CSRF lives at
 > [`examples/sessions`](examples/sessions/) — the actual middleware
@@ -24,14 +25,15 @@ Give `gone` apps a batteries-included surface for:
   callers can swap stores.
 - **CSRF** — token-in-session, validated as form field or
   `X-CSRF-Token` header (HTMX path). Read-only methods bypass.
-- **Login** — username/password against argon2id hashes, optional
-  TOTP second factor, optional OIDC federation.
-- **User management** — render an account page where the user can
-  change password / enable TOTP / disable account.
-- **Authz** — `authz.Interface` used by `crud.CRUDTable` and friends
-  to gate routes; plus RBAC helpers (`User` / `Group` / `Role` /
-  `Permission` / `Grant`) that produce an `authz.Interface` per
-  resource.
+- **Login** — username/password against an in-memory user store in
+  v1; GORM-backed store with argon2id hashes, TOTP, and OIDC come
+  later (see §3).
+- **Authz** — `auth.Authz` used by `crud.CRUDTable` and friends to
+  gate routes; plus four stock struct implementations
+  (`AuthzAllowAll`, `AuthzLoggedIn`, `AuthzLoggedInReadOnly`,
+  `AuthzLoggedInReadAdminWrite`) for the common patterns. Role /
+  per-resource / ownership semantics are the app's design space —
+  implement `auth.Authz` directly when you need them.
 
 The library never owns page chrome — login and account pages render
 the same `templ.Component` fragments that `gone/crud` does, wrapped
@@ -41,94 +43,294 @@ in the caller's `PageShellFunc`.
 
 1. **Sessions and CSRF as middleware** — caller wraps their mux with
    our middleware, gets a session + CSRF token in `r.Context()`. No
-   per-route plumbing.
-2. **Pluggable login mechanisms** — password / TOTP / OIDC are
-   independent. Don't pull `coreos/go-oidc` if you don't need OIDC;
-   it lives in a subpackage with its own import path.
+   per-route plumbing. Built directly on `alexedwards/scs/v2` — no
+   intermediate session abstraction.
+2. **Two Auth implementations, unified by interface** — `Auth`,
+   `User`, `Group` are interfaces in `gone/auth/`. V1 ships
+   `AuthSimple` — in-memory users configured via
+   `UserAdd(username, email, password)`, bcrypt hashes, plain login
+   form. V2 will ship `AuthGORM` with GORM-backed storage, passkeys,
+   and SSO. Each impl owns its own page templates — the v1 plain
+   form and the v2 multi-method form don't share enough structure
+   to unify.
 3. **Authz interface stays small** — `Can{List,Read,Create,Update,Delete}(r)`
    — five methods, all take `*http.Request`, all return `bool`.
    `crud/` already uses this shape.
-4. **RBAC opt-in** — the User/Group/Role/Permission/Grant tables live
-   in `authz/`. Apps that want simpler authz (e.g. "any logged-in
-   user can do anything") use `authz.AllowAll{}` and skip the RBAC
-   tables entirely.
+4. **Groups are first-class; deeper roles are the app's job** — the
+   library ships `User` with `Groups []Group` (N:M), enough for
+   "admin can write" out of the box. Anything richer
+   (per-resource ownership, role hierarchies, permissions) is the
+   app's responsibility — satisfy `auth.Authz` directly.
 5. **Compatible with the rest of `gone`** — CRUDTable's `Authz` field
-   accepts `authz.Interface` (today `crud.AuthzInterface` — moves).
-   Login / account pages plug into the existing `PageShellFunc`
-   pattern.
+   accepts `auth.Authz`. Login pages plug into the existing
+   `PageShellFunc` pattern.
 
 ## 3. Non-goals (this PRD)
 
+**Deferred to v2** (still in this library's roadmap, just not v1):
+
+- **AuthGORM** with GORM-backed users and argon2id password hashes.
+  V1 ships `AuthSimple` only; AuthGORM lands in v2 with passkeys,
+  OIDC, and account management.
+- **Account management page** — change password, view profile.
+  Memory store has no password change in v1.
+- **TOTP** — second-factor enrolment + verification.
+- **OIDC** — federated login via `coreos/go-oidc`.
+- **Password reset / email verification** — needs an email
+  abstraction the library doesn't have.
+
+**Out of scope entirely**:
+
 - **API keys** — header / query-string auth for programmatic
-  clients. Sketched in TODO; comes after the session story is solid.
+  clients. Sketched in TODO; lives outside the session story.
 - **JSON API content negotiation** — separate PRD (deferred).
 - **Field-level audit logging** — deferred.
-- **Multi-DB user federation** — out of scope; a single `User` table
-  with optional external-auth links (`OIDCSubject`) is enough.
+- **Multi-DB user federation** — a single `User` table with optional
+  external-auth links is enough.
 
 ## 4. Stack
 
 | Concern                | Choice                                                |
 |------------------------|-------------------------------------------------------|
-| Session middleware     | `alexedwards/scs/v2` in examples; no hard dep in lib  |
-| Password hashing       | argon2id via `golang.org/x/crypto/argon2`             |
-| TOTP                   | `pquerna/otp` (active 2025+)                          |
-| OIDC                   | `coreos/go-oidc` + `golang.org/x/oauth2` (subpkg)     |
+| Session middleware     | `alexedwards/scs/v2` — direct hard dep                |
+| Password hashing       | argon2id via `golang.org/x/crypto/argon2` (v2)        |
+| TOTP                   | `pquerna/otp` (v2)                                    |
+| OIDC                   | `coreos/go-oidc` + `golang.org/x/oauth2` (v2)         |
 | CSRF                   | hand-rolled (see `examples/sessions`)                 |
-| RBAC storage           | GORM tables; in-memory adapter for tests              |
 
-The library exposes a small `SessionStore` interface so callers can
-swap scs for any backend that satisfies it.
+scs is a hard dependency — the original "small `SessionStore`
+interface so callers can swap stores" plan was dropped (scs already
+abstracts its own backends; double abstraction has no payoff).
 
 ## 5. Package layout
 
 ```
 gone/
-├── authz/                        — pure: Interface, AllowAll, RBAC helpers
-│   ├── authz.go                    Interface, AllowAll
-│   ├── rbac.go                     Permission, Role, Grant, Can, NewRBAC
-│   └── store.go                    storage abstraction (Gorm impl in subpkg)
-├── auth/                         — sessions, CSRF, login, user mgmt
-│   ├── session.go                  SessionStore interface + scs adapter
-│   ├── csrf.go                     CSRF middleware + CSRFField / CSRFHeaders
-│   ├── user.go                     User, Group, UserStore interface
-│   ├── auth.go                     Auth struct + LoadUser / Require middleware
-│   ├── login.go                    LoginPassword / Login / Logout
-│   ├── route.go                    Auth.Route registering login/logout/account
-│   ├── views.templ                 login form, account page (fragments)
-│   ├── password/                   argon2id wrappers
-│   ├── totp/                       TOTP secret gen + verify
-│   └── oidc/                       optional OIDC subpackage
+└── auth/                         — Auth + Authz + CSRF + impls
+    ├── auth.go                     Auth, User, Group interfaces
+    ├── authz.go                    Authz interface +
+    │                               AuthzAllowAll, AuthzDenyAll,
+    │                               AuthzLoggedIn, AuthzLoggedInReadOnly,
+    │                               AuthzLoggedInReadAdminWrite,
+    │                               AuthzOrAllow
+    ├── csrf.go                     CSRFWrap middleware + CSRFToken /
+    │                               CSRFField / CSRFHeaders helpers
+    ├── simple.go                   AuthSimple + UserAdd / UserDel /
+    │                               Passwd + login/logout handlers
+    ├── orm.go                    — v2: AuthGORM (GORM-backed)
+    └── views.templ                 AuthSimple's login form
+                                    (AuthGORM ships its own)
 ```
 
-Rationale:
+Everything lives in one flat `gone/auth/` package. Authz used to be
+a separate `gone/authz/` package but folded in: the stock impls
+already depend on `Auth` and `User` from this package, and the whole
+file is ~100 LOC — same threshold as the CSRF helpers, which live
+in `auth/` for the same reason.
 
-- **`authz/` is leaf-of-import-tree.** No dependencies on `auth/`.
-  `crud/` and `auth/` and any future package can import `authz/`
-  without cycles.
-- **`auth/` central package** holds the cohesive set: session,
-  CSRF, user store, login. Things that always go together.
-- **`auth/{password,totp,oidc}/` subpackages** isolate optional deps.
-  An app that doesn't enable TOTP shouldn't transitively pull
-  `pquerna/otp`.
-- **No `common/` package.** Anti-pattern in Go; shared bits live in
-  the most natural cohesive home.
+Each auth implementation ships its own page chrome — the v1 plain
+login form and the v2 form (with passkey + SSO buttons) don't share
+enough structure to justify abstracting the templates.
 
-`crud/authz.go` (which currently holds `AuthzInterface` + `AllowAll`)
-moves into `authz/`. `crud.CRUDTable.Authz`'s type becomes
-`authz.Interface`. Callers passing `nil` need no code changes.
+`crud.CRUDTable.Authz` is typed `auth.Authz`; callers passing `nil`
+need no code changes (the consumer coerces via `AuthzOrAllow`).
 
-## 6. `authz` package
+## 6. `auth` package
+
+### 6.1 `Auth` interface
 
 ```go
-package authz
+package auth
 
-// Interface is the gate every component (CRUDTable, JSONAPI, Admin
-// pages) consults before touching data. Receives *http.Request so
-// implementations can read user info from r.Context().
+import (
+    "context"
+    "net/http"
+
+    "github.com/a-h/templ"
+    "github.com/tmshlvck/gone/crud"
+)
+
+// Auth is what every page handler and authz helper interacts with.
+// AuthSimple (v1) and AuthGORM (v2) both implement it. Apps depend
+// on Auth, not the concrete impl — swapping happens by changing one
+// constructor call.
+type Auth interface {
+    // Route mounts the impl's login + logout pages at baseUrl. Each
+    // impl ships its own templates (simple form vs. multi-method).
+    // Returns the absolute urlBase the pages were mounted at.
+    Route(mux crud.Mux, baseUrl string, shell crud.PageShellFunc) (string, error)
+
+    // CurrentUser returns the user the session points to, or nil for
+    // anonymous. Page handlers call this and decide their response
+    // (redirect to login, render access-denied, render redacted view).
+    CurrentUser(r *http.Request) User
+
+    // LoginURL / LogoutURL build the URL to the respective endpoint
+    // with the supplied next path encoded as "?next=...". Empty next
+    // returns just the path. Use to render nav links and redirects.
+    LoginURL(next string) string
+    LogoutURL(next string) string
+
+    // Programmatic session writes — for tests and post-signup
+    // auto-login. The supplied User is whatever the impl can later
+    // round-trip back through CurrentUser.
+    Login(ctx context.Context, u User) error
+    Logout(ctx context.Context) error
+}
+```
+
+Notably absent:
+
+- **No `LoadUser` middleware.** `CurrentUser(r)` does the session
+  lookup on demand.
+- **No `Require` middleware.** Page handlers (or the page shell)
+  call `CurrentUser` themselves and choose redirect vs. render.
+- **No `Backend` indirection.** Each impl handles its own credential
+  flow; the user-facing interface is `Auth` itself.
+
+### 6.2 `User` + `Group` interfaces
+
+```go
+// User exposes the subset of user state page handlers and authz
+// helpers consult. Per-impl extras (PasswordHash, OIDCSubject,
+// CredentialIDs for passkeys) stay on the concrete impl's user type;
+// callers type-assert when they need them.
 //
-// nil = AllowAll, by convention enforced inside each consumer.
-type Interface interface {
+// Passkey-only users may not have a meaningful Username/Email —
+// Username() can return "" in those cases.
+type User interface {
+    Username() string
+    Email() string
+    Groups() []Group
+    HasGroup(name string) bool
+}
+
+type Group interface {
+    Name() string
+}
+```
+
+The session **is** the user store: `Login` serialises the (concrete)
+user; `CurrentUser` deserialises it. No external lookup on subsequent
+requests. Group / email / etc. changes only apply on next login —
+acceptable for v1 AuthSimple; v2 AuthGORM may add a refresh path.
+
+### 6.3 CSRF (session-scoped, not on the `Auth` interface)
+
+CSRF is tied to the session manager, not to the auth method.
+Package-level helpers in `gone/auth/`:
+
+```go
+// CSRF wraps the supplied handler. Ensures the session has a token,
+// validates it on mutating methods, sends 403 on mismatch.
+func CSRFWrap(sm *scs.SessionManager) func(http.Handler) http.Handler
+
+// CSRFToken returns the current session's CSRF token; "" for
+// sessions without one (shouldn't happen if CSRF middleware ran).
+func CSRFToken(ctx context.Context) string
+
+// Templ helpers — emit the hidden form field and the hx-headers JSON
+// for HTMX-driven mutations.
+func CSRFField(ctx context.Context) templ.Component
+func CSRFHeaders(ctx context.Context) templ.Component
+```
+
+Token is **rotated on login** (session-fixation defense) and **cleared
+on logout**. Anonymous CSRF works — the token is created on first
+request. Each `Auth` impl calls `scs.SessionManager.RenewToken` in
+its `Login` to drive the rotation.
+
+### 6.4 AuthSimple
+
+V1's only impl. Users live in memory, configured by code at startup.
+Passwords stored plaintext (it's a prototype/test fixture; real
+hashing arrives with AuthGORM).
+
+```go
+package auth
+
+import "github.com/alexedwards/scs/v2"
+
+type AuthSimple struct {
+    Sessions   *scs.SessionManager
+    LoginPath  string  // default "/login"
+    AfterLogin string  // default "/"
+    // internal: users map[string]*simpleUser
+}
+
+func NewAuthSimple(sm *scs.SessionManager) *AuthSimple
+```
+
+Concrete configuration methods (NOT on `Auth` — each impl exposes its
+own config surface). Passwords are hashed with bcrypt
+(`golang.org/x/crypto/bcrypt`) at rest:
+
+```go
+// UserAdd creates a user with the given email and password. The
+// password is hashed before storage. Returns ErrUserExists if a user
+// with the same username is already registered. Every AuthSimple
+// user is implicitly a member of the "admin" group — no per-user
+// group configuration in v1 (use AuthGORM when you need richer
+// group semantics).
+func (s *AuthSimple) UserAdd(username, email, password string) error
+
+// UserDel removes the named user. Returns ErrUserNotFound if absent.
+func (s *AuthSimple) UserDel(username string) error
+
+// Passwd replaces the named user's password. The new password is
+// re-hashed. Returns ErrUserNotFound if absent.
+func (s *AuthSimple) Passwd(username, password string) error
+```
+
+Plus the `Auth` methods (`Route`, `CurrentUser`, `LoginURL`,
+`LogoutURL`, `Login`, `Logout`) — see §6.1.
+
+Bootstrap example:
+
+```go
+sm := scs.New()
+sa := auth.NewAuthSimple(sm)
+if err := sa.UserAdd("admin", "admin@local", "admin"); err != nil {
+    log.Fatal(err)
+}
+
+var a auth.Auth = sa    // up-cast for downstream callers
+```
+
+### 6.5 Future: AuthGORM (v2)
+
+Sketch only — implementation lands once v1 is exercised. Will satisfy
+the same `auth.Auth`, with:
+
+- GORM-backed `User` + `Group` + credential tables (passwords,
+  passkey credentials, OIDC subjects).
+- Account management page (change password, enrol TOTP, manage
+  passkeys, link/unlink OIDC providers).
+- Its own login form templ with method picker (password / passkey /
+  SSO buttons).
+- Password storage via `golang.org/x/crypto/argon2`.
+
+Apps switch from AuthSimple to AuthGORM by changing one constructor
+call — the rest of the codebase (authz helpers, page handlers, CRUD
+gating) is interface-typed and doesn't move.
+
+### 6.6 `Authz` interface + stock impls
+
+`Authz` is the gate every component (CRUDTable, JSONAPI, Admin
+pages) consults before touching data. It used to live in its own
+`gone/authz/` package; folded into `gone/auth/` because (a) the
+stock impls depend on `Auth` and `User` anyway, and (b) it's small
+enough to not warrant a separate package — same shape as CSRF
+helpers living alongside the rest of auth.
+
+```go
+package auth
+
+// Authz: five Can* methods on *http.Request. Return true to permit,
+// false to deny (consumer responds 403). nil is treated as
+// AuthzAllowAll by every consumer — wrap with AuthzOrAllow at the
+// boundary if you want to call methods directly.
+type Authz interface {
     CanList(r *http.Request) bool
     CanRead(r *http.Request) bool
     CanCreate(r *http.Request) bool
@@ -136,394 +338,172 @@ type Interface interface {
     CanDelete(r *http.Request) bool
 }
 
-type AllowAll struct{}
+// AuthzAllowAll: every check returns true. Equivalent to nil.
+type AuthzAllowAll struct{}
 
-func (AllowAll) CanList(*http.Request) bool   { return true }
-func (AllowAll) CanRead(*http.Request) bool   { return true }
-func (AllowAll) CanCreate(*http.Request) bool { return true }
-func (AllowAll) CanUpdate(*http.Request) bool { return true }
-func (AllowAll) CanDelete(*http.Request) bool { return true }
+// AuthzDenyAll: every check returns false. For read-only snapshots,
+// tests, and "lock down by default".
+type AuthzDenyAll struct{}
 
-// DenyAll is the symmetric helper — useful for read-only views and
-// tests.
-type DenyAll struct{}
-// (all methods return false)
-```
-
-### 6.1 RBAC types
-
-```go
-// Permission codes are strings, namespaced by resource: "zone.list",
-// "record.update", etc. Free-form — apps pick their conventions.
-type Permission struct {
-    ID   uint
-    Code string
+// AuthzLoggedIn permits every action iff the request bears an
+// authenticated user. Anonymous requests are denied uniformly.
+type AuthzLoggedIn struct {
+    Auth Auth  // any concrete impl (AuthSimple, AuthGORM)
 }
 
-// Role bundles permissions. Apps usually seed a handful: "superadmin",
-// "zone-admin", "user".
-type Role struct {
-    ID          uint
-    Name        string
-    Permissions []Permission `gorm:"many2many:role_permissions"`
+// AuthzLoggedInReadOnly: reads (CanList / CanRead) require login;
+// writes (CanCreate / CanUpdate / CanDelete) always denied, even for
+// logged-in users.
+type AuthzLoggedInReadOnly struct {
+    Auth Auth
 }
 
-// Grant binds a principal (user OR group) to a Role, optionally scoped
-// to a resource. ResourceType is the Go type name; ResourceID is the
-// stringified primary key. "" / "" = global grant.
-type Grant struct {
-    ID           uint
-    UserID       *uint
-    GroupID      *uint
-    RoleID       uint
-    ResourceType string
-    ResourceID   string
-    ExpiresAt    *time.Time
-}
-```
-
-### 6.2 Permission resolution
-
-```go
-// Resolver answers "does this principal have this permission on this
-// resource?" — by walking grants directly on the user, then grants on
-// any group the user belongs to.
-type Resolver interface {
-    Can(ctx context.Context, userID uint, permCode, resourceType, resourceID string) bool
+// AuthzLoggedInReadAdminWrite: any logged-in user reads; only members
+// of AdminGroup write. AdminGroup defaults to "admin" when empty.
+type AuthzLoggedInReadAdminWrite struct {
+    Auth       Auth
+    AdminGroup string // empty → "admin"
 }
 
-// GormResolver: production resolver backed by *gorm.DB.
-func NewGormResolver(db *gorm.DB) Resolver
-
-// MemoryResolver: in-memory map for tests.
-func NewMemoryResolver(grants []Grant, roles []Role) Resolver
+// AuthzOrAllow: returns a non-nil Authz — either the supplied one
+// or AuthzAllowAll. Consumers call this before invoking methods so
+// the dispatch loop doesn't double-check nil.
+func AuthzOrAllow(a Authz) Authz
 ```
 
-### 6.3 Building an `Interface` from RBAC
+Semantics (admin = logged-in user in `AdminGroup`; logged-in = any
+other authenticated user):
 
-A CRUDTable for resource type `"Zone"` typically wants to gate:
+| Helper                          | Anon read | Logged read | Admin read | Anon write | Logged write | Admin write |
+|---------------------------------|-----------|-------------|------------|------------|--------------|-------------|
+| `AuthzAllowAll`                 | ✓         | ✓           | ✓          | ✓          | ✓            | ✓           |
+| `AuthzLoggedIn`                 | ✗         | ✓           | ✓          | ✗          | ✓            | ✓           |
+| `AuthzLoggedInReadOnly`         | ✗         | ✓           | ✓          | ✗          | ✗            | ✗           |
+| `AuthzLoggedInReadAdminWrite`   | ✗         | ✓           | ✓          | ✗          | ✗            | ✓           |
+| `AuthzDenyAll`                  | ✗         | ✗           | ✗          | ✗          | ✗            | ✗           |
 
-- `CanList`   → `zone.list`
-- `CanRead`   → `zone.read`
-- `CanCreate` → `zone.create`
-- `CanUpdate` → `zone.update`
-- `CanDelete` → `zone.delete`
-
-`authz` provides a helper that wires this:
-
-```go
-// NewRBAC produces an Interface that consults Resolver for permission
-// codes prefixed with resourcePrefix. The codes are formed as
-// "{resourcePrefix}.{action}" where action ∈ list/read/create/update/delete.
-//
-// userIDFromRequest extracts the current user's ID from the request
-// (returns 0 for anonymous, in which case all checks return false).
-// Apps typically wire this to read from r.Context() populated by
-// auth.LoadUser middleware.
-func NewRBAC(
-    res Resolver,
-    resourcePrefix string,
-    userIDFromRequest func(*http.Request) uint,
-) Interface
-```
-
-Per-resource scoping (e.g. "can edit zone #42 specifically") is a
-future extension — the `Resolver.Can` shape already supports it via
-`resourceID`, but the per-row gating on CRUDTable doesn't pass row IDs
-through to `Authz.CanRead/Update/Delete` yet. Adding that is a
-follow-up.
-
-## 7. `auth` package
-
-### 7.1 Session abstraction
+For richer policies — per-resource, ownership, role hierarchies —
+apps implement `auth.Authz` directly:
 
 ```go
-package auth
-
-// SessionStore is the minimal surface auth needs. scs.SessionManager
-// satisfies it. Library doesn't import scs directly.
-type SessionStore interface {
-    GetString(ctx context.Context, key string) string
-    PutString(ctx context.Context, key, val string)
-    Destroy(ctx context.Context) error
-    RenewToken(ctx context.Context) error
-    LoadAndSave(next http.Handler) http.Handler
+type ZoneAuthz struct {
+    Auth auth.Auth
+    DB   *gorm.DB
 }
 
-// SCSAdapter wraps *scs.SessionManager — opt-in via the auth/scs subpkg
-// (so the base package doesn't depend on scs).
-//
-//	import "github.com/tmshlvck/gone/auth/scsadapter"
-//	sm := scs.New()
-//	store := scsadapter.New(sm)
-//	a := auth.NewAuth(store, ...)
-```
-
-### 7.2 Auth struct
-
-```go
-type Auth struct {
-    Session     SessionStore
-    Users       UserStore
-    PassParams  password.Params  // argon2id parameters
-    TOTPIssuer  string           // shown in TOTP QR codes
-    LoginURL    string           // where Require redirects when unauth (default "/login")
-    AfterLogin  string           // where to land after successful login (default "/")
+func (z ZoneAuthz) CanUpdate(r *http.Request) bool {
+    u := z.Auth.CurrentUser(r)
+    if u == nil { return false }
+    var allowed bool
+    z.DB.Raw("SELECT EXISTS(SELECT 1 FROM zone_admins WHERE username = ?)",
+        u.Username()).Scan(&allowed)
+    return allowed
 }
-
-func NewAuth(session SessionStore, users UserStore) *Auth
+// (CanList / CanRead / CanCreate / CanDelete similarly)
 ```
 
-`Auth` is the central coordinator. Its methods produce middleware and
-handle the login / logout / account flows.
+## 7. Login flow
 
-### 7.3 User store
+V1 experience (login) with AuthSimple:
 
-```go
-type User struct {
-    ID           uint
-    Username     string
-    Email        string
-    PasswordHash string
-    TOTPSecret   string    // encrypted-at-rest is the caller's concern; stored as-is by the lib
-    OIDCSubject  string    // optional
-    Disabled     bool
-    CreatedAt    time.Time
-    UpdatedAt    time.Time
-}
+1. Page handler (or page shell) calls `a.CurrentUser(r)`, sees nil,
+   and redirects:
+   ```go
+   if a.CurrentUser(r) == nil {
+       http.Redirect(w, r, a.LoginURL(r.URL.Path), http.StatusSeeOther)
+       return
+   }
+   ```
+   Alternatively, the handler renders an "access denied" page or a
+   redacted anonymous view — that's the handler's call.
+2. GET `/login?next=/admin` → AuthSimple's templ renders (CSRF token,
+   hidden `next` field, optional error).
+3. POST `/login` → AuthSimple verifies username/password against its
+   in-memory map, calls its own `Login(ctx, user)`, redirects to
+   `next` (when safe) or `AfterLogin`.
+4. Session cookie set; CSRF token rotated. Subsequent
+   `CurrentUser(r)` calls return the user that was logged in.
 
-type UserStore interface {
-    FindByID(ctx context.Context, id uint) (*User, error)
-    FindByUsername(ctx context.Context, username string) (*User, error)
-    FindByOIDCSubject(ctx context.Context, sub string) (*User, error)
-    Create(ctx context.Context, u *User) error
-    Update(ctx context.Context, u *User) error
-}
+AuthGORM's flow will look different — multi-method picker, passkey
+challenge round-trip, OIDC provider redirect — but presents the same
+`auth.Auth` surface to the rest of the app.
 
-// GormUsers is the default backend. Memory store available for tests.
-func NewGormUserStore(db *gorm.DB) UserStore
-func NewMemoryUserStore() UserStore
-```
+Account page (`/account`) — change password, TOTP enrolment, passkey
+management — is v2.
 
-### 7.4 Middleware
+## 8. CSRF flow
 
-```go
-// LoadUser injects the currently-logged-in *User into r.Context().
-// Reads user_id from the session, looks up via UserStore, sets ctx.
-// Anonymous request → no user in ctx; downstream handlers should
-// treat that as anonymous, not as error.
-func (a *Auth) LoadUser(next http.Handler) http.Handler
-
-// Require gates anonymous requests: redirects to a.LoginURL with a
-// "next" query param. For HTMX requests, returns HX-Redirect header
-// instead of a 303.
-func (a *Auth) Require(next http.Handler) http.Handler
-
-// User pulls the *User from r.Context() (set by LoadUser). nil for
-// anonymous.
-func User(ctx context.Context) *User
-```
-
-### 7.5 CSRF middleware
-
-Matches the reference implementation in `examples/sessions`. Token in
-session, validated as `X-CSRF-Token` header or `csrf_token` form
-field. GET / HEAD / OPTIONS bypass.
-
-```go
-// CSRF wraps the supplied handler. Ensures the session has a token,
-// validates it on mutating methods, sends 403 on mismatch.
-func (a *Auth) CSRF(next http.Handler) http.Handler
-
-// CSRFToken returns the current session's CSRF token; the empty
-// string for sessions without one (shouldn't happen if CSRF
-// middleware ran).
-func (a *Auth) CSRFToken(ctx context.Context) string
-
-// Templ helpers — emit the hidden form field and the hx-headers JSON
-// for HTMX-driven mutations.
-func (a *Auth) CSRFField(ctx context.Context) templ.Component
-func (a *Auth) CSRFHeaders(ctx context.Context) templ.Component
-```
-
-Token is **rotated on login** (session-fixation defense) and **cleared
-on logout**. Anonymous CSRF works — the token is created on first
-request.
-
-### 7.6 Login mechanisms
-
-```go
-// VerifyPassword: look up user by username, verify argon2id hash.
-// Returns (nil, ErrInvalidCredentials) for both unknown user and
-// wrong password (no enumeration).
-func (a *Auth) VerifyPassword(ctx context.Context, username, password string) (*User, error)
-
-// VerifyTOTP: returns nil iff code matches user.TOTPSecret with
-// allowed clock-skew window.
-func (a *Auth) VerifyTOTP(user *User, code string) error
-
-// Login: rotate the session, write the user_id, regenerate CSRF.
-// Caller calls this after VerifyPassword (and VerifyTOTP, if enabled).
-func (a *Auth) Login(ctx context.Context, u *User) error
-
-// Logout: destroy the session.
-func (a *Auth) Logout(ctx context.Context) error
-```
-
-OIDC login is symmetric but lives in `auth/oidc/` because of the
-dependency it pulls.
-
-### 7.7 Routes
-
-```go
-// Route mounts the login / logout / account pages at baseUrl. shell
-// wraps each page in the app's chrome — the library never emits page
-// chrome.
-//
-// Registered:
-//   GET    {baseUrl}/login             render login form
-//   POST   {baseUrl}/login             verify + Login + redirect
-//   POST   {baseUrl}/logout            Logout + redirect to LoginURL
-//   GET    {baseUrl}/account           render account page (change pw, TOTP setup)
-//   POST   {baseUrl}/account/password  submit password change
-//   POST   {baseUrl}/account/totp      enable / disable TOTP
-//
-// shell == nil is allowed for tests / fragment-only callers.
-//
-// Returns the absolute urlBase the auth pages were mounted at.
-func (a *Auth) Route(mux crud.Mux, baseUrl string, shell crud.PageShellFunc) (string, error)
-```
-
-Reusing `crud.Mux` and `crud.PageShellFunc` keeps the security stack
-consistent with the rest of `gone`. Cross-package import (`auth/`
-→ `crud/`) is one direction; `crud` doesn't import `auth`.
-
-## 8. `auth/password` subpackage
-
-```go
-package password
-
-// Params controls argon2id cost. Tuned for ~100ms on commodity hardware
-// in 2026 (subject to revisit).
-type Params struct {
-    Time    uint32
-    Memory  uint32
-    Threads uint8
-    SaltLen uint32
-    KeyLen  uint32
-}
-
-func DefaultParams() Params
-
-// Hash produces a PHC-encoded string: "$argon2id$v=19$m=...,t=...,p=...$salt$hash"
-func Hash(password string, p Params) (string, error)
-
-// Verify is constant-time. Returns nil for a match, ErrMismatch otherwise.
-func Verify(password, encodedHash string) error
-```
-
-## 9. `auth/totp` subpackage
-
-```go
-package totp
-
-// Secret holds the otpauth URL and the base32 secret. The URL is
-// what you render as a QR code on the enrollment page.
-type Secret struct {
-    URL    string
-    Base32 string
-}
-
-// NewSecret generates a fresh secret for user@issuer.
-func NewSecret(issuer, accountName string) (Secret, error)
-
-// Verify checks `code` against `base32Secret` with the default RFC 6238
-// window (±1 step).
-func Verify(base32Secret, code string) bool
-```
-
-## 10. `auth/oidc` subpackage (deferred)
-
-Sketch only:
-
-```go
-package oidc
-
-type Provider struct {
-    Issuer       string
-    ClientID     string
-    ClientSecret string
-    RedirectURL  string
-}
-
-func (p *Provider) Route(mux crud.Mux, baseUrl string, auth *auth.Auth) error
-// Registers GET /login/oidc → 302 to provider, GET /login/oidc/callback → exchange + auth.Login.
-```
-
-Implementation deferred — gets its own milestone.
-
-## 11. Login + account flow
-
-Reference experience (login):
-
-1. Anonymous request → `Require` middleware → 303 to `/login?next=/admin`.
-2. GET `/login` → renders `loginPage` templ (CSRF token, optional error, optional TOTP prompt if user enabled it).
-3. POST `/login` → `VerifyPassword` → `VerifyTOTP` (if enabled) → `Login` → 303 to `next` or `AfterLogin`.
-4. Session cookie set; CSRF token rotated; `LoadUser` middleware picks up `*User` on subsequent requests.
-
-Account page (`/account`):
-
-- Change password (current + new + confirm).
-- Enable TOTP: server generates a Secret, renders QR + asks for a confirmation code; on success writes `user.TOTPSecret` and updates.
-- Disable TOTP: clears `user.TOTPSecret` (with password re-prompt).
-
-Each page is a `templ.Component` returned by `auth.Render*`; `Route`
-wraps in the caller's `PageShellFunc`. Same pattern as
-`CRUDTable.Render` + `PageShellFunc`.
-
-## 12. CSRF flow
-
-Identical to `examples/sessions`, codified:
+Identical to `examples/sessions`, codified as package-level helpers
+in `gone/auth/`:
 
 1. Session middleware (`scs.LoadAndSave`) runs first.
-2. `Auth.CSRF` middleware:
+2. `auth.CSRFWrap(sm)` middleware:
    - Ensures the session has a `csrf_token` (creates one if absent).
    - On GET / HEAD / OPTIONS: pass through.
    - On other methods: check `X-CSRF-Token` header, fall back to
      `csrf_token` form field. Constant-time compare. 403 on mismatch.
 3. Templ pages render `<input type="hidden" name="csrf_token" value="...">`
-   via `Auth.CSRFField(ctx)`.
+   via `auth.CSRFField(ctx)`.
 4. HTMX swap forms can also use `hx-headers='{"X-CSRF-Token":"..."}'`
-   via `Auth.CSRFHeaders(ctx)`.
+   via `auth.CSRFHeaders(ctx)`.
 
 API-key authenticated requests (future) bypass CSRF — header auth, no
 session, no XSRF surface.
 
-## 13. Integration with `gone/crud`
+## 9. Integration with `gone/crud`
 
-- `crud.CRUDTable.Authz` accepts `authz.Interface`. Today the type
-  lives in `crud/`; the move to `authz/` is a non-breaking rename
-  (callers pass `nil` and that still means AllowAll).
-- An app with RBAC writes:
+- `crud.CRUDTable.Authz` accepts `auth.Authz`. The type lives in
+  `authz/`; callers that pass `nil` (most examples) need no change.
+- For "logged-in users can edit; everyone else is locked out":
   ```go
-  zoneAuthz := authz.NewRBAC(resolver, "zone", auth.UserIDFromRequest)
-  zoneTable := crud.DeriveGormCRUDTable[Zone](zoneMM, zoneAuthz, db)
+  zoneTable := crud.DeriveGormCRUDTable[Zone](zoneMM,
+      auth.AuthzLoggedIn{Auth: a}, db)
   ```
-  Now every CRUD endpoint on `/zones/*` consults RBAC permissions
-  `zone.list` / `zone.read` / `zone.create` / `zone.update` /
-  `zone.delete`, scoped to the logged-in user.
-- Login is mounted next to admin:
+- For "read-only access for logged-in users":
   ```go
-  a := auth.NewAuth(session, users)
-  a.Route(mux, "/", pageShell)            // /login, /logout, /account
-  protected := chi.Chain(a.LoadUser, a.CSRF, a.Require)
-  // wrap admin/CRUD routes with `protected`.
+  reportTable := crud.DeriveGormCRUDTable[Report](reportMM,
+      auth.AuthzLoggedInReadOnly{Auth: a}, db)
+  ```
+- For "everyone in `admin` group writes; everyone else reads":
+  ```go
+  zoneTable := crud.DeriveGormCRUDTable[Zone](zoneMM,
+      auth.AuthzLoggedInReadAdminWrite{Auth: a}, db)
+  // Or with a custom group name:
+  //   auth.AuthzLoggedInReadAdminWrite{Auth: a, AdminGroup: "editors"}
+  ```
+- For anything more fine-grained — per-resource, ownership, per-row
+  rules — the app implements `auth.Authz` directly (see §6.6).
+- Bootstrap (AuthSimple flavour):
+  ```go
+  sm := scs.New()
+  sa := auth.NewAuthSimple(sm)
+  if err := sa.UserAdd("admin", "admin@local", "admin"); err != nil {
+      log.Fatal(err)
+  }
+  var a auth.Auth = sa  // up-cast so authz helpers / handlers see Auth
+
+  a.Route(mux, "/", pageShell)            // /login, /logout
+
+  // Compose: scs LoadAndSave wraps everything; auth.CSRFWrap wraps
+  // mutating routes; page handlers (or the page shell) call
+  // a.CurrentUser to decide redirect-vs-render-anonymous-vs-deny.
+  handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
   ```
 
-## 14. Schema sketch
+## 10. Schema sketch
+
+V1 has **no DB schema** — AuthSimple keeps users in memory. The
+sketch below is what AuthGORM's tables will look like in v2;
+capturing it here so the migration path is clear.
+
+The session-visible interface (`auth.User`) carries only
+`Username() / Email() / Groups() / HasGroup(name)`. Concrete impls
+expose their own ID / credentials / etc. via type assertion.
 
 ```go
-// auth package
+// V2: AuthGORM (sketch) — GORM tables. The ormUser type satisfies the
+// auth.User interface via methods (Username() / Email() / Groups() /
+// HasGroup()).
 type User struct {
     ID           uint
     Username     string `gorm:"uniqueIndex"`
@@ -532,6 +512,7 @@ type User struct {
     TOTPSecret   string
     OIDCSubject  string `gorm:"index"`
     Disabled     bool
+    Groups       []Group `gorm:"many2many:user_groups"`
     CreatedAt    time.Time
     UpdatedAt    time.Time
 }
@@ -542,84 +523,75 @@ type Group struct {
     Users []User `gorm:"many2many:user_groups"`
 }
 
-// authz package
-type Permission struct {
-    ID   uint
-    Code string `gorm:"uniqueIndex"`
-}
-
-type Role struct {
-    ID          uint
-    Name        string       `gorm:"uniqueIndex"`
-    Permissions []Permission `gorm:"many2many:role_permissions"`
-}
-
-type Grant struct {
-    ID           uint
-    UserID       *uint  `gorm:"index"`
-    GroupID      *uint  `gorm:"index"`
-    RoleID       uint
-    ResourceType string `gorm:"index"`
-    ResourceID   string `gorm:"index"`
-    ExpiresAt    *time.Time
-}
+// Methods to satisfy auth.User:
+func (u *User) Username() string         { return u.Username_ }
+func (u *User) Email() string            { return u.Email_ }
+func (u *User) Groups() []auth.Group     { /* wrap */ }
+func (u *User) HasGroup(name string) bool
 ```
 
-Seeding a basic role / permission set is the app's concern; the
-library provides `authz.NewGormResolver(db)` and the migration helpers
-do the rest.
+V1 AuthSimple has no schema — its `simpleUser` and `simpleGroup`
+types are unexported structs in `auth/`, serialised into the session
+on `Login` and deserialised by `CurrentUser`.
 
-## 15. Testing
+## 11. Testing
 
-- **CSRF**: GET passes; POST without token → 403; POST with valid form
-  token → pass; POST with valid header → pass; POST with mismatched
-  token → 403; HTMX path mirrors form path.
-- **Password**: `Hash` then `Verify` round-trips; wrong password →
-  ErrMismatch; corrupted hash → error.
-- **TOTP**: `NewSecret` produces a valid otpauth URL; `Verify` accepts
-  current step's code from a known reference clock; rejects code from
-  too-far-in-the-past.
-- **Session**: `Login` rotates token; `Logout` destroys it; CSRF
-  token regenerates after login.
-- **Authz Resolver**: user with role grant → `Can` returns true for
-  role's permissions; group grant via user-in-group → also true;
-  expired grant → false.
-- **`auth.Route` end-to-end**: login form renders; POST with right
-  credentials → 303 to AfterLogin; wrong credentials → re-render
-  with error; `Require` redirects anonymous → `/login?next=...`;
-  HTMX request → `HX-Redirect` header.
+- **CSRF**: `auth.CSRFWrap(sm)` — GET passes; POST without token → 403;
+  POST with valid form token → pass; POST with valid header → pass;
+  POST with mismatched token → 403; HTMX path mirrors form path.
+- **Session**: AuthSimple.Login rotates token; Logout destroys it;
+  CSRF token regenerates after login.
+- **Authz helpers** (against any `auth.Auth` impl):
+  `AuthzLoggedIn` denies anonymous, permits logged-in;
+  `AuthzLoggedInReadOnly` permits logged-in reads, denies all writes;
+  `AuthzLoggedInReadAdminWrite` permits writes only for users in
+  `AdminGroup` (default "admin"); custom `AdminGroup` field honoured.
+- **AuthSimple config**: `SetPassword` creates / updates;
+  `AddToGroup` adds to existing group / creates new; the chain is
+  idempotent; usernames are case-sensitive.
+- **AuthSimple routes**: login form renders with `next` hidden
+  field; POST with right credentials → 303 to `next` (or
+  `AfterLogin` when empty); wrong credentials → re-render with
+  error; `LoginURL("/admin")` returns `"/login?next=%2Fadmin"`.
+- **`Auth.CurrentUser`**: nil for anonymous; returns the stored
+  user after `Login`; survives across requests (session round-trip);
+  username/email/groups round-trip intact.
 
-All tests use the memory `UserStore` / memory `Resolver` — no DB
-needed for unit tests; GORM-backed flavor exercised through one
-integration test per backend.
+All v1 tests use `auth.AuthSimple` — no DB needed. V2 will add a
+GORM integration test alongside AuthGORM.
 
-## 16. Examples (planned)
+## 12. Examples (planned)
 
 | Path                          | Demonstrates                                                  |
 |-------------------------------|---------------------------------------------------------------|
 | `examples/sessions`           | *reference today.* Hand-rolled CSRF + scs session + simple login. Pre-library impl. |
-| `examples/auth_basic`         | `auth.Auth` with username/password against a memory user store. Login + protected page. |
-| `examples/auth_totp`          | TOTP enrollment + login with second factor.                   |
-| `examples/admin_with_rbac`    | CRUDTable + Admin gated by `authz.NewRBAC`. User/Group/Role/Permission CRUDTables themselves. |
+| `examples/auth_basic`         | `auth.AuthSimple` with admin/admin. Login + a protected page; page shell calls `CurrentUser` and redirects to login when anonymous. |
+| `examples/admin_with_auth`    | CRUDTable + Admin gated by `auth.AuthzLoggedInReadAdminWrite{Auth: a}`. AuthSimple with one admin user. |
+| `examples/auth_orm` (v2)      | `auth.AuthGORM` with GORM-backed users, passkeys, OIDC.        |
 
-## 17. Open questions
+## 13. Open questions
 
-- **Token storage**: scs stores serialized session blobs in (cookie /
-  memory / Redis / DB). Should auth `Login` write `user_id` as
-  `string` (current scs pattern) or `int64`? scs's typed accessors
-  prefer one — pick later.
-- **Per-row authz on CRUDTable**: today's `Authz.Can{Read,Update,Delete}(r)`
-  doesn't see the row ID. For per-resource grants we'd want
-  `CanReadRow(r, id uint)` etc. — schema change to `authz.Interface`.
-  Worth doing in the same milestone as authz/, or defer? Lean toward
-  doing it now: small breaking change, easier than retrofitting.
-- **Password reset / email verification**: deferred or in scope?
-  Lean toward deferred — needs an email-sending abstraction the
-  library doesn't have yet.
-- **Cost of argon2id** vs. constraints (laptops, low-end VPS):
-  defaults need real benchmarking on commodity hardware before we
-  publish them.
-- **Login form chrome**: should the library ship a default opinionated
-  login templ (DaisyUI), or only the form `<input>`s with the caller
-  wrapping them? Current preference: ship the form + the caller can
-  override the templ if desired. Matches CRUDTable's pattern.
+- **Session payload format**: scs uses `encoding/gob` by default;
+  registering AuthSimple's user type via `gob.Register` is one line.
+  JSON would be debuggable but require its own custom store key.
+  Lean gob.
+- **`Get` prefix on URL helpers**: the user-facing description named
+  these `GetLoginUrl` / `GetLogoutUrl`; this PRD uses `LoginURL` /
+  `LogoutURL` to match Go idiom (`http.Request.URL`, no `Get`). Flag
+  if you'd rather keep the Get prefix.
+- **`User` interface ID**: dropped for v1 (passkey-only users may not
+  have a meaningful integer ID; type-assert to the concrete impl
+  when you need one). If most authz impls end up needing an ID, add
+  `ID() string` later.
+- **Login form chrome**: AuthSimple ships an opinionated login templ
+  (DaisyUI) wrapped by the caller's `PageShellFunc`. AuthGORM ships
+  its own templ — not a shared layer.
+- **AuthSimple password storage**: plaintext in v1 since the impl is
+  for tests/fixtures and the password is configured literally by the
+  app at startup. Real hashing arrives with AuthGORM.
+- **AdminGroup default**: hardcoded "admin" is the Django convention;
+  worth bikeshedding once apps actually use it.
+- **`next` validation**: open-redirect risk if POST `/login` redirects
+  to an arbitrary `next` value. Validate that `next` is a same-origin
+  path; reject absolute URLs and `//host` paths. Standard but worth
+  capturing explicitly.

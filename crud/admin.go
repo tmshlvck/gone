@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
-	"github.com/tmshlvck/gone/authz"
+	"github.com/tmshlvck/gone/auth"
 )
 
 // Admin aggregates a set of CRUDTables under a single URL prefix with a
@@ -35,7 +35,7 @@ type Admin struct {
 
 	// Authz gates Admin's own redirect endpoint. nil = AllowAll. Each
 	// child table has its own Authz gating its own routes.
-	Authz authz.Interface
+	Authz auth.Authz
 
 	// Slug is the path segment under which Admin is mounted. Default
 	// "admin". Currently used only for documentation / future
@@ -55,7 +55,7 @@ type Admin struct {
 // variant — set it manually on each MetaField before passing the
 // tables in. Use DeriveAdminAutoWire for the "auto-derive everything"
 // shortcut.
-func DeriveAdmin(tables []CRUDTableInterface, az authz.Interface) Admin {
+func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
 	return Admin{
 		Tables: tables,
 		Authz:  az,
@@ -71,7 +71,7 @@ func DeriveAdmin(tables []CRUDTableInterface, az authz.Interface) Admin {
 // The matching is purely name-based — passing two tables named "Hero"
 // would produce ambiguous output (last write wins). In practice that
 // doesn't happen because Go type names within one package are unique.
-func DeriveAdminAutoWire(tables []CRUDTableInterface, az authz.Interface) Admin {
+func DeriveAdminAutoWire(tables []CRUDTableInterface, az auth.Authz) Admin {
 	for _, t := range tables {
 		t.AutoWireRelations(tables)
 	}
@@ -133,7 +133,7 @@ func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, err
 	}
 	// Index redirect.
 	firstSlug := a.Tables[0].URLSlug()
-	az := authz.OrAllow(a.Authz)
+	az := auth.AuthzOrAllow(a.Authz)
 	indexPattern := a.urlBase
 	if indexPattern == "" {
 		indexPattern = "/"

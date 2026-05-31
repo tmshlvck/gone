@@ -1,0 +1,396 @@
+package auth
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+
+	"github.com/a-h/templ"
+	"github.com/alexedwards/scs/v2"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// adminGroupName is the single group every AuthSimple user is implicitly
+// a member of. AuthzLoggedInReadAdminWrite (default AdminGroup="admin")
+// permits writes for any logged-in AuthSimple user.
+const adminGroupName = "admin"
+
+const userSessionKey = "auth:username"
+
+// AuthSimple is the v1 Auth implementation. Users live in memory,
+// configured by code at startup via UserAdd / UserDel / Passwd.
+// Passwords are bcrypt-hashed at rest.
+//
+// AuthSimple is a quick-and-dirty fixture for prototypes and tests —
+// no password change UI, no email verification, no account
+// management page. Reach for AuthGORM (when it lands) once you need
+// real user management.
+type AuthSimple struct {
+	// Sessions is the scs manager used to read/write the session
+	// payload. Required.
+	Sessions *scs.SessionManager
+
+	// AfterLogin is where POST /login redirects when the form's
+	// "next" hidden field is empty or unsafe. Default "/".
+	AfterLogin string
+
+	mu    sync.RWMutex
+	users map[string]*UserSimple
+
+	// Populated by Route().
+	urlBase    string
+	loginPath  string
+	logoutPath string
+}
+
+// NewAuthSimple builds an AuthSimple bound to sm. Add users via
+// UserAdd before mounting it on a router.
+func NewAuthSimple(sm *scs.SessionManager) *AuthSimple {
+	if sm == nil {
+		panic("auth.NewAuthSimple: nil session manager")
+	}
+	return &AuthSimple{
+		Sessions:   sm,
+		AfterLogin: "/",
+		users:      make(map[string]*UserSimple),
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Concrete configuration methods — NOT on the Auth interface.
+
+// ErrUserExists is returned by UserAdd when the username is already
+// registered.
+var ErrUserExists = errors.New("auth: user already exists")
+
+// ErrUserNotFound is returned by UserDel / Passwd when the named user
+// doesn't exist.
+var ErrUserNotFound = errors.New("auth: user not found")
+
+// ErrEmptyUsername is returned when an empty username is passed to a
+// mutating method. Empty usernames would break session lookup.
+var ErrEmptyUsername = errors.New("auth: empty username")
+
+// UserAdd creates a user with the given email and password. The
+// password is bcrypt-hashed before storage. Every AuthSimple user is
+// implicitly a member of the "admin" group.
+//
+// Returns ErrUserExists if a user with the same username is already
+// registered, or ErrEmptyUsername if username == "".
+func (s *AuthSimple) UserAdd(username, email, password string) error {
+	if username == "" {
+		return ErrEmptyUsername
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.users[username]; exists {
+		return ErrUserExists
+	}
+	s.users[username] = &UserSimple{
+		username: username,
+		email:    email,
+		hash:     hash,
+	}
+	return nil
+}
+
+// UserDel removes the named user. Returns ErrUserNotFound if absent.
+// Active sessions for the removed user are not destroyed
+// automatically — CurrentUser will return nil for them on next
+// request (the username lookup fails).
+func (s *AuthSimple) UserDel(username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.users[username]; !exists {
+		return ErrUserNotFound
+	}
+	delete(s.users, username)
+	return nil
+}
+
+// Passwd replaces the named user's password. The new password is
+// re-hashed. Returns ErrUserNotFound if absent.
+func (s *AuthSimple) Passwd(username, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, exists := s.users[username]
+	if !exists {
+		return ErrUserNotFound
+	}
+	u.hash = hash
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Auth interface methods.
+
+// CurrentUser reads the username out of the session and looks the
+// user up. Returns nil for anonymous requests AND for sessions whose
+// user has since been deleted via UserDel.
+//
+// Returning the interface (auth.User) is what makes Auth pluggable.
+// Returning a typed *UserSimple as a nil-interface would be a footgun
+// for callers that compare against nil — guarded explicitly here.
+func (s *AuthSimple) CurrentUser(r *http.Request) User {
+	username := s.Sessions.GetString(r.Context(), userSessionKey)
+	if username == "" {
+		return nil
+	}
+	s.mu.RLock()
+	u := s.users[username]
+	s.mu.RUnlock()
+	if u == nil {
+		return nil
+	}
+	return u
+}
+
+// LoginURL returns the login path with `next` encoded as ?next=…
+// query parameter. An empty next returns just the path. Falls back
+// to "/login" if Route hasn't been called yet (handy for tests).
+func (s *AuthSimple) LoginURL(next string) string {
+	path := s.loginPath
+	if path == "" {
+		path = "/login"
+	}
+	if next == "" {
+		return path
+	}
+	return path + "?next=" + url.QueryEscape(next)
+}
+
+// LogoutURL is the symmetric helper for the logout endpoint.
+func (s *AuthSimple) LogoutURL(next string) string {
+	path := s.logoutPath
+	if path == "" {
+		path = "/logout"
+	}
+	if next == "" {
+		return path
+	}
+	return path + "?next=" + url.QueryEscape(next)
+}
+
+// Login rotates the session ID (defeats session-fixation), writes
+// the username into the session, and rotates the CSRF token. Callers
+// pass any User whose Username() matches a registered AuthSimple
+// user — typically the value returned by Authenticate inside the
+// POST /login handler, or a UserSimple constructed by hand in tests.
+func (s *AuthSimple) Login(ctx context.Context, u User) error {
+	if u == nil || u.Username() == "" {
+		return ErrEmptyUsername
+	}
+	if err := s.Sessions.RenewToken(ctx); err != nil {
+		return err
+	}
+	s.Sessions.Put(ctx, userSessionKey, u.Username())
+	rotateCSRF(ctx, s.Sessions)
+	return nil
+}
+
+// Logout destroys the session. Returns the underlying scs error if
+// the session can't be torn down (rare; typically a misconfigured
+// store).
+func (s *AuthSimple) Logout(ctx context.Context) error {
+	return s.Sessions.Destroy(ctx)
+}
+
+// Authenticate checks username + password against the registered
+// users. Returns ErrUserNotFound for an unknown username and
+// bcrypt.ErrMismatchedHashAndPassword for a wrong password. Both
+// branches deliberately leak the same error class shape to the
+// caller (the HTTP handler maps both to a generic "invalid
+// credentials" message to prevent username enumeration).
+//
+// Exported so apps can drive login programmatically (e.g. an API
+// endpoint) without going through the form handler.
+func (s *AuthSimple) Authenticate(username, password string) (User, error) {
+	s.mu.RLock()
+	u := s.users[username]
+	s.mu.RUnlock()
+	if u == nil {
+		return nil, ErrUserNotFound
+	}
+	if err := bcrypt.CompareHashAndPassword(u.hash, []byte(password)); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// Route mounts GET/POST /login + POST /logout under baseUrl. shell
+// wraps the GET /login form in the app's chrome — when nil, the form
+// renders as a bare fragment (useful for tests).
+//
+// Registered patterns (baseUrl="" / "/"):
+//
+//	GET    /login   render login form (reads ?next=… for the redirect target)
+//	POST   /login   authenticate + Login + redirect to next or AfterLogin
+//	POST   /logout  Logout + redirect to LoginURL("")
+//
+// Returns the absolute urlBase the routes were mounted under.
+func (s *AuthSimple) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
+	if mux == nil {
+		return "", errors.New("auth.AuthSimple.Route: nil mux")
+	}
+	base := normalizeAuthPrefix(baseUrl)
+	s.urlBase = base
+	s.loginPath = base + "/login"
+	s.logoutPath = base + "/logout"
+
+	mux.HandleFunc("GET "+s.loginPath, func(w http.ResponseWriter, r *http.Request) {
+		next := safeNext(r.URL.Query().Get("next"))
+		body := loginForm(loginFormData{
+			Action:    s.loginPath,
+			Next:      next,
+			CSRFToken: CSRFToken(r.Context()),
+		})
+		writeShell(w, r, "Sign in", body, shell)
+	})
+
+	mux.HandleFunc("POST "+s.loginPath, func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		username := r.PostFormValue("username")
+		password := r.PostFormValue("password")
+		next := safeNext(r.PostFormValue("next"))
+
+		u, err := s.Authenticate(username, password)
+		if err != nil {
+			body := loginForm(loginFormData{
+				Action:    s.loginPath,
+				Next:      next,
+				CSRFToken: CSRFToken(r.Context()),
+				Error:     "Invalid username or password.",
+				Username:  username,
+			})
+			w.WriteHeader(http.StatusUnauthorized)
+			writeShell(w, r, "Sign in", body, shell)
+			return
+		}
+		if err := s.Login(r.Context(), u); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		dest := next
+		if dest == "" {
+			dest = s.AfterLogin
+		}
+		http.Redirect(w, r, dest, http.StatusSeeOther)
+	})
+
+	mux.HandleFunc("POST "+s.logoutPath, func(w http.ResponseWriter, r *http.Request) {
+		if err := s.Logout(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		next := safeNext(r.URL.Query().Get("next"))
+		if next == "" {
+			next = r.PostFormValue("next")
+			next = safeNext(next)
+		}
+		if next == "" {
+			next = s.LoginURL("")
+		}
+		http.Redirect(w, r, next, http.StatusSeeOther)
+	})
+
+	return s.urlBase, nil
+}
+
+// writeShell renders body through shell, or as a bare fragment when
+// shell is nil. The fragment path is for tests / non-page callers.
+func writeShell(w http.ResponseWriter, r *http.Request, title string, body templ.Component, shell PageShellFunc) {
+	if shell != nil {
+		shell(w, r, title, body)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := body.Render(r.Context(), w); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────
+// UserSimple + GroupSimple — exported concrete types that satisfy
+// auth.User and auth.Group. Fields are unexported so the bcrypt
+// hash stays internal and external code goes through the methods.
+
+// UserSimple is AuthSimple's User implementation.
+type UserSimple struct {
+	username string
+	email    string
+	hash     []byte
+}
+
+// Username returns the user's username.
+func (u *UserSimple) Username() string { return u.username }
+
+// Email returns the user's email (empty if not set).
+func (u *UserSimple) Email() string { return u.email }
+
+// Groups returns the single hardcoded "admin" group every AuthSimple
+// user belongs to.
+func (u *UserSimple) Groups() []Group {
+	return []Group{adminGroup}
+}
+
+// HasGroup reports whether u is a member of the named group. For
+// AuthSimple, only "admin" returns true.
+func (u *UserSimple) HasGroup(name string) bool {
+	return name == adminGroupName
+}
+
+// GroupSimple is AuthSimple's Group implementation. Single instance
+// (the "admin" group); GroupSimple values are not meant to be
+// constructed by callers.
+type GroupSimple struct {
+	name string
+}
+
+// Name returns the group's name.
+func (g *GroupSimple) Name() string { return g.name }
+
+var adminGroup = &GroupSimple{name: adminGroupName}
+
+// ──────────────────────────────────────────────────────────────────
+// Local helpers.
+
+// normalizeAuthPrefix is the auth-package twin of crud.normalizePrefix
+// (unexported there). Same rules: "" / "/" → "" (root); strip trailing
+// slash; otherwise return as-is.
+func normalizeAuthPrefix(p string) string {
+	if p == "/" {
+		return ""
+	}
+	return strings.TrimRight(p, "/")
+}
+
+// safeNext validates the redirect target. Open-redirect risk: if POST
+// /login redirects to an attacker-supplied next, we'd be an OAuth-style
+// stepping stone. Only allow same-origin paths: must start with "/" and
+// not "//" (which would be host-relative).
+func safeNext(next string) string {
+	if next == "" {
+		return ""
+	}
+	if !strings.HasPrefix(next, "/") {
+		return ""
+	}
+	if strings.HasPrefix(next, "//") {
+		return ""
+	}
+	return next
+}
