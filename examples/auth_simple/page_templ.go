@@ -8,15 +8,12 @@ package main
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-// userBadge carries the current-user / logout-link state into the
-// layout templ. nil = anonymous (login page shown; no badge).
-type userBadge struct {
-	Username   string
-	LogoutPath string
-	CSRFToken  string
-}
-
-func pageLayout(title, csrfToken string, badge *userBadge, content templ.Component) templ.Component {
+// pageLayout is the example's HTML chrome. username == "" → no user
+// badge (anonymous, e.g. on the login page); otherwise a "Signed in
+// as X" label + logout form is rendered next to the theme toggle.
+// csrfToken is needed both for the meta tag (HTMX requests pick it
+// up via the configRequest hook below) and the logout form.
+func pageLayout(title, csrfToken, username, logoutPath string, content templ.Component) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -44,7 +41,7 @@ func pageLayout(title, csrfToken string, badge *userBadge, content templ.Compone
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue(csrfToken)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 21, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 18, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 		if templ_7745c5c3_Err != nil {
@@ -57,25 +54,25 @@ func pageLayout(title, csrfToken string, badge *userBadge, content templ.Compone
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 22, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 19, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</title><!-- DaisyUI v5 + Tailwind v4 browser CDN. The base daisyui@5\n\t\t\t     CSS already includes light + dark themes (per DaisyUI's\n\t\t\t     own docs), so themes.css isn't loaded — that file only\n\t\t\t     adds the 30+ alternative themes (cupcake, retro, …)\n\t\t\t     which we don't use. --><link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\"><script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script><script src=\"https://unpkg.com/htmx.org@2\"></script><!-- Initial theme is applied before paint to avoid a flash. --><script>\n\t\t\t\t(function () {\n\t\t\t\t\tconst stored = localStorage.getItem('theme');\n\t\t\t\t\tconst dark = window.matchMedia('(prefers-color-scheme: dark)').matches;\n\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', stored || (dark ? 'dark' : 'light'));\n\t\t\t\t})();\n\t\t\t</script><script>\n\t\t\t\t// Attach the CSRF token to every htmx request. Reads the\n\t\t\t\t// meta tag rendered above; runs before htmx fires its\n\t\t\t\t// first request because the listener is registered at\n\t\t\t\t// script-parse time and configRequest fires per-request.\n\t\t\t\tdocument.addEventListener('htmx:configRequest', (event) => {\n\t\t\t\t\tconst meta = document.querySelector('meta[name=\"csrf-token\"]');\n\t\t\t\t\tif (meta) {\n\t\t\t\t\t\tevent.detail.headers['X-CSRF-Token'] = meta.getAttribute('content');\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script><script>\n\t\t\t\t// Theme toggle only — the modal bridge JS ships inside each\n\t\t\t\t// CRUDTable.Render output via crud.PageModals().\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', () => {\n\t\t\t\t\tdocument.querySelectorAll('[data-theme-toggle]').forEach(el => {\n\t\t\t\t\t\tel.checked = (document.documentElement.getAttribute('data-theme') === 'dark');\n\t\t\t\t\t\tel.addEventListener('change', () => {\n\t\t\t\t\t\t\tconst t = el.checked ? 'dark' : 'light';\n\t\t\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', t);\n\t\t\t\t\t\t\tlocalStorage.setItem('theme', t);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t});\n\t\t\t</script></head><body class=\"bg-base-200 min-h-screen\"><header class=\"container mx-auto p-4 max-w-5xl flex items-center justify-end gap-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</title><link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\"><script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script><script src=\"https://unpkg.com/htmx.org@2\"></script><!-- Initial theme is applied before paint to avoid a flash. --><script>\n\t\t\t\t(function () {\n\t\t\t\t\tconst stored = localStorage.getItem('theme');\n\t\t\t\t\tconst dark = window.matchMedia('(prefers-color-scheme: dark)').matches;\n\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', stored || (dark ? 'dark' : 'light'));\n\t\t\t\t})();\n\t\t\t</script><script>\n\t\t\t\t// Attach the CSRF token to every htmx request.\n\t\t\t\tdocument.addEventListener('htmx:configRequest', (event) => {\n\t\t\t\t\tconst meta = document.querySelector('meta[name=\"csrf-token\"]');\n\t\t\t\t\tif (meta) {\n\t\t\t\t\t\tevent.detail.headers['X-CSRF-Token'] = meta.getAttribute('content');\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script><script>\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', () => {\n\t\t\t\t\tdocument.querySelectorAll('[data-theme-toggle]').forEach(el => {\n\t\t\t\t\t\tel.checked = (document.documentElement.getAttribute('data-theme') === 'dark');\n\t\t\t\t\t\tel.addEventListener('change', () => {\n\t\t\t\t\t\t\tconst t = el.checked ? 'dark' : 'light';\n\t\t\t\t\t\t\tdocument.documentElement.setAttribute('data-theme', t);\n\t\t\t\t\t\t\tlocalStorage.setItem('theme', t);\n\t\t\t\t\t\t});\n\t\t\t\t\t});\n\t\t\t\t});\n\t\t\t</script></head><body class=\"bg-base-200 min-h-screen\"><header class=\"container mx-auto p-4 max-w-5xl flex items-center justify-end gap-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if badge != nil {
+		if username != "" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<span class=\"text-sm opacity-80\">Signed in as <b>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(badge.Username)
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 69, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 56, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -86,9 +83,9 @@ func pageLayout(title, csrfToken string, badge *userBadge, content templ.Compone
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 templ.SafeURL
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(badge.LogoutPath))
+			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(logoutPath))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 70, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 57, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -99,9 +96,9 @@ func pageLayout(title, csrfToken string, badge *userBadge, content templ.Compone
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(badge.CSRFToken)
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(csrfToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 71, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `page.templ`, Line: 58, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
@@ -112,7 +109,7 @@ func pageLayout(title, csrfToken string, badge *userBadge, content templ.Compone
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<label class=\"swap swap-rotate\"><input type=\"checkbox\" data-theme-toggle><!-- sun (shown when checked → dark theme; click to go light) --><svg class=\"swap-on h-6 w-6 fill-current\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z\"></path></svg><!-- moon (shown when unchecked → light theme; click to go dark) --><svg class=\"swap-off h-6 w-6 fill-current\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z\"></path></svg></label></header><main class=\"container mx-auto p-4 max-w-5xl\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<label class=\"swap swap-rotate\"><input type=\"checkbox\" data-theme-toggle> <svg class=\"swap-on h-6 w-6 fill-current\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z\"></path></svg> <svg class=\"swap-off h-6 w-6 fill-current\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z\"></path></svg></label></header><main class=\"container mx-auto p-4 max-w-5xl\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

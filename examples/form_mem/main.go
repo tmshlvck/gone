@@ -130,7 +130,7 @@ func main() {
 	//                     with errors on failure.
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageShell(mm.DisplayName, formURL, hxTarget,
+		if err := pageLayout(mm.DisplayName, formURL, hxTarget,
 			mm.RenderDisplay(get()),
 		).Render(r.Context(), w); err != nil {
 			log.Printf("render: %v", err)

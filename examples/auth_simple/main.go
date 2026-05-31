@@ -1,5 +1,5 @@
 // Example: crud_mem + AuthSimple. The /heroes CRUD table is gated by
-// a page shell — anonymous visitors are redirected to /login.
+// the page shell — anonymous visitors are redirected to /login.
 // Login: admin / admin.
 package main
 
@@ -50,8 +50,7 @@ func seedHeroes() map[uint]Hero {
 	return store
 }
 
-// deriveHeroesTable builds the configured CRUDTable[Hero]. Pulled out
-// so the test reuses one source of truth for the table shape.
+// deriveHeroesTable builds the configured CRUDTable[Hero].
 func deriveHeroesTable(store map[uint]Hero, mu *sync.RWMutex, az auth.Authz) crud.CRUDTable[Hero] {
 	mm, err := crud.DeriveMetaModel[Hero]()
 	if err != nil {
@@ -84,42 +83,6 @@ func deriveHeroesTable(store map[uint]Hero, mu *sync.RWMutex, az auth.Authz) cru
 	return table
 }
 
-// protectedShell wraps the library's component output in app chrome
-// and redirects anonymous requests to /login. The closure captures sa
-// so the user badge + logout form can render the right CSRF token /
-// logout URL.
-func protectedShell(sa *auth.AuthSimple) auth.PageShellFunc {
-	return func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
-		u := sa.CurrentUser(r)
-		if u == nil {
-			http.Redirect(w, r, sa.LoginURL(r.URL.Path), http.StatusSeeOther)
-			return
-		}
-		badge := &userBadge{
-			Username:   u.Username(),
-			LogoutPath: sa.LogoutURL(""),
-			CSRFToken:  auth.CSRFToken(r.Context()),
-		}
-		renderPage(w, r, title, badge, content)
-	}
-}
-
-// loginShell skips the auth gate (the login page IS the anonymous
-// landing) but still emits page chrome with the CSRF meta so any
-// post-login HTMX requests work without an extra round-trip.
-func loginShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
-	renderPage(w, r, title, nil, content)
-}
-
-// renderPage emits the body. CSRF token is pulled from r.Context()
-// where auth.CSRFWrap stashed it.
-func renderPage(w http.ResponseWriter, r *http.Request, title string, badge *userBadge, content templ.Component) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := pageLayout(title, auth.CSRFToken(r.Context()), badge, content).Render(r.Context(), w); err != nil {
-		log.Printf("render: %v", err)
-	}
-}
-
 func main() {
 	// ── Seed ────────────────────────────────────────────────────────
 	store := seedHeroes()
@@ -139,19 +102,40 @@ func main() {
 	}
 
 	// ── CRUD table ──────────────────────────────────────────────────
-	// AuthzLoggedInReadAdminWrite: any logged-in user reads, admin
-	// group writes. Every AuthSimple user is implicitly in "admin",
-	// so for this single-user demo the writer-side check is effectively
-	// "you must be logged in"; the helper is there to demonstrate the
-	// admin-write convention with real teeth.
+	// AuthzLoggedInReadAdminWrite: logged-in users read, admin group
+	// writes. Every AuthSimple user is implicitly in "admin", so this
+	// behaves like AuthzLoggedIn for this single-user demo.
 	table := deriveHeroesTable(store, &mu, auth.AuthzLoggedInReadAdminWrite{Auth: sa})
+
+	// ── Page shell ──────────────────────────────────────────────────
+	// One PageShellFunc serves both the login page and the protected
+	// /heroes routes. Anonymous requests are redirected to /login,
+	// except when they ARE the login page (otherwise infinite loop).
+	loginPath := sa.LoginURL("")
+	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
+		u := sa.CurrentUser(r)
+		if u == nil && r.URL.Path != loginPath {
+			http.Redirect(w, r, sa.LoginURL(r.URL.Path), http.StatusSeeOther)
+			return
+		}
+		username := ""
+		if u != nil {
+			username = u.Username()
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		err := pageLayout(title, auth.CSRFToken(r.Context()), username, sa.LogoutURL(""), content).
+			Render(r.Context(), w)
+		if err != nil {
+			log.Printf("render: %v", err)
+		}
+	}
 
 	// ── Routing ─────────────────────────────────────────────────────
 	mux := http.NewServeMux()
-	if _, err := sa.Route(mux, "", loginShell); err != nil {
+	if _, err := sa.Route(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	heroesURL, err := table.Route(mux, "", protectedShell(sa))
+	heroesURL, err := table.Route(mux, "", pageShell)
 	if err != nil {
 		log.Fatalf("table route: %v", err)
 	}
@@ -161,8 +145,7 @@ func main() {
 
 	// ── Middleware ──────────────────────────────────────────────────
 	// scs LoadAndSave is the outermost wrapper; auth.CSRFWrap runs
-	// inside it (CSRF reads/writes the session that LoadAndSave
-	// provides).
+	// inside it.
 	handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
 
 	// ── Run ─────────────────────────────────────────────────────────
