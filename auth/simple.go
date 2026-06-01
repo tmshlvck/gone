@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	"github.com/a-h/templ"
+	"github.com/alexedwards/argon2id"
 	"github.com/alexedwards/scs/v2"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // adminGroupName is the single group every AuthSimple user is implicitly
@@ -22,7 +22,9 @@ const userSessionKey = "auth:username"
 
 // AuthSimple is the v1 Auth implementation. Users live in memory,
 // configured by code at startup via UserAdd / UserDel / Passwd.
-// Passwords are bcrypt-hashed at rest.
+// Passwords are argon2id-hashed at rest (PHC-encoded — same string
+// format AuthGORM will use, so the hash representation doesn't have
+// to migrate when the GORM backend lands).
 //
 // AuthSimple is a quick-and-dirty fixture for prototypes and tests —
 // no password change UI, no email verification, no account
@@ -74,9 +76,16 @@ var ErrUserNotFound = errors.New("auth: user not found")
 // mutating method. Empty usernames would break session lookup.
 var ErrEmptyUsername = errors.New("auth: empty username")
 
+// ErrInvalidPassword is returned by Authenticate when the username
+// exists but the supplied password doesn't match. Kept distinct from
+// ErrUserNotFound so callers can log / instrument the two cases
+// separately, but HTTP handlers should map both to the same generic
+// "invalid credentials" response to prevent username enumeration.
+var ErrInvalidPassword = errors.New("auth: invalid password")
+
 // UserAdd creates a user with the given email and password. The
-// password is bcrypt-hashed before storage. Every AuthSimple user is
-// implicitly a member of the "admin" group.
+// password is argon2id-hashed before storage (PHC-encoded). Every
+// AuthSimple user is implicitly a member of the "admin" group.
 //
 // Returns ErrUserExists if a user with the same username is already
 // registered, or ErrEmptyUsername if username == "".
@@ -84,7 +93,7 @@ func (s *AuthSimple) UserAdd(username, email, password string) error {
 	if username == "" {
 		return ErrEmptyUsername
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
 	if err != nil {
 		return err
 	}
@@ -118,7 +127,7 @@ func (s *AuthSimple) UserDel(username string) error {
 // Passwd replaces the named user's password. The new password is
 // re-hashed. Returns ErrUserNotFound if absent.
 func (s *AuthSimple) Passwd(username, password string) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
 	if err != nil {
 		return err
 	}
@@ -208,10 +217,10 @@ func (s *AuthSimple) Logout(ctx context.Context) error {
 
 // Authenticate checks username + password against the registered
 // users. Returns ErrUserNotFound for an unknown username and
-// bcrypt.ErrMismatchedHashAndPassword for a wrong password. Both
-// branches deliberately leak the same error class shape to the
-// caller (the HTTP handler maps both to a generic "invalid
-// credentials" message to prevent username enumeration).
+// ErrInvalidPassword for a wrong password. The two branches keep
+// distinct error classes for telemetry / logging but HTTP handlers
+// should map both to the same generic "invalid credentials" response
+// to prevent username enumeration.
 //
 // Exported so apps can drive login programmatically (e.g. an API
 // endpoint) without going through the form handler.
@@ -222,8 +231,12 @@ func (s *AuthSimple) Authenticate(username, password string) (User, error) {
 	if u == nil {
 		return nil, ErrUserNotFound
 	}
-	if err := bcrypt.CompareHashAndPassword(u.hash, []byte(password)); err != nil {
+	match, err := argon2id.ComparePasswordAndHash(password, u.hash)
+	if err != nil {
 		return nil, err
+	}
+	if !match {
+		return nil, ErrInvalidPassword
 	}
 	return u, nil
 }
@@ -328,11 +341,12 @@ func writeShell(w http.ResponseWriter, r *http.Request, title string, body templ
 // auth.User and auth.Group. Fields are unexported so the bcrypt
 // hash stays internal and external code goes through the methods.
 
-// UserSimple is AuthSimple's User implementation.
+// UserSimple is AuthSimple's User implementation. hash is the
+// PHC-encoded argon2id string produced by argon2id.CreateHash.
 type UserSimple struct {
 	username string
 	email    string
-	hash     []byte
+	hash     string
 }
 
 // Username returns the user's username.

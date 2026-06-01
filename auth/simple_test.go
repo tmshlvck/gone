@@ -70,11 +70,11 @@ func TestPasswdSwitchesHash(t *testing.T) {
 func TestAuthenticateWrongPassword(t *testing.T) {
 	sa, _ := newTestAuth(t)
 	_, err := sa.Authenticate("admin", "wrong")
-	if err == nil {
-		t.Error("wrong password accepted")
+	if !errors.Is(err, ErrInvalidPassword) {
+		t.Errorf("wrong password → %v, want ErrInvalidPassword", err)
 	}
 	if errors.Is(err, ErrUserNotFound) {
-		t.Error("wrong-password and unknown-user should not return the same error class (enumeration check at the HTTP layer)")
+		t.Error("wrong-password and unknown-user should not share an error class (enumeration check at the HTTP layer)")
 	}
 }
 

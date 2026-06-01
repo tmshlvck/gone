@@ -48,7 +48,7 @@ in the caller's `PageShellFunc`.
 2. **Two Auth implementations, unified by interface** — `Auth`,
    `User`, `Group` are interfaces in `gone/auth/`. V1 ships
    `AuthSimple` — in-memory users configured via
-   `UserAdd(username, email, password)`, bcrypt hashes, plain login
+   `UserAdd(username, email, password)`, argon2id hashes, plain login
    form. V2 will ship `AuthGORM` with GORM-backed storage, passkeys,
    and SSO. Each impl owns its own page templates — the v1 plain
    form and the v2 multi-method form don't share enough structure
@@ -93,7 +93,7 @@ in the caller's `PageShellFunc`.
 | Concern                | Choice                                                |
 |------------------------|-------------------------------------------------------|
 | Session middleware     | `alexedwards/scs/v2` — direct hard dep                |
-| Password hashing       | argon2id via `golang.org/x/crypto/argon2` (v2)        |
+| Password hashing       | argon2id via `alexedwards/argon2id` (v1 + v2)         |
 | TOTP                   | `pquerna/otp` (v2)                                    |
 | OIDC                   | `coreos/go-oidc` + `golang.org/x/oauth2` (v2)         |
 | CSRF                   | hand-rolled (see `examples/sessions`)                 |
@@ -243,8 +243,9 @@ its `Login` to drive the rotation.
 ### 6.4 AuthSimple
 
 V1's only impl. Users live in memory, configured by code at startup.
-Passwords stored plaintext (it's a prototype/test fixture; real
-hashing arrives with AuthGORM).
+Passwords are argon2id-hashed at rest — even for the prototype, so
+the small example doubles as a check that the hashing path is wired
+right before AuthGORM lands.
 
 ```go
 package auth
@@ -262,8 +263,10 @@ func NewAuthSimple(sm *scs.SessionManager) *AuthSimple
 ```
 
 Concrete configuration methods (NOT on `Auth` — each impl exposes its
-own config surface). Passwords are hashed with bcrypt
-(`golang.org/x/crypto/bcrypt`) at rest:
+own config surface). Passwords are hashed with argon2id
+(`alexedwards/argon2id`, which wraps `golang.org/x/crypto/argon2`) at
+rest. PHC-encoded strings; same format AuthGORM will use, so the hash
+column doesn't have to migrate when the GORM backend lands:
 
 ```go
 // UserAdd creates a user with the given email and password. The
@@ -308,7 +311,7 @@ the same `auth.Auth`, with:
   passkeys, link/unlink OIDC providers).
 - Its own login form templ with method picker (password / passkey /
   SSO buttons).
-- Password storage via `golang.org/x/crypto/argon2`.
+- Password storage via `alexedwards/argon2id` (same as AuthSimple).
 
 Apps switch from AuthSimple to AuthGORM by changing one constructor
 call — the rest of the codebase (authz helpers, page handlers, CRUD
@@ -586,9 +589,6 @@ GORM integration test alongside AuthGORM.
 - **Login form chrome**: AuthSimple ships an opinionated login templ
   (DaisyUI) wrapped by the caller's `PageShellFunc`. AuthGORM ships
   its own templ — not a shared layer.
-- **AuthSimple password storage**: plaintext in v1 since the impl is
-  for tests/fixtures and the password is configured literally by the
-  app at startup. Real hashing arrives with AuthGORM.
 - **AdminGroup default**: hardcoded "admin" is the Django convention;
   worth bikeshedding once apps actually use it.
 - **`next` validation**: open-redirect risk if POST `/login` redirects
