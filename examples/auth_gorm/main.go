@@ -65,11 +65,6 @@ func main() {
 		log.Fatalf("derive UserGORM: %v", err)
 	}
 	userMM.DisplayName = "Users"
-	// PasswordHash is internal — don't render it in the admin (it
-	// would leak the argon2id string + invite editing it directly).
-	// Mark as Hidden so the table/form skip it; passwords are managed
-	// through ag.Passwd(...) instead.
-	userMM.MustFindField("PasswordHash").Hidden = true
 
 	groupMM, err := crud.DeriveMetaModel[auth.GroupGORM]()
 	if err != nil {

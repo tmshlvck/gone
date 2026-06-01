@@ -59,8 +59,22 @@ type CRUDTableInterface interface {
 }
 
 // DefaultShortValue derives a short human-readable label from an instance.
-// "ID: Name" when both fields are present and non-zero; falls back to
-// either alone, then to fmt.Sprintf as a last resort.
+// "ID: <label>" when both ID and a label-shaped string field are present
+// and non-zero; falls back to either alone, then to fmt.Sprintf as a last
+// resort.
+//
+// The label field is found by scanning the struct's exported string fields
+// for a name like "Name", "Title", "Username", "DisplayName", or any
+// field whose name contains "name" (case-insensitive). The order of
+// preference is:
+//   1. Name
+//   2. Title
+//   3. Username / DisplayName
+//   4. any other field containing "name" (e.g. FullName, FirstName, Nickname)
+//
+// This keeps the common "ID + Name" case fast while letting models with
+// non-Name identifiers (AuthGORM's UserGORM.Username, blog posts' Title)
+// render usefully in relation pickers without per-model wiring.
 func DefaultShortValue(instance any) string {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
@@ -70,23 +84,52 @@ func DefaultShortValue(instance any) string {
 		return fmt.Sprintf("%v", instance)
 	}
 	idF := rv.FieldByName("ID")
-	nameF := rv.FieldByName("Name")
+	label := findLabelField(rv)
 	hasID := idF.IsValid() && idF.Kind() >= reflect.Uint && idF.Kind() <= reflect.Uint64 && idF.Uint() != 0
 	hasIntID := idF.IsValid() && idF.Kind() >= reflect.Int && idF.Kind() <= reflect.Int64 && idF.Int() != 0
-	hasName := nameF.IsValid() && nameF.Kind() == reflect.String && nameF.String() != ""
 	switch {
-	case hasID && hasName:
-		return fmt.Sprintf("%d: %s", idF.Uint(), nameF.String())
-	case hasIntID && hasName:
-		return fmt.Sprintf("%d: %s", idF.Int(), nameF.String())
+	case hasID && label != "":
+		return fmt.Sprintf("%d: %s", idF.Uint(), label)
+	case hasIntID && label != "":
+		return fmt.Sprintf("%d: %s", idF.Int(), label)
 	case hasID:
 		return fmt.Sprintf("#%d", idF.Uint())
 	case hasIntID:
 		return fmt.Sprintf("#%d", idF.Int())
-	case hasName:
-		return nameF.String()
+	case label != "":
+		return label
 	}
 	return fmt.Sprintf("%v", instance)
+}
+
+// findLabelField returns the value of the best label-shaped string field
+// on rv (assumed a struct), or "" if none match. See DefaultShortValue
+// for the preference order.
+func findLabelField(rv reflect.Value) string {
+	// Fast path: the canonical names, in priority order.
+	for _, name := range []string{"Name", "Title", "Username", "DisplayName"} {
+		if f := rv.FieldByName(name); f.IsValid() && f.Kind() == reflect.String {
+			if s := f.String(); s != "" {
+				return s
+			}
+		}
+	}
+	// Slow path: any exported string field whose name contains "name"
+	// (case-insensitive). Catches FullName / FirstName / Nickname etc.
+	t := rv.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if !sf.IsExported() || sf.Type.Kind() != reflect.String {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(sf.Name), "name") {
+			continue
+		}
+		if s := rv.Field(i).String(); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // idOf extracts the uint ID from an instance via reflection on the "ID"

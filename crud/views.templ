@@ -567,15 +567,22 @@ func pageRange(cur, total int) []int {
 // ──────────────────────────────────────────────────────────────────────────
 
 templ AdminView(d AdminViewData) {
-	<div
-		id="crud-admin-root"
-		hx-boost="true"
-		hx-target="#crud-admin-root"
-		hx-select="#crud-admin-root"
-		hx-swap="outerHTML"
-	>
+	<div id="crud-admin-root">
 		<div class="flex gap-6">
-			<aside class="w-56 shrink-0">
+			<!-- hx-boost is scoped to the sidebar so it only intercepts
+			     <a>/sidebar clicks — earlier it sat on #crud-admin-root and
+			     was inherited by the working area, where the CRUDTable's
+			     edit/delete buttons each have their own hx-target/swap.
+			     The inherited hx-select="#crud-admin-root" then ran on
+			     responses that don't contain that id, returning empty
+			     content and silently blanking the modal body. -->
+			<aside
+				class="w-56 shrink-0"
+				hx-boost="true"
+				hx-target="#crud-admin-root"
+				hx-select="#crud-admin-root"
+				hx-swap="outerHTML"
+			>
 				<ul class="menu bg-base-200 rounded-box w-full">
 					for _, e := range d.Entries {
 						<li>
