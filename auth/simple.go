@@ -260,18 +260,50 @@ func (s *AuthSimple) Route(mux Mux, baseUrl string, shell PageShellFunc) (string
 	s.urlBase = base
 	s.loginPath = base + "/login"
 	s.logoutPath = base + "/logout"
+	mountPasswordLogin(mux, passwordLoginOpts{
+		LoginPath:    s.loginPath,
+		LogoutPath:   s.logoutPath,
+		AfterLogin:   func() string { return s.AfterLogin },
+		Authenticate: s.Authenticate,
+		Login:        s.Login,
+		Logout:       s.Logout,
+		LoginURL:     s.LoginURL,
+		Shell:        shell,
+	})
+	return s.urlBase, nil
+}
 
-	mux.HandleFunc("GET "+s.loginPath, func(w http.ResponseWriter, r *http.Request) {
+// passwordLoginOpts is the data + closures the shared
+// mountPasswordLogin helper needs. Both AuthSimple.Route and
+// AuthGORM.Route fill one of these and delegate — the login form
+// and POST handling are identical for v1 (single-method password).
+// AuthGORM will likely fork its own Route once passkeys / SSO land.
+//
+// AfterLogin is a getter, not a string, so the caller's field can
+// still be mutated after Route() and the next login picks up the
+// new value.
+type passwordLoginOpts struct {
+	LoginPath, LogoutPath string
+	AfterLogin            func() string
+	Authenticate          func(username, password string) (User, error)
+	Login                 func(ctx context.Context, u User) error
+	Logout                func(ctx context.Context) error
+	LoginURL              func(next string) string
+	Shell                 PageShellFunc
+}
+
+func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
+	mux.HandleFunc("GET "+o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
 		next := safeNext(r.URL.Query().Get("next"))
 		body := loginForm(loginFormData{
-			Action:    s.loginPath,
+			Action:    o.LoginPath,
 			Next:      next,
 			CSRFToken: CSRFToken(r.Context()),
 		})
-		writeShell(w, r, "Sign in", body, shell)
+		writeShell(w, r, "Sign in", body, o.Shell)
 	})
 
-	mux.HandleFunc("POST "+s.loginPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST "+o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -280,47 +312,44 @@ func (s *AuthSimple) Route(mux Mux, baseUrl string, shell PageShellFunc) (string
 		password := r.PostFormValue("password")
 		next := safeNext(r.PostFormValue("next"))
 
-		u, err := s.Authenticate(username, password)
+		u, err := o.Authenticate(username, password)
 		if err != nil {
 			body := loginForm(loginFormData{
-				Action:    s.loginPath,
+				Action:    o.LoginPath,
 				Next:      next,
 				CSRFToken: CSRFToken(r.Context()),
 				Error:     "Invalid username or password.",
 				Username:  username,
 			})
 			w.WriteHeader(http.StatusUnauthorized)
-			writeShell(w, r, "Sign in", body, shell)
+			writeShell(w, r, "Sign in", body, o.Shell)
 			return
 		}
-		if err := s.Login(r.Context(), u); err != nil {
+		if err := o.Login(r.Context(), u); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		dest := next
 		if dest == "" {
-			dest = s.AfterLogin
+			dest = o.AfterLogin()
 		}
 		http.Redirect(w, r, dest, http.StatusSeeOther)
 	})
 
-	mux.HandleFunc("POST "+s.logoutPath, func(w http.ResponseWriter, r *http.Request) {
-		if err := s.Logout(r.Context()); err != nil {
+	mux.HandleFunc("POST "+o.LogoutPath, func(w http.ResponseWriter, r *http.Request) {
+		if err := o.Logout(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		next := safeNext(r.URL.Query().Get("next"))
 		if next == "" {
-			next = r.PostFormValue("next")
-			next = safeNext(next)
+			next = safeNext(r.PostFormValue("next"))
 		}
 		if next == "" {
-			next = s.LoginURL("")
+			next = o.LoginURL("")
 		}
 		http.Redirect(w, r, next, http.StatusSeeOther)
 	})
-
-	return s.urlBase, nil
 }
 
 // writeShell renders body through shell, or as a bare fragment when

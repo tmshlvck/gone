@@ -300,22 +300,83 @@ if err := sa.UserAdd("admin", "admin@local", "admin"); err != nil {
 var a auth.Auth = sa    // up-cast for downstream callers
 ```
 
-### 6.5 Future: AuthGORM (v2)
+### 6.5 AuthGORM
 
-Sketch only — implementation lands once v1 is exercised. Will satisfy
-the same `auth.Auth`, with:
+GORM-backed Auth implementation. Same `auth.Auth` surface; users +
+groups live in `auth_users` / `auth_groups` (+ `auth_user_groups`
+join) tables. Password storage via `alexedwards/argon2id` — same as
+AuthSimple, so apps swap impls by changing the constructor.
 
-- GORM-backed `User` + `Group` + credential tables (passwords,
-  passkey credentials, OIDC subjects).
-- Account management page (change password, enrol TOTP, manage
-  passkeys, link/unlink OIDC providers).
-- Its own login form templ with method picker (password / passkey /
-  SSO buttons).
-- Password storage via `alexedwards/argon2id` (same as AuthSimple).
+```go
+type AuthGORM struct {
+    Sessions   *scs.SessionManager
+    DB         *gorm.DB
+    AfterLogin string  // default "/"
+}
 
-Apps switch from AuthSimple to AuthGORM by changing one constructor
-call — the rest of the codebase (authz helpers, page handlers, CRUD
-gating) is interface-typed and doesn't move.
+func NewAuthGORM(sm *scs.SessionManager, db *gorm.DB) (*AuthGORM, error)
+//   auto-migrates UserGORM + GroupGORM
+```
+
+Concrete configuration methods (NOT on the `auth.Auth` interface):
+
+```go
+// User CRUD.
+func (a *AuthGORM) UserAdd(username, email, password string) error
+func (a *AuthGORM) UserDel(username string) error
+func (a *AuthGORM) Passwd(username, password string) error
+
+// Group CRUD.
+func (a *AuthGORM) GroupAdd(name string) error
+func (a *AuthGORM) GroupDel(name string) error
+
+// Set a user's group memberships by name (replaces the m2m list).
+// Groups must already exist — ErrGroupNotFound otherwise.
+func (a *AuthGORM) UserMod(username string, groupNames []string) error
+```
+
+Models exposed so apps can derive CRUDTables over them:
+
+```go
+type UserGORM struct {
+    ID           uint
+    Username     string `gorm:"uniqueIndex"`
+    Email        string `gorm:"uniqueIndex"`
+    PasswordHash string  // hidden from CRUDAdmin via mm.MustFindField("PasswordHash").Hidden = true
+    Disabled     bool
+    Groups       []GroupGORM `gorm:"many2many:auth_user_groups"`
+    CreatedAt    time.Time
+    UpdatedAt    time.Time
+}
+
+type GroupGORM struct {
+    ID    uint
+    Name  string `gorm:"uniqueIndex"`
+    Users []UserGORM `gorm:"many2many:auth_user_groups"`
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+```
+
+`UserGORM` and `GroupGORM` have plain exported fields (Go disallows
+a method named Username and a field named Username on the same type;
+the CRUD library introspects exported fields). Adapters
+(`UserGORMAdapter` / `GroupGORMAdapter`) wrap the rows to satisfy
+`auth.User` / `auth.Group` — `CurrentUser` returns the adapter; apps
+that need the raw row type-assert to it and read `.U` / `.G`.
+
+V2 additions (deferred): account management page (change own password,
+enrol TOTP, manage passkeys, link OIDC providers); the login form
+templ gains a method picker (password / passkey / SSO buttons) when
+those credential paths land. V1 ships single-method password login
+using the same templ as AuthSimple — `mountPasswordLogin` is the
+shared route helper.
+
+`examples/auth_gorm` demonstrates the wiring end-to-end: AuthGORM seed
+of admin/admin in the `admin` group, CRUDTables for users and groups
+mounted under `crud.Admin`, gated by `AuthzLoggedInReadAdminWrite`.
+PasswordHash is hidden from the admin UI; passwords go through
+`AuthGORM.Passwd`.
 
 ### 6.6 `Authz` interface + stock impls
 
@@ -570,7 +631,8 @@ GORM integration test alongside AuthGORM.
 | `examples/sessions`           | *reference today.* Hand-rolled CSRF + scs session + simple login. Pre-library impl. |
 | `examples/auth_basic`         | `auth.AuthSimple` with admin/admin. Login + a protected page; page shell calls `CurrentUser` and redirects to login when anonymous. |
 | `examples/admin_with_auth`    | CRUDTable + Admin gated by `auth.AuthzLoggedInReadAdminWrite{Auth: a}`. AuthSimple with one admin user. |
-| `examples/auth_orm` (v2)      | `auth.AuthGORM` with GORM-backed users, passkeys, OIDC.        |
+| `examples/auth_gorm`          | `auth.AuthGORM` + CRUDAdmin over UserGORM/GroupGORM; seed admin/admin in admin group; AuthzLoggedInReadAdminWrite gates writes. |
+| `examples/auth_gorm_passkey` (v2) | Same as above + passkey enrolment + login.               |
 
 ## 13. Open questions
 
