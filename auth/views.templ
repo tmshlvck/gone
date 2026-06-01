@@ -57,7 +57,14 @@ type accountFormData struct {
 	CSRFToken      string
 	Error          string // optional error banner
 	Success        string // optional success banner (after a successful POST)
-	Modal          bool   // true when rendered inside a modal — skips the outer card chrome
+
+	// Modal=true renders the form bare (no card chrome) and adds
+	// hx-post / hx-target so submit stays within the modal instead of
+	// navigating away. ModalBodyID is the swap target (the modal's
+	// body div); set when Modal is true. Modal=false renders the
+	// page-shaped variant: card chrome + plain form action.
+	Modal       bool
+	ModalBodyID string
 }
 
 // accountForm renders the password-change form. The same templ
@@ -104,28 +111,53 @@ templ accountFormBody(d accountFormData) {
 			<span>{ d.Success }</span>
 		</div>
 	}
-	<form method="post" action={ templ.SafeURL(d.ActionURL) } class="flex flex-col gap-3">
-		<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
-		<label class="form-control">
-			<div class="label"><span class="label-text">Your current password</span></div>
-			<input type="password" name="old_password" class="input input-bordered" autocomplete="current-password" autofocus/>
-		</label>
-		<label class="form-control">
-			<div class="label">
-				if d.IsSelf {
-					<span class="label-text">New password</span>
-				} else {
-					<span class="label-text">New password for { d.TargetUsername }</span>
-				}
-			</div>
-			<input type="password" name="new_password" class="input input-bordered" autocomplete="new-password"/>
-		</label>
-		<label class="form-control">
-			<div class="label"><span class="label-text">Confirm new password</span></div>
-			<input type="password" name="new_password_confirm" class="input input-bordered" autocomplete="new-password"/>
-		</label>
-		<div class="mt-4">
-			<button type="submit" class="btn btn-primary">Update password</button>
-		</div>
-	</form>
+	if d.Modal {
+		<!-- Modal flow: form submits via HTMX into the same modal body
+		     so the browser doesn't navigate. On validation error the
+		     handler re-renders the form into the modal body; on success
+		     it sets HX-Trigger:closeModal + HX-Reswap:none so the modal
+		     closes and the page underneath (the admin table) stays. -->
+		<form
+			method="post"
+			action={ templ.SafeURL(d.ActionURL) }
+			hx-post={ d.ActionURL }
+			hx-target={ "#" + d.ModalBodyID }
+			hx-swap="innerHTML"
+			class="flex flex-col gap-3"
+		>
+			@accountFormFields(d)
+		</form>
+	} else {
+		<!-- Page flow: plain POST, response replaces the page with
+		     the success-flagged variant via the page shell. -->
+		<form method="post" action={ templ.SafeURL(d.ActionURL) } class="flex flex-col gap-3">
+			@accountFormFields(d)
+		</form>
+	}
+}
+
+// accountFormFields is the shared inner body — same fields whether
+// the form posts via HTMX or a plain submit. Labels mirror the
+// CRUDTable form's w-full layout so inputs fill the modal-box width.
+templ accountFormFields(d accountFormData) {
+	<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+	<label class="flex flex-col gap-1.5 w-full">
+		<span class="font-medium">Your current password</span>
+		<input type="password" name="old_password" class="input w-full" autocomplete="current-password" autofocus/>
+	</label>
+	<label class="flex flex-col gap-1.5 w-full">
+		if d.IsSelf {
+			<span class="font-medium">New password</span>
+		} else {
+			<span class="font-medium">New password for { d.TargetUsername }</span>
+		}
+		<input type="password" name="new_password" class="input w-full" autocomplete="new-password"/>
+	</label>
+	<label class="flex flex-col gap-1.5 w-full">
+		<span class="font-medium">Confirm new password</span>
+		<input type="password" name="new_password_confirm" class="input w-full" autocomplete="new-password"/>
+	</label>
+	<div class="mt-4">
+		<button type="submit" class="btn btn-primary">Update password</button>
+	</div>
 }

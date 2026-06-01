@@ -57,6 +57,7 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 	}
 
 	htmx := isHTMXAuthRequest(r)
+	modalBodyID := r.Header.Get("HX-Target")
 	actionURL := a.urlBase + "/account/" + strconv.FormatUint(uint64(target.ID), 10)
 	form := accountForm(accountFormData{
 		ActionURL:      actionURL,
@@ -66,13 +67,14 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 		Error:          errMsg,
 		Success:        successMsg,
 		Modal:          htmx,
+		ModalBodyID:    modalBodyID,
 	})
 
 	if htmx {
-		// HTMX path: return the fragment for the modal body, fire
-		// openModal so the dialog pops. Only fire on the initial GET
-		// (no errMsg/successMsg) — re-renders inside an already-open
-		// modal don't need to re-open it.
+		// HTMX path: return the fragment for the modal body. Fire
+		// openModal only on the initial GET (no errMsg/successMsg) —
+		// re-renders inside an already-open modal don't need to
+		// re-open it.
 		if modalID := modalIDFromHXTarget(r); modalID != "" && errMsg == "" && successMsg == "" {
 			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"openModal":%q}`, modalID))
 		}
@@ -141,22 +143,16 @@ func (a *AuthGORM) handleAccountPost(w http.ResponseWriter, r *http.Request, she
 
 	// Success.
 	if isHTMXAuthRequest(r) {
-		// Modal flow: close the modal and let the page shell handle
-		// any visible confirmation. We still return a body so HTMX
-		// doesn't error out on the empty 200.
+		// Modal flow: close the modal and suppress the swap so the
+		// admin lands back on the page they were on (the admin
+		// table). No success banner needed — closing the modal is
+		// itself the confirmation. The page reload that would have
+		// shown a success message is reserved for the full-page
+		// flow below.
 		if modalID := modalIDFromHXTarget(r); modalID != "" {
 			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q}`, modalID))
 		}
-		body := accountForm(accountFormData{
-			ActionURL:      r.URL.Path,
-			TargetUsername: target.Username,
-			IsSelf:         current.Username() == target.Username,
-			CSRFToken:      CSRFToken(r.Context()),
-			Success:        "Password changed.",
-			Modal:          true,
-		})
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		renderOrLog(w, r, body)
+		w.Header().Set("HX-Reswap", "none")
 		return
 	}
 	a.serveAccountForm(w, r, shell, "", "Password changed.")

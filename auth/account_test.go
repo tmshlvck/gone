@@ -293,6 +293,88 @@ func TestAccountPost_AdminChangesOthersPassword(t *testing.T) {
 	}
 }
 
+// TestAccountPost_HTMXModalSuccessClosesModal: the bug the user
+// reported. Admin opens the password modal from the User table,
+// submits — server should send HX-Trigger:closeModal + HX-Reswap:none
+// so the modal closes and the admin stays on the table. No success
+// body should be swapped into the modal.
+func TestAccountPost_HTMXModalSuccessClosesModal(t *testing.T) {
+	handler, ag := newRoutedAuthGORM(t)
+	cookie := loginVia(t, handler, "admin", "adminpass")
+	var bob UserGORM
+	_ = ag.DB.Where("username = ?", "bob").First(&bob).Error
+	bobPath := "/account/" + itoa(int(bob.ID))
+	tok := csrfTokenFor(handler, bobPath, cookie)
+
+	form := url.Values{
+		"csrf_token":           {tok},
+		"old_password":         {"adminpass"},
+		"new_password":         {"newbobpass"},
+		"new_password_confirm": {"newbobpass"},
+	}
+	req := httptest.NewRequest("POST", bobPath, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "users-modal-l1-body")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("HTMX modal POST status = %d", rr.Code)
+	}
+	if trig := rr.Header().Get("HX-Trigger"); !strings.Contains(trig, "closeModal") {
+		t.Errorf("HX-Trigger should request closeModal; got %q", trig)
+	}
+	if reswap := rr.Header().Get("HX-Reswap"); reswap != "none" {
+		t.Errorf("HX-Reswap = %q, want \"none\" (so no body swaps into the closed modal)", reswap)
+	}
+	if body := rr.Body.String(); strings.Contains(body, "Password changed.") {
+		t.Errorf("modal success response must not embed a 'Password changed.' banner; got: %s", body)
+	}
+}
+
+// TestAccountFormHasHTMXAttrsInModal: the form rendered for an HTMX
+// request must carry hx-post / hx-target / hx-swap so submission
+// stays in the modal instead of doing a browser navigation.
+func TestAccountFormHasHTMXAttrsInModal(t *testing.T) {
+	handler, _ := newRoutedAuthGORM(t)
+	cookie := loginVia(t, handler, "admin", "adminpass")
+
+	req := httptest.NewRequest("GET", "/account/me", nil)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Target", "users-modal-l1-body")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `hx-post="/account/`) {
+		t.Errorf("modal form missing hx-post: %s", body)
+	}
+	if !strings.Contains(body, `hx-target="#users-modal-l1-body"`) {
+		t.Errorf("modal form missing matching hx-target: %s", body)
+	}
+}
+
+// TestAccountFormPlainSubmitOutsideModal: a plain GET (no HX-Request)
+// must NOT add hx-post — the form submits via standard browser POST
+// so the success page renders normally.
+func TestAccountFormPlainSubmitOutsideModal(t *testing.T) {
+	handler, _ := newRoutedAuthGORM(t)
+	cookie := loginVia(t, handler, "admin", "adminpass")
+
+	req := httptest.NewRequest("GET", "/account/me", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if strings.Contains(body, "hx-post=") {
+		t.Errorf("page-flow form should not have hx-post: %s", body)
+	}
+}
+
 func TestAccountPost_AdminMustStillUseOwnCurrentPassword(t *testing.T) {
 	handler, ag := newRoutedAuthGORM(t)
 	cookie := loginVia(t, handler, "admin", "adminpass")
