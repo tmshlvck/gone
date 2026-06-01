@@ -298,3 +298,201 @@ func TestDeriveMapCRUDTable_DefaultSlugFromName(t *testing.T) {
 		t.Errorf("default Slug = %q, want items", tbl.Slug)
 	}
 }
+
+// ──────────────────────────────────────────────────────────────────
+// Authz-driven button states + page retention across mutations.
+
+// readOnly is a stub auth.Authz that says "you may list and read but
+// never mutate". Used to test that the CRUDTable hides / disables
+// mutation buttons based on the Can* answers.
+type readOnly struct{}
+
+func (readOnly) CanList(*http.Request) bool   { return true }
+func (readOnly) CanRead(*http.Request) bool   { return true }
+func (readOnly) CanCreate(*http.Request) bool { return false }
+func (readOnly) CanUpdate(*http.Request) bool { return false }
+func (readOnly) CanDelete(*http.Request) bool { return false }
+
+func newTestServerWithAuthz(t *testing.T, az authzFunc, hideUnauthorized bool) *http.ServeMux {
+	t.Helper()
+	store := map[uint]item{
+		1: {ID: 1, Name: "Aragorn", Realm: "Gondor", Power: 90},
+		2: {ID: 2, Name: "Legolas", Realm: "Mirkwood", Power: 85},
+		3: {ID: 3, Name: "Gandalf", Realm: "Middle-earth", Power: 99},
+		4: {ID: 4, Name: "Boromir", Realm: "Gondor", Power: 70},
+	}
+	mu := &sync.RWMutex{}
+	mm, _ := DeriveMetaModel[item]()
+	tbl := DeriveMapCRUDTable[item](mm, az, store, mu)
+	tbl.Slug = "items"
+	tbl.HideUnauthorized = hideUnauthorized
+	mux := http.NewServeMux()
+	_, _ = tbl.Route(mux, "", nil)
+	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
+		comp, _ := tbl.Render(r)
+		_ = comp.Render(r.Context(), w)
+	})
+	return mux
+}
+
+// authzFunc is a tiny stand-in for auth.Authz that wraps a closure.
+// Cheaper than defining a method-y type per test.
+type authzFunc struct {
+	list, read, create, update, del bool
+}
+
+func (a authzFunc) CanList(*http.Request) bool   { return a.list }
+func (a authzFunc) CanRead(*http.Request) bool   { return a.read }
+func (a authzFunc) CanCreate(*http.Request) bool { return a.create }
+func (a authzFunc) CanUpdate(*http.Request) bool { return a.update }
+func (a authzFunc) CanDelete(*http.Request) bool { return a.del }
+
+func TestHideUnauthorizedTrue_OmitsButtons(t *testing.T) {
+	mux := newTestServerWithAuthz(t, authzFunc{list: true, read: true}, true)
+	_, body := get(t, mux, "/items")
+	if strings.Contains(body, "+ Create") {
+		t.Errorf("Create button rendered despite HideUnauthorized=true: %s", body)
+	}
+	if strings.Contains(body, ">edit<") || strings.Contains(body, ">delete<") {
+		t.Error("edit/delete buttons rendered despite HideUnauthorized=true")
+	}
+}
+
+func TestHideUnauthorizedFalse_RendersDisabled(t *testing.T) {
+	mux := newTestServerWithAuthz(t, authzFunc{list: true, read: true}, false)
+	_, body := get(t, mux, "/items")
+	// Buttons appear but with the btn-disabled class + disabled attribute,
+	// and crucially without hx-get (so a click can't fire a request).
+	if !strings.Contains(body, "+ Create") {
+		t.Errorf("Create button missing despite HideUnauthorized=false: %s", body)
+	}
+	if !strings.Contains(body, "btn-disabled") {
+		t.Errorf("disabled buttons should carry btn-disabled class: %s", body)
+	}
+	// Spot-check: the Create button's section should NOT contain hx-get
+	// (the disabled variant is plain).
+	createIdx := strings.Index(body, "+ Create")
+	if createIdx < 0 {
+		t.Fatal("no Create button found")
+	}
+	// Walk back to the opening <button … and verify no hx-get inside.
+	start := strings.LastIndex(body[:createIdx], "<button")
+	if start < 0 {
+		t.Fatal("no <button opening tag before Create")
+	}
+	end := strings.Index(body[start:], ">")
+	btnAttrs := body[start : start+end]
+	if strings.Contains(btnAttrs, "hx-get") {
+		t.Errorf("disabled Create button must not have hx-get: %s", btnAttrs)
+	}
+}
+
+func TestAuthorizedRendersClickable(t *testing.T) {
+	mux := newTestServerWithAuthz(t,
+		authzFunc{list: true, read: true, create: true, update: true, del: true},
+		false)
+	_, body := get(t, mux, "/items")
+	if !strings.Contains(body, "+ Create") || !strings.Contains(body, "hx-get=\"/items/create\"") {
+		t.Errorf("create button should be clickable when CanCreate; body: %s", body)
+	}
+	if !strings.Contains(body, ">edit<") || !strings.Contains(body, "/edit\"") {
+		t.Errorf("edit button should be clickable when CanUpdate")
+	}
+}
+
+// TestMutationRetainsPage: when an HTMX POST lands on a mutation
+// endpoint and the user was looking at e.g. page=2, the refresh
+// should re-render page 2 — not snap back to page 1. CRUDTable reads
+// HX-Current-URL for that context.
+func TestMutationRetainsPage(t *testing.T) {
+	mux := newTestServerWithAuthz(t,
+		authzFunc{list: true, read: true, create: true, update: true, del: true},
+		false)
+
+	// Pad the store so we can paginate. Reusing the testServer fixture
+	// already has 4 rows — set PageSize=2 by inserting via /create
+	// would be slow; instead reach in: this test re-creates the table
+	// with PageSize=2 from scratch.
+	store := map[uint]item{}
+	for i := 1; i <= 6; i++ {
+		store[uint(i)] = item{ID: uint(i), Name: "Hero" + string(rune('A'+i-1))}
+	}
+	mu := &sync.RWMutex{}
+	mm, _ := DeriveMetaModel[item]()
+	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
+	tbl.Slug = "items"
+	tbl.PageSize = 2
+	mux = http.NewServeMux()
+	_, _ = tbl.Route(mux, "", nil)
+
+	// Sanity: page=2 lists rows 3-4.
+	code, body := get(t, mux, "/items/view?page=2")
+	if code != 200 {
+		t.Fatalf("page=2 status = %d", code)
+	}
+	if !strings.Contains(body, "HeroC") || !strings.Contains(body, "HeroD") {
+		t.Errorf("page=2 should list HeroC/HeroD; got: %s", body)
+	}
+
+	// Delete a row while the user is on page 2. The mutation request
+	// URL is /items/N/delete (no page param), but HX-Current-URL on
+	// the page is /items?page=2. The refreshed fragment should
+	// re-render page 2 — i.e. the rows that follow the deleted one.
+	req := httptest.NewRequest("POST", "/items/3/delete", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Current-URL", "http://example.com/items?page=2")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("delete status = %d, body: %s", rec.Code, rec.Body.String())
+	}
+	// HeroD (id 4) was on page 2; should still be there after id 3 left.
+	// After delete: rows 1,2,4,5,6 — page 2 of pageSize 2 = rows 4,5.
+	body = rec.Body.String()
+	if !strings.Contains(body, "HeroD") || !strings.Contains(body, "HeroE") {
+		t.Errorf("post-delete page=2 should list HeroD/HeroE; got: %s", body)
+	}
+	if strings.Contains(body, "HeroA") || strings.Contains(body, "HeroB") {
+		t.Errorf("post-delete page=2 should NOT list HeroA/HeroB; got: %s", body)
+	}
+}
+
+// TestMutationClampsBeyondLastPage: when a delete empties the last
+// page, the refresh should clamp to the new last page rather than
+// rendering an empty out-of-range page.
+func TestMutationClampsBeyondLastPage(t *testing.T) {
+	store := map[uint]item{
+		1: {ID: 1, Name: "HeroA"},
+		2: {ID: 2, Name: "HeroB"},
+		3: {ID: 3, Name: "HeroC"}, // sole row on page 2
+	}
+	mu := &sync.RWMutex{}
+	mm, _ := DeriveMetaModel[item]()
+	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
+	tbl.Slug = "items"
+	tbl.PageSize = 2
+	mux := http.NewServeMux()
+	_, _ = tbl.Route(mux, "", nil)
+
+	req := httptest.NewRequest("POST", "/items/3/delete", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Current-URL", "http://example.com/items?page=2")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("delete status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	// After delete: page=2 doesn't exist any more (only 2 rows total).
+	// buildTableViewData clamps page to the new last page = 1, which
+	// holds HeroA + HeroB.
+	if !strings.Contains(body, "HeroA") || !strings.Contains(body, "HeroB") {
+		t.Errorf("clamped refresh should list HeroA/HeroB; got: %s", body)
+	}
+}
+
+// Suppress unused-warning for readOnly — kept exported above for symmetry
+// with the auth.Authz interface but unused by current tests.
+var _ = readOnly{}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -43,6 +44,19 @@ type CRUDTable[T any] struct {
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
+
+	// HideUnauthorized controls how mutation buttons render when Authz
+	// denies them.
+	//   false (default): the buttons render as visually disabled — they
+	//     stay in the DOM so the UI shape stays stable across users and
+	//     it's obvious the feature exists.
+	//   true: the buttons are omitted entirely. Cleaner UI for read-only
+	//     users; harder for a casual visitor to tell a feature even
+	//     exists.
+	// Independent of CreateEnabled/EditEnabled/DeleteEnabled: a button
+	// only shows if the *Enabled toggle says so AND (HideUnauthorized
+	// is false OR Authz permits the action).
+	HideUnauthorized bool
 
 	// PageTitle is passed as the title argument to Route's shell. If
 	// empty, MetaData.DisplayName is used. Only relevant when Route is
@@ -464,8 +478,14 @@ func (c *CRUDTable[T]) makeFragmentHandler(h handlerFunc, action string) http.Ha
 // buildTableViewData reads ?q, ?sort, ?desc, ?page from r, queries the
 // backend with the right offset/limit, and returns the populated struct.
 // Shared by handleList and handleListRows.
+//
+// For HTMX requests that came from a mutation handler (Create/Edit/
+// Delete POST) r.URL points at the mutation endpoint and carries no
+// list state. listQueryFor falls back to HX-Current-URL — the URL of
+// the page the user was looking at — so a delete on page 3 refreshes
+// page 3 instead of snapping back to page 1.
 func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error) {
-	q := r.URL.Query()
+	q := listQueryFor(r)
 	search := q.Get("q")
 	sortBy := q.Get("sort")
 	sortDesc := q.Get("desc") == "1"
@@ -486,7 +506,19 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 		numPages = int((total + int64(pageSize) - 1) / int64(pageSize))
 	}
 	if page > numPages {
+		// The user asked for a page past the end — e.g. after a delete
+		// emptied the last page. Clamp and re-query so the response
+		// actually contains the last valid page's rows instead of an
+		// empty tbody.
 		page = numPages
+		offset = (page - 1) * pageSize
+		if offset < 0 {
+			offset = 0
+		}
+		results, _, err = c.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)
+		if err != nil {
+			return TableViewData{}, err
+		}
 	}
 	rows := make([]TableRow, len(results))
 	for i, res := range results {
@@ -495,25 +527,45 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 			Cells: c.MetaData.DisplayValues(c.MetaData, res.Row),
 		}
 	}
+	az := auth.AuthzOrAllow(c.Authz)
 	return TableViewData{
-		DisplayName:   c.MetaData.DisplayName,
-		URLBase:       c.urlBase,
-		Fields:        c.MetaData.Fields,
-		Rows:          rows,
-		CreateEnabled: c.CreateEnabled,
-		EditEnabled:   c.EditEnabled,
-		DeleteEnabled: c.DeleteEnabled,
-		Search:        search,
-		SortBy:        sortBy,
-		SortDesc:      sortDesc,
-		Total:         total,
-		Page:          page,
-		PageSize:      pageSize,
-		NumPages:      numPages,
-		ListID:        c.ListID,
-		L1ModalID:     L1ModalIDFromSlug(c.Slug),
-		L1BodyID:      L1BodyIDFromSlug(c.Slug),
+		DisplayName:      c.MetaData.DisplayName,
+		URLBase:          c.urlBase,
+		Fields:           c.MetaData.Fields,
+		Rows:             rows,
+		CreateEnabled:    c.CreateEnabled,
+		EditEnabled:      c.EditEnabled,
+		DeleteEnabled:    c.DeleteEnabled,
+		CanCreate:        az.CanCreate(r),
+		CanUpdate:        az.CanUpdate(r),
+		CanDelete:        az.CanDelete(r),
+		HideUnauthorized: c.HideUnauthorized,
+		Search:           search,
+		SortBy:           sortBy,
+		SortDesc:         sortDesc,
+		Total:            total,
+		Page:             page,
+		PageSize:         pageSize,
+		NumPages:         numPages,
+		ListID:           c.ListID,
+		L1ModalID:        L1ModalIDFromSlug(c.Slug),
+		L1BodyID:         L1BodyIDFromSlug(c.Slug),
 	}, nil
+}
+
+// listQueryFor returns the query params that describe the current list
+// state. For GET /<slug>/view requests the params are on r.URL. For
+// POST mutations (which carry r.URL at /<slug>/create or /{id}/edit)
+// HTMX includes HX-Current-URL — the page URL the user was looking at —
+// so we parse those params instead. That keeps page/sort/search across
+// edit/delete refreshes.
+func listQueryFor(r *http.Request) url.Values {
+	if cur := r.Header.Get("HX-Current-URL"); cur != "" {
+		if u, err := url.Parse(cur); err == nil {
+			return u.Query()
+		}
+	}
+	return r.URL.Query()
 }
 
 func parsePage(s string) int {

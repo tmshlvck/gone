@@ -50,7 +50,17 @@ type TableViewData struct {
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
-	Search        string
+
+	// CanCreate / CanUpdate / CanDelete are the per-render authz
+	// answers — Authz.Can*(r) called once on the request. The templ
+	// uses them together with HideUnauthorized to decide whether each
+	// button is rendered, omitted, or visibly disabled.
+	CanCreate        bool
+	CanUpdate        bool
+	CanDelete        bool
+	HideUnauthorized bool
+
+	Search string
 	SortBy        string
 	SortDesc      bool
 	Total         int64 // total matching rows (before pagination)
@@ -70,6 +80,25 @@ type TableViewData struct {
 type TableRow struct {
 	ID    uint
 	Cells []templ.Component
+}
+
+// showCreate / showEdit / showDelete decide whether a mutation button
+// renders at all. A button shows when (a) the matching *Enabled toggle
+// is on AND (b) the action is permitted by authz OR HideUnauthorized
+// is off (= the disabled-but-visible style is OK).
+func (d TableViewData) showCreate() bool {
+	return d.CreateEnabled && (d.CanCreate || !d.HideUnauthorized)
+}
+func (d TableViewData) showEdit() bool {
+	return d.EditEnabled && (d.CanUpdate || !d.HideUnauthorized)
+}
+func (d TableViewData) showDelete() bool {
+	return d.DeleteEnabled && (d.CanDelete || !d.HideUnauthorized)
+}
+// hasActionColumn returns true when at least one row action is shown.
+// Drives the trailing actions <th>/<td> in TableContent.
+func (d TableViewData) hasActionColumn() bool {
+	return d.showEdit() || d.showDelete()
 }
 
 type FormViewData struct {
@@ -162,13 +191,21 @@ templ TableView(d TableViewData) {
 						hx-push-url="true"
 						hx-include="this"
 					/>
-					if d.CreateEnabled {
-						<button
-							class="btn btn-outline btn-primary btn-sm"
-							hx-get={ d.URLBase + "/create" }
-							hx-target={ "#" + d.L1BodyID }
-							hx-swap="innerHTML"
-						>+ Create</button>
+					if d.showCreate() {
+						if d.CanCreate {
+							<button
+								class="btn btn-outline btn-primary btn-sm"
+								hx-get={ d.URLBase + "/create" }
+								hx-target={ "#" + d.L1BodyID }
+								hx-swap="innerHTML"
+							>+ Create</button>
+						} else {
+							<button
+								class="btn btn-outline btn-primary btn-sm btn-disabled"
+								disabled
+								title="You don't have permission to create rows here."
+							>+ Create</button>
+						}
 					}
 				</div>
 			</div>
@@ -194,7 +231,7 @@ templ TableContent(d TableViewData) {
 							<th>@sortHeader(d, mf)</th>
 						}
 					}
-					if d.EditEnabled || d.DeleteEnabled {
+					if d.hasActionColumn() {
 						<th class="w-px"></th>
 					}
 				</tr>
@@ -207,7 +244,7 @@ templ TableContent(d TableViewData) {
 								<td>@row.Cells[i]</td>
 							}
 						}
-						if d.EditEnabled || d.DeleteEnabled {
+						if d.hasActionColumn() {
 							<td>@rowActions(d, row.ID)</td>
 						}
 					</tr>
@@ -249,24 +286,42 @@ templ sortHeader(d TableViewData, mf MetaField) {
 
 templ rowActions(d TableViewData, id uint) {
 	<div class="flex gap-2 whitespace-nowrap">
-		if d.EditEnabled {
-			<button
-				type="button"
-				class="btn btn-outline btn-xs"
-				hx-get={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit" }
-				hx-target={ "#" + d.L1BodyID }
-				hx-swap="innerHTML"
-			>edit</button>
+		if d.showEdit() {
+			if d.CanUpdate {
+				<button
+					type="button"
+					class="btn btn-outline btn-xs"
+					hx-get={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/edit" }
+					hx-target={ "#" + d.L1BodyID }
+					hx-swap="innerHTML"
+				>edit</button>
+			} else {
+				<button
+					type="button"
+					class="btn btn-outline btn-xs btn-disabled"
+					disabled
+					title="You don't have permission to edit rows here."
+				>edit</button>
+			}
 		}
-		if d.DeleteEnabled {
-			<button
-				type="button"
-				class="btn btn-outline btn-error btn-xs"
-				hx-post={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete" }
-				hx-confirm="Delete this row?"
-				hx-target={ "#" + d.ListID }
-				hx-swap="innerHTML"
-			>delete</button>
+		if d.showDelete() {
+			if d.CanDelete {
+				<button
+					type="button"
+					class="btn btn-outline btn-error btn-xs"
+					hx-post={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete" }
+					hx-confirm="Delete this row?"
+					hx-target={ "#" + d.ListID }
+					hx-swap="innerHTML"
+				>delete</button>
+			} else {
+				<button
+					type="button"
+					class="btn btn-outline btn-error btn-xs btn-disabled"
+					disabled
+					title="You don't have permission to delete rows here."
+				>delete</button>
+			}
 		}
 	</div>
 }
