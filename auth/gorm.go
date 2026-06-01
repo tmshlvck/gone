@@ -375,6 +375,7 @@ func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, 
 		LoginURL:     a.LoginURL,
 		Shell:        shell,
 	})
+	a.mountAccountRoutes(mux, base, shell)
 	return a.urlBase, nil
 }
 

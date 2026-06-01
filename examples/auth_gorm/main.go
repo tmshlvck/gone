@@ -12,6 +12,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -65,6 +66,13 @@ func main() {
 		log.Fatalf("derive UserGORM: %v", err)
 	}
 	userMM.DisplayName = "Users"
+	// Make the ID column clickable: instead of plain text, render an
+	// HTMX button that GETs /account/{id} into the per-table modal.
+	// Admin clicks a user's ID → password-change modal opens for that
+	// user. AuthGORM's handler gates self-or-admin.
+	userMM.MustFindField("ID").DisplayValue = func(mf crud.MetaField, value any) templ.Component {
+		return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
+	}
 
 	groupMM, err := crud.DeriveMetaModel[auth.GroupGORM]()
 	if err != nil {

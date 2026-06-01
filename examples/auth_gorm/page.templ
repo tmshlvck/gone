@@ -57,7 +57,12 @@ templ pageLayout(title, csrfToken, username, logoutPath string, content templ.Co
 			     when rows are long. -->
 			<header class="p-4 flex items-center justify-end gap-3">
 				if username != "" {
-					<span class="text-sm opacity-80">Signed in as <b>{ username }</b></span>
+					<!-- The username links to /account/me — self-service
+					     password change. /account is mounted at AuthGORM's
+					     base prefix (= ""), so the link is "/account/me". -->
+					<a href="/account/me" class="text-sm opacity-80 link link-hover">
+						Signed in as <b>{ username }</b>
+					</a>
 					<form method="post" action={ templ.SafeURL(logoutPath) }>
 						<input type="hidden" name="csrf_token" value={ csrfToken }/>
 						<button type="submit" class="btn btn-sm btn-ghost">Sign out</button>
@@ -74,4 +79,19 @@ templ pageLayout(title, csrfToken, username, logoutPath string, content templ.Co
 			</main>
 		</body>
 	</html>
+}
+
+// userIDLink renders a user row's ID as a clickable HTMX trigger
+// that opens the password-change modal for that user. modalBodyID
+// is the CRUDTable's own L1 modal body (e.g. "users-modal-l1-body");
+// AuthGORM picks the matching modal id off HX-Target.
+templ userIDLink(id, modalBodyID string) {
+	<button
+		type="button"
+		class="link link-primary"
+		hx-get={ "/account/" + id }
+		hx-target={ "#" + modalBodyID }
+		hx-swap="innerHTML"
+		title="Change password"
+	>{ id }</button>
 }

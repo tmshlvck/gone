@@ -48,3 +48,84 @@ templ loginForm(d loginFormData) {
 templ csrfField(token string) {
 	<input type="hidden" name="csrf_token" value={ token }/>
 }
+
+// accountFormData carries the parameters accountForm needs.
+type accountFormData struct {
+	ActionURL      string // POST target (= GET path)
+	TargetUsername string // whose password is being changed
+	IsSelf         bool   // true when current user == target (controls copy)
+	CSRFToken      string
+	Error          string // optional error banner
+	Success        string // optional success banner (after a successful POST)
+	Modal          bool   // true when rendered inside a modal — skips the outer card chrome
+}
+
+// accountForm renders the password-change form. The same templ
+// serves both contexts:
+//   - Full page (/account/me from a navbar link): rendered inside a
+//     card chrome. The page shell wraps the rest of the chrome.
+//   - Modal fragment (admin clicks a user ID in the table): renders
+//     bare; the surrounding modal-box supplies the chrome.
+//
+// The "current password" field is always the *acting* user's password,
+// even when an admin is changing someone else's password. That's the
+// re-authentication guard: privilege doesn't grant a free password
+// reset for anyone, the actor still proves they're holding the
+// account they're acting from.
+templ accountForm(d accountFormData) {
+	if d.Modal {
+		@accountFormBody(d)
+	} else {
+		<div class="hero">
+			<div class="hero-content w-full max-w-md">
+				<div class="card w-full bg-base-100 shadow-xl">
+					<div class="card-body">
+						@accountFormBody(d)
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ accountFormBody(d accountFormData) {
+	if d.IsSelf {
+		<h2 class="card-title">Change your password</h2>
+	} else {
+		<h2 class="card-title">Change password for { d.TargetUsername }</h2>
+	}
+	if d.Error != "" {
+		<div role="alert" class="alert alert-error mb-3">
+			<span>{ d.Error }</span>
+		</div>
+	}
+	if d.Success != "" {
+		<div role="alert" class="alert alert-success mb-3">
+			<span>{ d.Success }</span>
+		</div>
+	}
+	<form method="post" action={ templ.SafeURL(d.ActionURL) } class="flex flex-col gap-3">
+		<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+		<label class="form-control">
+			<div class="label"><span class="label-text">Your current password</span></div>
+			<input type="password" name="old_password" class="input input-bordered" autocomplete="current-password" autofocus/>
+		</label>
+		<label class="form-control">
+			<div class="label">
+				if d.IsSelf {
+					<span class="label-text">New password</span>
+				} else {
+					<span class="label-text">New password for { d.TargetUsername }</span>
+				}
+			</div>
+			<input type="password" name="new_password" class="input input-bordered" autocomplete="new-password"/>
+		</label>
+		<label class="form-control">
+			<div class="label"><span class="label-text">Confirm new password</span></div>
+			<input type="password" name="new_password_confirm" class="input input-bordered" autocomplete="new-password"/>
+		</label>
+		<div class="mt-4">
+			<button type="submit" class="btn btn-primary">Update password</button>
+		</div>
+	</form>
+}
