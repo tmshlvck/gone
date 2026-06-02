@@ -81,7 +81,18 @@ type accountFormData struct {
 // account they're acting from.
 templ accountForm(d accountFormData) {
 	if d.Modal {
-		@accountFormBody(d)
+		<!-- The shared modal-box is max-w-2xl (672px) — way too wide
+		     for a four-field password form. :has() narrows the
+		     specific modal hosting the account form to max-w-md
+		     (matches the standalone card width); other modals
+		     (CRUDTable's edit form, the L2 nested-create) keep their
+		     default width. CSS is inline so it travels with the
+		     fragment and disappears when the modal body is swapped
+		     out for other content. -->
+		<style>.modal-box:has(.gone-account-modal-form) { max-width: 28rem; }</style>
+		<div class="gone-account-modal-form">
+			@accountFormBody(d)
+		</div>
 	} else {
 		<div class="hero">
 			<div class="hero-content w-full max-w-md">
