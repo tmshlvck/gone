@@ -358,8 +358,9 @@ func TestAccountFormHasHTMXAttrsInModal(t *testing.T) {
 }
 
 // TestAccountFormPlainSubmitOutsideModal: a plain GET (no HX-Request)
-// must NOT add hx-post — the form submits via standard browser POST
-// so the success page renders normally.
+// must NOT add hx-post on the *password* form — that form submits via
+// standard browser POST so the success page renders normally. The
+// TOTP card legitimately has hx-post on its own buttons.
 func TestAccountFormPlainSubmitOutsideModal(t *testing.T) {
 	handler, _ := newRoutedAuthGORM(t)
 	cookie := loginVia(t, handler, "admin", "adminpass")
@@ -370,8 +371,19 @@ func TestAccountFormPlainSubmitOutsideModal(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	body := rr.Body.String()
-	if strings.Contains(body, "hx-post=") {
-		t.Errorf("page-flow form should not have hx-post: %s", body)
+	// Find the password form (its action ends with /account/<id>).
+	const marker = `action="/account/1"`
+	i := strings.Index(body, marker)
+	if i < 0 {
+		t.Fatalf("password form action not found: %s", body)
+	}
+	// Slice the password <form> tag (between the previous <form and
+	// the next > after the marker) and check it has no hx-post.
+	open := strings.LastIndex(body[:i], "<form")
+	closeTag := strings.Index(body[i:], ">") + i
+	formOpen := body[open : closeTag+1]
+	if strings.Contains(formOpen, "hx-post") {
+		t.Errorf("page-flow password form should not have hx-post: %s", formOpen)
 	}
 }
 

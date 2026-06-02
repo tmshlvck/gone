@@ -26,6 +26,7 @@ func (a *AuthGORM) mountAccountRoutes(mux Mux, base string, shell PageShellFunc)
 	mux.HandleFunc("POST "+base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		a.handleAccountPost(w, r, shell)
 	})
+	a.mountTOTPAccountRoutes(mux, base)
 }
 
 // serveAccountForm renders the form for the GET path AND from the
@@ -68,6 +69,8 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 		Success:        successMsg,
 		Modal:          htmx,
 		ModalBodyID:    modalBodyID,
+		TOTPEnabled:    target.TOTPSecret != "",
+		TOTPBaseURL:    a.totpEndpointBase(target.ID),
 	})
 
 	if htmx {

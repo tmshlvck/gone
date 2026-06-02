@@ -33,10 +33,14 @@ type UserGORM struct {
 	Username     string `gorm:"uniqueIndex;size:64"`
 	Email        string `gorm:"uniqueIndex;size:255"`
 	PasswordHash string `gorm:"size:255"`
-	Disabled     bool
-	Groups       []GroupGORM `gorm:"many2many:auth_user_groups"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// TOTPSecret holds the base32 shared secret for time-based one-
+	// time passwords. Empty = TOTP not enrolled. Non-empty = the
+	// user must enter a 6-digit code after the password step.
+	TOTPSecret string `gorm:"size:64"`
+	Disabled   bool
+	Groups     []GroupGORM `gorm:"many2many:auth_user_groups"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // TableName overrides GORM's default pluralisation ("user_gorms").
@@ -104,9 +108,16 @@ type AuthGORM struct {
 	DB         *gorm.DB
 	AfterLogin string // default "/"
 
+	// TOTPIssuer is the issuer string embedded in the otpauth URLs
+	// generated for TOTP enrolment. Authenticator apps display it
+	// alongside the username so users can tell accounts apart.
+	// Defaults to "gone" when empty.
+	TOTPIssuer string
+
 	urlBase    string
 	loginPath  string
 	logoutPath string
+	totpPath   string // {base}/login/totp
 }
 
 // NewAuthGORM constructs an AuthGORM and runs db.AutoMigrate for
@@ -353,10 +364,15 @@ func (a *AuthGORM) Logout(ctx context.Context) error {
 	return a.Sessions.Destroy(ctx)
 }
 
-// Route mounts GET/POST /login + POST /logout under baseUrl, sharing
-// the password-login templ with AuthSimple. Both impls have the same
-// v1 UX (username + password); divergence comes with AuthGORM's
-// passkeys / SSO additions later.
+// Route mounts:
+//
+//	GET/POST  /login       — username + password (stage 1)
+//	GET/POST  /login/totp   — TOTP code (stage 2, only reachable after stage 1 for a TOTP-enrolled user)
+//	POST      /logout
+//	         + /account routes (see account.go)
+//
+// Stage 2 is skipped entirely for users without a TOTP secret —
+// they go straight to AfterLogin from the password POST.
 func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
 	if mux == nil {
 		return "", errors.New("auth.AuthGORM.Route: nil mux")
@@ -365,16 +381,18 @@ func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, 
 	a.urlBase = base
 	a.loginPath = base + "/login"
 	a.logoutPath = base + "/logout"
+	a.totpPath = base + "/login/totp"
 	mountPasswordLogin(mux, passwordLoginOpts{
 		LoginPath:    a.loginPath,
 		LogoutPath:   a.logoutPath,
 		AfterLogin:   func() string { return a.AfterLogin },
 		Authenticate: a.Authenticate,
-		Login:        a.Login,
+		Login:        a.loginStage1, // staged: may detour through /login/totp
 		Logout:       a.Logout,
 		LoginURL:     a.LoginURL,
 		Shell:        shell,
 	})
+	a.mountTOTPLoginRoutes(mux, shell)
 	a.mountAccountRoutes(mux, base, shell)
 	return a.urlBase, nil
 }

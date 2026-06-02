@@ -49,13 +49,63 @@ templ csrfField(token string) {
 	<input type="hidden" name="csrf_token" value={ token }/>
 }
 
+// totpLoginFormData carries the parameters totpLoginForm needs. The
+// stage-2 page shows only the code input — the user's identity is in
+// the session, not the form.
+type totpLoginFormData struct {
+	Action    string // POST target (= GET path)
+	CSRFToken string
+	Username  string // displayed read-only so the user knows whose code they're entering
+	Error     string // optional error (wrong code)
+}
+
+// totpLoginForm is the stage-2 login form rendered by
+// GET /login/totp after a successful password POST for a user who
+// has TOTP enrolled.
+templ totpLoginForm(d totpLoginFormData) {
+	<div class="hero min-h-[60vh]">
+		<div class="hero-content w-full max-w-sm">
+			<div class="card w-full bg-base-100 shadow-xl">
+				<div class="card-body">
+					<h1 class="card-title">Two-factor authentication</h1>
+					<p class="text-sm opacity-80">
+						Enter the 6-digit code from your authenticator app for <b>{ d.Username }</b>.
+					</p>
+					if d.Error != "" {
+						<div role="alert" class="alert alert-error">
+							<span>{ d.Error }</span>
+						</div>
+					}
+					<form method="post" action={ templ.SafeURL(d.Action) } class="flex flex-col gap-3">
+						<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+						<label class="flex flex-col gap-1.5 w-full">
+							<span class="font-medium">Verification code</span>
+							<input
+								type="text"
+								name="code"
+								inputmode="numeric"
+								pattern="[0-9]{6}"
+								maxlength="6"
+								autocomplete="one-time-code"
+								class="input w-full"
+								autofocus
+							/>
+						</label>
+						<button type="submit" class="btn btn-primary mt-2">Verify</button>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
 // accountFormData carries the parameters accountForm needs.
 type accountFormData struct {
-	ActionURL      string // POST target (= GET path)
+	ActionURL      string // password change POST target (= GET path)
 	TargetUsername string // whose password is being changed
 	IsSelf         bool   // true when current user == target (controls copy)
 	CSRFToken      string
-	Error          string // optional error banner
+	Error          string // optional error banner (password form)
 	Success        string // optional success banner (after a successful POST)
 
 	// Modal=true renders the form bare (no card chrome) and adds
@@ -65,6 +115,26 @@ type accountFormData struct {
 	// page-shaped variant: card chrome + plain form action.
 	Modal       bool
 	ModalBodyID string
+
+	// TOTP card state. TOTPBaseURL is the prefix for the enrol /
+	// verify / cancel / disable endpoints (e.g. /account/5/totp).
+	// TOTPEnabled reflects the persisted secret on the target user.
+	TOTPEnabled bool
+	TOTPBaseURL string
+}
+
+// totpSetupData drives the in-flight enrolment card after the user
+// clicks "Enable TOTP". The secret + URL come from a fresh
+// totp.Generate stashed in the session; the user must verify a code
+// before the secret is committed to the database.
+type totpSetupData struct {
+	Secret     string // base32 secret (manual-entry fallback)
+	OTPAuthURL string // otpauth:// URL (raw, also encoded in the QR)
+	QRDataURL  string // PNG QR as base64 data URL
+	VerifyURL  string // POST target for the code-verification form
+	CancelURL  string // POST target for cancelling enrolment
+	CSRFToken  string
+	Error      string // wrong-code on a previous verify attempt
 }
 
 // accountForm renders the password-change form. The same templ
@@ -90,20 +160,135 @@ templ accountForm(d accountFormData) {
 		     fragment and disappears when the modal body is swapped
 		     out for other content. -->
 		<style>.modal-box:has(.gone-account-modal-form) { max-width: 28rem; }</style>
-		<div class="gone-account-modal-form">
-			@accountFormBody(d)
+		<div class="gone-account-modal-form flex flex-col gap-4">
+			@passwordCard(d)
+			@totpCard(d)
 		</div>
 	} else {
 		<div class="hero">
-			<div class="hero-content w-full max-w-md">
-				<div class="card w-full bg-base-100 shadow-xl">
-					<div class="card-body">
-						@accountFormBody(d)
-					</div>
-				</div>
+			<div class="hero-content w-full max-w-md flex flex-col gap-4">
+				@passwordCard(d)
+				@totpCard(d)
 			</div>
 		</div>
 	}
+}
+
+// passwordCard wraps the existing password-change form body in card
+// chrome. Same in both modal and page modes — the parent decides
+// width.
+templ passwordCard(d accountFormData) {
+	<div class="card w-full bg-base-100 shadow-xl">
+		<div class="card-body">
+			@accountFormBody(d)
+		</div>
+	</div>
+}
+
+// totpCard renders the two-factor section. Three states:
+//   1. TOTP enabled         → "TOTP is enabled" + Disable button
+//      (self or admin can click Disable)
+//   2. TOTP disabled, self  → "Enable TOTP" button
+//   3. TOTP disabled, admin → nothing rendered (only the wearer
+//      can enrol; admin can disable but not enable for someone else)
+//
+// The card has a stable id ("auth-totp-card") so each TOTP action
+// can swap it back into the same slot.
+templ totpCard(d accountFormData) {
+	<div id="auth-totp-card" class="card w-full bg-base-100 shadow-xl">
+		<div class="card-body">
+			<h2 class="card-title">Two-factor authentication</h2>
+			if d.TOTPEnabled {
+				<p class="text-sm opacity-80">Two-factor authentication is enabled.</p>
+				<form
+					method="post"
+					action={ templ.SafeURL(d.TOTPBaseURL + "/disable") }
+					hx-post={ d.TOTPBaseURL + "/disable" }
+					hx-target="#auth-totp-card"
+					hx-swap="outerHTML"
+					hx-confirm="Disable two-factor authentication?"
+					class="flex flex-col gap-3"
+				>
+					<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+					<button type="submit" class="btn btn-error">Disable TOTP</button>
+				</form>
+			} else if d.IsSelf {
+				<p class="text-sm opacity-80">
+					Add a code-from-app step to every sign-in. Use any TOTP
+					authenticator (Google Authenticator, 1Password, …).
+				</p>
+				<form
+					method="post"
+					action={ templ.SafeURL(d.TOTPBaseURL + "/begin") }
+					hx-post={ d.TOTPBaseURL + "/begin" }
+					hx-target="#auth-totp-card"
+					hx-swap="outerHTML"
+					class="flex flex-col gap-3"
+				>
+					<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+					<button type="submit" class="btn btn-primary">Enable TOTP</button>
+				</form>
+			} else {
+				<p class="text-sm opacity-60">Two-factor authentication is not enabled.</p>
+			}
+		</div>
+	</div>
+}
+
+// totpSetupCard is the in-flight enrolment view — replaces totpCard
+// while the user is scanning the QR + entering a verification code.
+// Submitting "Verify & enable" with a valid code calls totp/verify,
+// which writes the secret to the DB and swaps the card back to the
+// "enabled" state. Cancel discards the pending secret and swaps
+// back to the "disabled" state.
+templ totpSetupCard(d totpSetupData) {
+	<div id="auth-totp-card" class="card w-full bg-base-100 shadow-xl">
+		<div class="card-body">
+			<h2 class="card-title">Set up two-factor authentication</h2>
+			<p class="text-sm opacity-80">Scan this QR with your authenticator app.</p>
+			<img src={ d.QRDataURL } alt="TOTP QR code" class="self-center w-48 h-48"/>
+			<p class="text-xs opacity-70">Or enter manually:</p>
+			<code class="text-xs break-all">{ d.Secret }</code>
+			if d.Error != "" {
+				<div role="alert" class="alert alert-error">
+					<span>{ d.Error }</span>
+				</div>
+			}
+			<form
+				method="post"
+				action={ templ.SafeURL(d.VerifyURL) }
+				hx-post={ d.VerifyURL }
+				hx-target="#auth-totp-card"
+				hx-swap="outerHTML"
+				class="flex flex-col gap-3"
+			>
+				<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+				<label class="flex flex-col gap-1.5 w-full">
+					<span class="font-medium">Verification code</span>
+					<input
+						type="text"
+						name="code"
+						inputmode="numeric"
+						pattern="[0-9]{6}"
+						maxlength="6"
+						autocomplete="one-time-code"
+						class="input w-full"
+						autofocus
+					/>
+				</label>
+				<div class="flex gap-2">
+					<button type="submit" class="btn btn-primary">Verify & enable</button>
+					<button
+						type="button"
+						class="btn btn-ghost"
+						hx-post={ d.CancelURL }
+						hx-target="#auth-totp-card"
+						hx-swap="outerHTML"
+					>Cancel</button>
+				</div>
+			</form>
+		</div>
+	</div>
 }
 
 templ accountFormBody(d accountFormData) {

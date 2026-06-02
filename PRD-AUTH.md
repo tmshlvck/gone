@@ -74,7 +74,6 @@ in the caller's `PageShellFunc`.
   OIDC, and account management.
 - **Account management page** — change password, view profile.
   Memory store has no password change in v1.
-- **TOTP** — second-factor enrolment + verification.
 - **OIDC** — federated login via `coreos/go-oidc`.
 - **Password reset / email verification** — needs an email
   abstraction the library doesn't have.
@@ -94,7 +93,7 @@ in the caller's `PageShellFunc`.
 |------------------------|-------------------------------------------------------|
 | Session middleware     | `alexedwards/scs/v2` — direct hard dep                |
 | Password hashing       | argon2id via `alexedwards/argon2id` (v1 + v2)         |
-| TOTP                   | `pquerna/otp` (v2)                                    |
+| TOTP                   | `pquerna/otp` (AuthGORM)                              |
 | OIDC                   | `coreos/go-oidc` + `golang.org/x/oauth2` (v2)         |
 | CSRF                   | hand-rolled (see `examples/sessions`)                 |
 

@@ -265,10 +265,13 @@ func (s *AuthSimple) Route(mux Mux, baseUrl string, shell PageShellFunc) (string
 		LogoutPath:   s.logoutPath,
 		AfterLogin:   func() string { return s.AfterLogin },
 		Authenticate: s.Authenticate,
-		Login:        s.Login,
-		Logout:       s.Logout,
-		LoginURL:     s.LoginURL,
-		Shell:        shell,
+		// AuthSimple has no TOTP stage: just complete the login.
+		Login: func(ctx context.Context, u User, _ string) (string, error) {
+			return "", s.Login(ctx, u)
+		},
+		Logout:   s.Logout,
+		LoginURL: s.LoginURL,
+		Shell:    shell,
 	})
 	return s.urlBase, nil
 }
@@ -286,10 +289,15 @@ type passwordLoginOpts struct {
 	LoginPath, LogoutPath string
 	AfterLogin            func() string
 	Authenticate          func(username, password string) (User, error)
-	Login                 func(ctx context.Context, u User) error
-	Logout                func(ctx context.Context) error
-	LoginURL              func(next string) string
-	Shell                 PageShellFunc
+	// Login completes (or stages) the sign-in. The returned override
+	// is a redirect URL the helper uses INSTEAD of the user-supplied
+	// next / AfterLogin; "" means "use the default redirect". AuthGORM
+	// uses the override to inject a TOTP-step page between password
+	// and full sign-in; AuthSimple wraps its Login and returns "".
+	Login    func(ctx context.Context, u User, formNext string) (override string, err error)
+	Logout   func(ctx context.Context) error
+	LoginURL func(next string) string
+	Shell    PageShellFunc
 }
 
 func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
@@ -325,11 +333,15 @@ func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 			writeShell(w, r, "Sign in", body, o.Shell)
 			return
 		}
-		if err := o.Login(r.Context(), u); err != nil {
+		override, err := o.Login(r.Context(), u, next)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		dest := next
+		dest := override
+		if dest == "" {
+			dest = next
+		}
 		if dest == "" {
 			dest = o.AfterLogin()
 		}
