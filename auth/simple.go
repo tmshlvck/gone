@@ -179,6 +179,15 @@ func (s *AuthSimple) LoginURL(next string) string {
 	return path + "?next=" + url.QueryEscape(next)
 }
 
+// IsAuthPath reports whether path is the AuthSimple login endpoint.
+// AuthSimple has no staged-login step, so only loginPath qualifies.
+func (s *AuthSimple) IsAuthPath(path string) bool {
+	if s.loginPath != "" {
+		return path == s.loginPath
+	}
+	return path == "/login"
+}
+
 // LogoutURL is the symmetric helper for the logout endpoint.
 func (s *AuthSimple) LogoutURL(next string) string {
 	path := s.logoutPath

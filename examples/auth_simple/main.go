@@ -110,11 +110,12 @@ func main() {
 	// ── Page shell ──────────────────────────────────────────────────
 	// One PageShellFunc serves both the login page and the protected
 	// /heroes routes. Anonymous requests are redirected to /login,
-	// except when they ARE the login page (otherwise infinite loop).
-	loginPath := sa.LoginURL("")
+	// except when they're already on an auth-managed page (login,
+	// or any future staged-login step). sa.IsAuthPath knows which
+	// ones to skip so the login flow doesn't bounce itself.
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 		u := sa.CurrentUser(r)
-		if u == nil && r.URL.Path != loginPath {
+		if u == nil && !sa.IsAuthPath(r.URL.Path) {
 			http.Redirect(w, r, sa.LoginURL(r.URL.Path), http.StatusSeeOther)
 			return
 		}

@@ -95,6 +95,46 @@ func loginPasswordOnly(t *testing.T, handler http.Handler, username, password st
 	return cookie, loc
 }
 
+func TestAuthGORM_IsAuthPath(t *testing.T) {
+	ag, _ := newTestAuthGORM(t)
+	mux := http.NewServeMux()
+	if _, err := ag.Route(mux, "", nil); err != nil {
+		t.Fatalf("Route: %v", err)
+	}
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/login", true},
+		{"/login/totp", true},
+		{"/admin/users", false},
+		{"/account/me", false},
+		{"/", false},
+	}
+	for _, tc := range cases {
+		if got := ag.IsAuthPath(tc.path); got != tc.want {
+			t.Errorf("IsAuthPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestAuthSimple_IsAuthPath(t *testing.T) {
+	sa, _ := newTestAuth(t)
+	mux := http.NewServeMux()
+	if _, err := sa.Route(mux, "", nil); err != nil {
+		t.Fatalf("Route: %v", err)
+	}
+	if !sa.IsAuthPath("/login") {
+		t.Error("AuthSimple.IsAuthPath(/login) should be true")
+	}
+	if sa.IsAuthPath("/login/totp") {
+		t.Error("AuthSimple has no TOTP path; IsAuthPath(/login/totp) should be false")
+	}
+	if sa.IsAuthPath("/heroes") {
+		t.Error("IsAuthPath(/heroes) should be false")
+	}
+}
+
 func TestStagedLogin_NoTOTPGoesStraightThrough(t *testing.T) {
 	handler, _ := newRoutedAuthGORM(t)
 	_, loc := loginPasswordOnly(t, handler, "admin", "adminpass")

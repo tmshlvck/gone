@@ -335,6 +335,23 @@ func (a *AuthGORM) LoginURL(next string) string {
 	return path + "?next=" + url.QueryEscape(next)
 }
 
+// IsAuthPath: the password page + the staged TOTP step. Anything
+// else that AuthGORM exposes (account pages) is gated by the impl's
+// own authz, not by the page shell.
+func (a *AuthGORM) IsAuthPath(path string) bool {
+	if a.loginPath != "" {
+		if path == a.loginPath {
+			return true
+		}
+	} else if path == "/login" {
+		return true
+	}
+	if a.totpPath != "" && path == a.totpPath {
+		return true
+	}
+	return false
+}
+
 func (a *AuthGORM) LogoutURL(next string) string {
 	path := a.logoutPath
 	if path == "" {

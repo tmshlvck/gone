@@ -17,6 +17,7 @@ func (s stubAuth) Route(Mux, string, PageShellFunc) (string, error) { return "",
 func (s stubAuth) CurrentUser(*http.Request) User                   { return s.user }
 func (s stubAuth) LoginURL(string) string                           { return "/login" }
 func (s stubAuth) LogoutURL(string) string                          { return "/logout" }
+func (s stubAuth) IsAuthPath(p string) bool                         { return p == "/login" }
 func (s stubAuth) Login(context.Context, User) error                { return nil }
 func (s stubAuth) Logout(context.Context) error                     { return nil }
 

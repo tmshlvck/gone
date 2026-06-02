@@ -100,12 +100,14 @@ func main() {
 	admin := crud.DeriveAdminAutoWire(tables, nil)
 
 	// ── Page shell ──────────────────────────────────────────────────
-	// One PageShellFunc serves /login + /admin. Anonymous requests
-	// are redirected to /login unless they are the login page.
-	loginPath := ag.LoginURL("")
+	// One PageShellFunc serves /login, /login/totp, and /admin.
+	// Anonymous requests are redirected to /login UNLESS they're
+	// already on one of the auth pages (login, staged TOTP) —
+	// otherwise stage 2 of TOTP login would bounce itself back to
+	// stage 1 in a loop. IsAuthPath knows which paths to skip.
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 		u := ag.CurrentUser(r)
-		if u == nil && r.URL.Path != loginPath {
+		if u == nil && !ag.IsAuthPath(r.URL.Path) {
 			http.Redirect(w, r, ag.LoginURL(r.URL.Path), http.StatusSeeOther)
 			return
 		}

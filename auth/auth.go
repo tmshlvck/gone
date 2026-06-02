@@ -71,6 +71,14 @@ type Auth interface {
 	LoginURL(next string) string
 	LogoutURL(next string) string
 
+	// IsAuthPath reports whether path is one of the auth-managed
+	// pages that must remain accessible to anonymous (or
+	// partially-authenticated) users: the password page, any
+	// staged-login step (e.g. /login/totp), etc. Page shells use
+	// this to skip their "redirect anonymous to /login" guard so
+	// the login flow itself isn't trapped by it.
+	IsAuthPath(path string) bool
+
 	// Login writes u into the session as the current user and rotates
 	// the session ID (session-fixation defense). Logout destroys the
 	// session. Useful for programmatic flows (tests, post-signup
