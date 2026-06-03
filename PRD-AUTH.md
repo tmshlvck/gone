@@ -25,9 +25,17 @@ Give `gone` apps a batteries-included surface for:
   callers can swap stores.
 - **CSRF** — token-in-session, validated as form field or
   `X-CSRF-Token` header (HTMX path). Read-only methods bypass.
-- **Login** — username/password against an in-memory user store in
-  v1; GORM-backed store with argon2id hashes, TOTP, and OIDC come
-  later (see §3).
+- **Login** — multi-method on top of `AuthGORM`:
+    - username/password (with optional TOTP second factor),
+    - **passkeys** (WebAuthn, via `go-webauthn/webauthn`) — sufficient
+      on their own; if a user has both a passkey and TOTP, the
+      passkey path skips the code prompt,
+    - **SSO** (OIDC, via `coreos/go-oidc`) — one or more configured
+      providers ("Continue with GitHub", "Continue with Google") that
+      also bypass TOTP.
+  `AuthSimple` ships username/password only — passkeys and OIDC
+  require persistent per-credential state that the memory store
+  doesn't justify.
 - **Authz** — `auth.Authz` used by `crud.CRUDTable` and friends to
   gate routes; plus four stock struct implementations
   (`AuthzAllowAll`, `AuthzLoggedIn`, `AuthzLoggedInReadOnly`,
@@ -74,9 +82,12 @@ in the caller's `PageShellFunc`.
   OIDC, and account management.
 - **Account management page** — change password, view profile.
   Memory store has no password change in v1.
-- **OIDC** — federated login via `coreos/go-oidc`.
 - **Password reset / email verification** — needs an email
-  abstraction the library doesn't have.
+  abstraction the library doesn't have. Affects passwordless-user
+  bootstrap when neither SSO nor an existing-user-with-password
+  path is available.
+- **Single Sign-Out (SLO)** — destroying the local session is
+  sufficient; we don't propagate logout to the OIDC provider.
 
 **Out of scope entirely**:
 
@@ -94,7 +105,8 @@ in the caller's `PageShellFunc`.
 | Session middleware     | `alexedwards/scs/v2` — direct hard dep                |
 | Password hashing       | argon2id via `alexedwards/argon2id` (v1 + v2)         |
 | TOTP                   | `pquerna/otp` (AuthGORM)                              |
-| OIDC                   | `coreos/go-oidc` + `golang.org/x/oauth2` (v2)         |
+| Passkeys / WebAuthn    | `github.com/go-webauthn/webauthn` (AuthGORM)          |
+| OIDC                   | `coreos/go-oidc/v3` + `golang.org/x/oauth2` (AuthGORM) |
 | CSRF                   | hand-rolled (see `examples/sessions`)                 |
 
 scs is a hard dependency — the original "small `SessionStore`
@@ -170,6 +182,14 @@ type Auth interface {
     LoginURL(next string) string
     LogoutURL(next string) string
 
+    // IsAuthPath reports whether path is one of the auth-managed
+    // pages that must remain accessible to anonymous (or partially
+    // authenticated) users — login, staged TOTP step, passkey /
+    // OIDC ceremony endpoints, etc. Page shells use this to skip
+    // their "redirect anonymous → /login" guard so the login flow
+    // itself isn't trapped.
+    IsAuthPath(path string) bool
+
     // Programmatic session writes — for tests and post-signup
     // auto-login. The supplied User is whatever the impl can later
     // round-trip back through CurrentUser.
@@ -177,6 +197,12 @@ type Auth interface {
     Logout(ctx context.Context) error
 }
 ```
+
+AuthGORM's `IsAuthPath` matches all of: `/login`, `/login/totp`,
+`/login/passkey/options`, `/login/passkey/finish`, and any
+`/login/oidc/{name}` / `/login/oidc/{name}/callback` pair for a
+registered provider. AuthSimple's matches only `/login` (no staged
+flows, no SSO).
 
 Notably absent:
 
@@ -310,11 +336,33 @@ AuthSimple, so apps swap impls by changing the constructor.
 type AuthGORM struct {
     Sessions   *scs.SessionManager
     DB         *gorm.DB
-    AfterLogin string  // default "/"
+    AfterLogin string // default "/"
+
+    // TOTPIssuer is embedded in the otpauth URLs generated for
+    // enrolment. Defaults to "gone". (See §6.5.1.)
+    TOTPIssuer string
+
+    // WebAuthn relying-party info (§6.5.2). Required for passkeys.
+    RPDisplayName string   // shown in the browser UI ("Acme Corp")
+    RPID          string   // bare host, e.g. "app.example.com"
+    RPOrigins     []string // allowed origins, e.g. ["https://app.example.com"]
+
+    // OIDC providers registered via AddOIDCProvider. AuthGORM
+    // renders one button per provider on the login page (§6.5.3).
+    // Empty = no SSO.
+    OIDCProviders []OIDCProvider
+
+    // PublicURL is the externally-reachable base URL of the app
+    // (no trailing slash, e.g. "https://app.example.com"). Used
+    // to build OIDC redirect URLs the IdP can call back; the
+    // library can't infer this from r.Host because reverse
+    // proxies often hide the public hostname. Required when
+    // OIDCProviders is non-empty.
+    PublicURL string
 }
 
 func NewAuthGORM(sm *scs.SessionManager, db *gorm.DB) (*AuthGORM, error)
-//   auto-migrates UserGORM + GroupGORM
+//   auto-migrates UserGORM + GroupGORM + PasskeyGORM + OIDCIdentityGORM
 ```
 
 Concrete configuration methods (NOT on the `auth.Auth` interface):
@@ -332,6 +380,16 @@ func (a *AuthGORM) GroupDel(name string) error
 // Set a user's group memberships by name (replaces the m2m list).
 // Groups must already exist — ErrGroupNotFound otherwise.
 func (a *AuthGORM) UserMod(username string, groupNames []string) error
+
+// Passkey listing / deletion. Enrolment is driven by the WebAuthn
+// JS ceremony — see §6.5.2 — so there's no PasskeyAdd entry point.
+func (a *AuthGORM) Passkeys(userID uint) ([]PasskeyGORM, error)
+func (a *AuthGORM) PasskeyDel(userID, passkeyID uint) error
+
+// OIDC provider registration. Each provider gets a button on the
+// login page. Mutates AuthGORM.OIDCProviders; call before Route()
+// so the buttons render on the rendered login form. See §6.5.3.
+func (a *AuthGORM) AddOIDCProvider(p OIDCProvider) error
 ```
 
 Models exposed so apps can derive CRUDTables over them:
@@ -364,18 +422,154 @@ the CRUD library introspects exported fields). Adapters
 `auth.User` / `auth.Group` — `CurrentUser` returns the adapter; apps
 that need the raw row type-assert to it and read `.U` / `.G`.
 
-V2 additions (deferred): account management page (change own password,
-enrol TOTP, manage passkeys, link OIDC providers); the login form
-templ gains a method picker (password / passkey / SSO buttons) when
-those credential paths land. V1 ships single-method password login
-using the same templ as AuthSimple — `mountPasswordLogin` is the
-shared route helper.
+The login template shipped with AuthGORM is the multi-method form
+described in §6.5.1–6.5.3. `examples/auth_gorm` demonstrates the
+wiring end-to-end: AuthGORM seed of admin/admin in the `admin`
+group, CRUDTables for users and groups mounted under `crud.Admin`,
+gated by `AuthzLoggedInReadAdminWrite`. PasswordHash is hidden from
+the admin UI; passwords go through `AuthGORM.Passwd`.
 
-`examples/auth_gorm` demonstrates the wiring end-to-end: AuthGORM seed
-of admin/admin in the `admin` group, CRUDTables for users and groups
-mounted under `crud.Admin`, gated by `AuthzLoggedInReadAdminWrite`.
-PasswordHash is hidden from the admin UI; passwords go through
-`AuthGORM.Passwd`.
+#### 6.5.1 TOTP (shipped)
+
+Optional second factor for password sign-ins. UserGORM gains
+`TOTPSecret string`; non-empty means stage 2 is required. Enrolment
+is a self-service flow on the account page (§7.4); admins can
+disable someone else's TOTP for "lost the phone" recovery. Passkey
+and SSO sign-ins skip TOTP — those methods are already strong.
+
+Library: `pquerna/otp`. QR rendered server-side as a base64 PNG
+data URL — no JS QR dependency.
+
+Session keys during stage-1 → stage-2 transit:
+
+  auth:totp_pending_user   — the password-authenticated username
+  auth:totp_pending_next   — the user's original ?next=... value
+  auth:totp_setup_secret   — in-flight enrolment secret (account page)
+
+#### 6.5.2 Passkeys / WebAuthn
+
+Library: `github.com/go-webauthn/webauthn`. A user may have **many**
+passkeys (different devices). Each PasskeyGORM row stores the
+WebAuthn credential the browser produced at enrolment plus
+metadata for management (user-supplied label, last-used timestamp,
+sign counter for replay defense).
+
+**Enrolment** (account page → "Add passkey" button):
+
+  POST /account/{id}/passkey/begin   — server returns CreationOptions
+                                       JSON, stashes the challenge in
+                                       the session. Self only.
+  POST /account/{id}/passkey/finish  — browser POSTs the attestation
+                                       (CredentialCreationResponse);
+                                       server verifies, persists the
+                                       row, returns the updated passkey
+                                       list fragment.
+  POST /account/{id}/passkey/{pkid}/delete — drop one credential.
+
+**Login** — the login page tries two paths:
+
+  1. **Conditional UI** (autofill): on page load, the JS calls
+     `navigator.credentials.get({ mediation: "conditional" })`. The
+     browser silently surfaces matching passkeys when the username
+     field is focused. Best UX on supporting browsers.
+
+  2. **Explicit button**: "Use passkey" button calls the same
+     `navigator.credentials.get()` without `mediation: "conditional"`
+     — the platform UI pops immediately.
+
+  Both paths use the same backend round-trip:
+
+    POST /login/passkey/options   — server generates challenge,
+                                    stashes in session, returns
+                                    RequestOptions JSON (with empty
+                                    allowCredentials → "discoverable",
+                                    so any credential for this RP
+                                    matches).
+    POST /login/passkey/finish    — browser POSTs assertion; server
+                                    verifies signature against the
+                                    stored public key, identifies the
+                                    user from the credential row, and
+                                    finalises the session via
+                                    a.Login(ctx, u) — bypassing TOTP.
+
+Session keys during ceremony:
+
+  auth:passkey_login_challenge   — bytes returned at /options
+  auth:passkey_setup_challenge   — bytes returned at /account/.../begin
+
+RPDisplayName / RPID / RPOrigins on AuthGORM are required (and
+validated at construction) when at least one PasskeyGORM row exists
+or any AuthGORM.Route attempt would mount the passkey endpoints.
+For dev, `RPID = "localhost"` + `RPOrigins = ["http://localhost:8080"]`
+works.
+
+#### 6.5.3 SSO (OIDC)
+
+Library: `github.com/coreos/go-oidc/v3/oidc` for ID-token verification;
+`golang.org/x/oauth2` for the authorization-code-with-PKCE dance.
+
+Each registered provider:
+
+```go
+type OIDCProvider struct {
+    Name         string   // path segment, e.g. "github"
+    DisplayName  string   // button label, e.g. "GitHub"
+    IssuerURL    string   // OIDC discovery base
+    ClientID     string
+    ClientSecret string
+    Scopes       []string // default: ["openid", "email", "profile"]
+
+    // AutoCreate controls what happens on first sign-in from this
+    // provider when no UserGORM row matches by email.
+    //   false (default): 403 with "no account matches this identity".
+    //                    The admin must create the user first.
+    //   true:           create a UserGORM row with the provider's
+    //                    email + display name; link OIDCIdentityGORM.
+    AutoCreate bool
+
+    // DefaultGroups: when AutoCreate creates a user, add them to
+    // these groups. Empty = no groups; the user can read public
+    // pages only.
+    DefaultGroups []string
+}
+```
+
+Routes (one set per provider, registered by AddOIDCProvider):
+
+  POST /login/oidc/{name}            — generate state + nonce + PKCE
+                                       verifier, stash in session,
+                                       redirect 303 to the IdP's
+                                       authorize endpoint.
+  GET  /login/oidc/{name}/callback   — IdP redirects back with code +
+                                       state. Server validates state,
+                                       exchanges code for tokens,
+                                       verifies ID-token signature +
+                                       claims, maps subject → user,
+                                       finalises session (bypassing
+                                       TOTP).
+
+User mapping policy on first sign-in from provider P with subject S
+and email E:
+
+  1. Match (Provider=P, Subject=S) in OIDCIdentityGORM → log in.
+  2. Else match UserGORM by Email=E → create OIDCIdentityGORM linking
+     P:S to that user, log in.
+  3. Else if `P.AutoCreate`: create UserGORM(email=E) + identity row,
+     add default groups, log in.
+  4. Else: 403 "no account matches".
+
+Account page gets an optional "Linked accounts" card listing the
+user's OIDCIdentityGORM rows, with a per-row Unlink button
+(self only — admin doesn't manage other users' SSO links).
+
+Session keys during ceremony:
+
+  auth:oidc_state         — random state for CSRF
+  auth:oidc_pkce_verifier — PKCE verifier (the matching challenge
+                            sat in the redirect URL)
+  auth:oidc_nonce         — replay defense for ID token
+  auth:oidc_provider      — which provider the user picked
+  auth:oidc_next          — original ?next= the user wanted
 
 ### 6.6 `Authz` interface + stock impls
 
@@ -487,12 +681,56 @@ V1 experience (login) with AuthSimple:
 4. Session cookie set; CSRF token rotated. Subsequent
    `CurrentUser(r)` calls return the user that was logged in.
 
-AuthGORM's flow will look different — multi-method picker, passkey
-challenge round-trip, OIDC provider redirect — but presents the same
-`auth.Auth` surface to the rest of the app.
+AuthGORM's login page is a multi-method picker:
 
-Account page (`/account`) — change password, TOTP enrolment, passkey
-management — is v2.
+```
+┌─ Sign in ──────────────────────────────────┐
+│ [ username ]                               │
+│ [ password ]                               │
+│ [ Sign in ]                                │
+│                                            │
+│ ─── or ───                                 │
+│                                            │
+│ [ 🔑  Use passkey ]                         │
+│                                            │
+│ ─── or ───                                 │
+│                                            │
+│ [ 🐙  Continue with GitHub ]                │
+│ [ G   Continue with Google ]                │
+└────────────────────────────────────────────┘
+```
+
+The username field carries `autocomplete="username webauthn"` so
+browsers offer conditional-UI passkey autofill alongside saved
+passwords. JS on page load calls `navigator.credentials.get({
+mediation: "conditional" })` if the browser supports it; if a passkey
+is silently chosen, the assertion is POSTed to /login/passkey/finish
+and the user lands authenticated without a click. The explicit
+"Use passkey" button is the fallback for browsers without
+conditional-UI support.
+
+Flow by entry point:
+
+  Password    → /login (stage 1) → /login/totp (if TOTPSecret set)
+              → AfterLogin / next.
+  Passkey     → /login/passkey/finish → AfterLogin / next. TOTP
+              skipped.
+  SSO         → /login/oidc/{name} → IdP → /login/oidc/{name}/callback
+              → AfterLogin / next. TOTP skipped.
+
+Bypass rationale: passkeys verify possession + user verification
+(biometric / PIN) on the device; OIDC inherits the IdP's MFA. Both
+are at least as strong as password + TOTP; requiring TOTP again
+would be friction without security benefit.
+
+The account page (`/account/{id}`) hosts management for all four:
+
+  Card 1 — Change password (§7.4).
+  Card 2 — Two-factor authentication (TOTP, §6.5.1).
+  Card 3 — Passkeys: list + "Add passkey" + per-row delete (§6.5.2).
+  Card 4 — Linked accounts: list of OIDCIdentityGORM rows + per-row
+            Unlink + "Link <provider>" buttons (§6.5.3). Self only;
+            admins don't manage others' SSO links.
 
 ## 8. CSRF flow
 
@@ -564,33 +802,61 @@ The session-visible interface (`auth.User`) carries only
 expose their own ID / credentials / etc. via type assertion.
 
 ```go
-// V2: AuthGORM (sketch) — GORM tables. The ormUser type satisfies the
-// auth.User interface via methods (Username() / Email() / Groups() /
-// HasGroup()).
-type User struct {
+// AuthGORM tables. UserGORMAdapter wraps *UserGORM to satisfy
+// auth.User; CRUDTable[UserGORM] introspects the exported fields.
+type UserGORM struct {
     ID           uint
-    Username     string `gorm:"uniqueIndex"`
-    Email        string `gorm:"uniqueIndex"`
-    PasswordHash string
-    TOTPSecret   string
-    OIDCSubject  string `gorm:"index"`
+    Username     string `gorm:"uniqueIndex;size:64"`
+    Email        string `gorm:"uniqueIndex;size:255"`
+    PasswordHash string `gorm:"size:255"`     // empty = passwordless (passkey/SSO only)
+    TOTPSecret   string `gorm:"size:64"`       // empty = TOTP not enrolled
     Disabled     bool
-    Groups       []Group `gorm:"many2many:user_groups"`
+    Groups       []GroupGORM        `gorm:"many2many:auth_user_groups"`
+    Passkeys     []PasskeyGORM      `gorm:"foreignKey:UserID"`
+    OIDCLinks    []OIDCIdentityGORM `gorm:"foreignKey:UserID"`
     CreatedAt    time.Time
     UpdatedAt    time.Time
 }
 
-type Group struct {
-    ID    uint
-    Name  string `gorm:"uniqueIndex"`
-    Users []User `gorm:"many2many:user_groups"`
+type GroupGORM struct {
+    ID        uint
+    Name      string     `gorm:"uniqueIndex;size:64"`
+    Users     []UserGORM `gorm:"many2many:auth_user_groups"`
+    CreatedAt time.Time
+    UpdatedAt time.Time
 }
 
-// Methods to satisfy auth.User:
-func (u *User) Username() string         { return u.Username_ }
-func (u *User) Email() string            { return u.Email_ }
-func (u *User) Groups() []auth.Group     { /* wrap */ }
-func (u *User) HasGroup(name string) bool
+// PasskeyGORM: one row per credential. A user may have many.
+// Storage maps to go-webauthn's webauthn.Credential plus a
+// user-supplied label and timing for the account-page UI.
+type PasskeyGORM struct {
+    ID              uint
+    UserID          uint   `gorm:"index;not null"`
+    CredentialID    []byte `gorm:"uniqueIndex;size:255"`
+    PublicKey       []byte // COSE-encoded
+    SignCount       uint32 // replay defense; updated after each auth
+    Transports      string // CSV: "internal,usb,nfc,ble,hybrid"
+    AttestationType string
+    AAGUID          []byte `gorm:"size:16"` // authenticator model
+    BackupEligible  bool   // capability flag from the registration
+    BackupState     bool   // current state — true once synced cross-device
+    Name            string // user-visible label ("iPhone", "Yubikey 5")
+    CreatedAt       time.Time
+    LastUsedAt      time.Time
+}
+
+// OIDCIdentityGORM: one row per (user, provider). A user may link
+// multiple providers (GitHub + Google) and a provider's subject is
+// stable across logins so re-auth is a lookup, not a re-create.
+type OIDCIdentityGORM struct {
+    ID        uint
+    UserID    uint   `gorm:"index;not null"`
+    Provider  string `gorm:"size:64;uniqueIndex:idx_provider_subject"`
+    Subject   string `gorm:"size:255;uniqueIndex:idx_provider_subject"`
+    Email     string `gorm:"size:255"` // last-known, refreshed on each login
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
 ```
 
 V1 AuthSimple has no schema — its `simpleUser` and `simpleGroup`
@@ -620,8 +886,26 @@ on `Login` and deserialised by `CurrentUser`.
   user after `Login`; survives across requests (session round-trip);
   username/email/groups round-trip intact.
 
-All v1 tests use `auth.AuthSimple` — no DB needed. V2 will add a
-GORM integration test alongside AuthGORM.
+AuthGORM-specific suites:
+
+- **TOTP**: helper roundtrip (generate→validate); two-stage redirect
+  when secret set / cleared; pending → session promotion; wrong-code
+  rejection; pending state cleared by fresh /login; admin can disable
+  others, can't enrol for others.
+- **Passkey**: WebAuthn ceremony using `go-webauthn`'s mock
+  authenticator — registration end-to-end (begin → finish writes
+  PasskeyGORM); login end-to-end (options → finish identifies user,
+  finalises session without TOTP); login skips TOTP even when user
+  has TOTPSecret; deletion drops the row; sign-counter regression
+  rejection.
+- **OIDC**: spin up a mini issuer in-test (`oidc-mock-provider` or
+  hand-rolled JWKS endpoint). Coverage: state-mismatch rejection;
+  PKCE verifier check; user mapping (match-by-subject / match-by-email /
+  AutoCreate / no-match → 403); SSO login skips TOTP; relink an
+  existing provider replaces the row's Email but preserves the ID.
+
+Most AuthSimple suites stay unchanged — passkeys + SSO are AuthGORM-
+only.
 
 ## 12. Examples (planned)
 
@@ -631,7 +915,8 @@ GORM integration test alongside AuthGORM.
 | `examples/auth_basic`         | `auth.AuthSimple` with admin/admin. Login + a protected page; page shell calls `CurrentUser` and redirects to login when anonymous. |
 | `examples/admin_with_auth`    | CRUDTable + Admin gated by `auth.AuthzLoggedInReadAdminWrite{Auth: a}`. AuthSimple with one admin user. |
 | `examples/auth_gorm`          | `auth.AuthGORM` + CRUDAdmin over UserGORM/GroupGORM; seed admin/admin in admin group; AuthzLoggedInReadAdminWrite gates writes. |
-| `examples/auth_gorm_passkey` (v2) | Same as above + passkey enrolment + login.               |
+| `examples/auth_gorm_passkey`  | AuthGORM with passkey enrolment on the account page + passkey login (conditional UI). RP set up for localhost. |
+| `examples/auth_gorm_oidc`     | AuthGORM with two OIDC providers (e.g. GitHub + a hand-rolled mock issuer). Demonstrates AutoCreate + DefaultGroups. |
 
 ## 13. Open questions
 
@@ -656,3 +941,43 @@ GORM integration test alongside AuthGORM.
   to an arbitrary `next` value. Validate that `next` is a same-origin
   path; reject absolute URLs and `//host` paths. Standard but worth
   capturing explicitly.
+- **Passkey conditional UI default**: ship it on by default? Browsers
+  without support degrade gracefully (no autofill — user clicks the
+  button). Risk: it surfaces a passkey to anyone who lands on /login,
+  which is the whole point, but could surprise users new to passkeys.
+  Lean toward "on by default" with an `AuthGORM.PasskeyConditionalUI bool`
+  to disable for tests / kiosk deployments.
+- **Passkey naming on enrolment**: ask the user explicitly ("Name
+  this passkey: ___") or auto-derive from `User-Agent` + AAGUID lookup?
+  Hand-name is clearer but adds a step; auto-name is wrong for the
+  ~15% of authenticators with unrecognised AAGUIDs. Probably:
+  auto-suggest from AAGUID, let user override before saving.
+- **User-Agent based passkey defaults are flaky** — UAs lie, especially
+  on mobile. Treat the auto-suggested name as a hint, not authority.
+- **OIDC AutoCreate default**: off in this PRD (safer). But many
+  apps will want it on — every team that uses Google Workspace
+  wants @company.com users to log in without admin pre-creation.
+  Worth a sample `AutoCreate=true` example with `DefaultGroups`
+  scoping ("auto-created users go in 'unverified' group; admin
+  promotes").
+- **OIDC subject collisions**: two OIDC providers can theoretically
+  return the same `sub` value. We index on (Provider, Subject), so
+  no DB collision, but the mapping policy needs to be careful not to
+  accidentally cross-link. Already handled by the per-provider scope
+  of the lookup.
+- **Linking accounts**: should the account page let a logged-in user
+  link a new SSO provider to their existing account? PRD §6.5.3
+  describes `/account/{id}/oidc/link/{name}`. That flow is "/login/oidc"
+  reused but with a different "next" target (account page) and a
+  "link-only" flag in the session so the callback doesn't create a
+  new user. Worth detailing.
+- **Backup-eligibility warnings**: WebAuthn surfaces whether a
+  credential is synced across devices (`BackupState=true`) or bound
+  to one device. Users with a single non-synced passkey should be
+  nudged to enrol a second one. Out of scope for v1; tracked as a
+  follow-up.
+- **`OIDCSubject` on UserGORM was removed**: earlier drafts had a
+  single OIDC subject column on UserGORM. Replaced by OIDCIdentityGORM
+  rows since a user can link multiple providers. The old field is gone;
+  migration for existing AuthGORM tables is the AutoMigrate diff plus
+  a one-shot transfer query in §10 once the schema lands.
