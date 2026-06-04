@@ -27,6 +27,12 @@ func (a *AuthGORM) mountAccountRoutes(mux Mux, base string, shell PageShellFunc)
 		a.handleAccountPost(w, r, shell)
 	})
 	a.mountTOTPAccountRoutes(mux, base)
+	// Passkey enrolment endpoints are mounted only when RP fields
+	// are set (the WebAuthn library refuses to construct without
+	// them). Apps that don't want passkeys skip both UI and routes.
+	if a.RPID != "" {
+		a.mountPasskeyAccountRoutes(mux, base)
+	}
 }
 
 // serveAccountForm renders the form for the GET path AND from the
@@ -60,17 +66,33 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 	htmx := isHTMXAuthRequest(r)
 	modalBodyID := r.Header.Get("HX-Target")
 	actionURL := a.urlBase + "/account/" + strconv.FormatUint(uint64(target.ID), 10)
+
+	// Passkeys card data: load list only when feature is on (RP
+	// configured). Sorted newest-first so the most recent enrolment
+	// is the top row.
+	passkeysEnabled := a.RPID != ""
+	var pkItems []passkeyItem
+	if passkeysEnabled {
+		var ks []PasskeyGORM
+		if err := a.DB.Where("user_id = ?", target.ID).Order("created_at DESC").Find(&ks).Error; err == nil {
+			pkItems = passkeyItems(ks)
+		}
+	}
+
 	form := accountForm(accountFormData{
-		ActionURL:      actionURL,
-		TargetUsername: target.Username,
-		IsSelf:         current.Username() == target.Username,
-		CSRFToken:      CSRFToken(r.Context()),
-		Error:          errMsg,
-		Success:        successMsg,
-		Modal:          htmx,
-		ModalBodyID:    modalBodyID,
-		TOTPEnabled:    target.TOTPSecret != "",
-		TOTPBaseURL:    a.totpEndpointBase(target.ID),
+		ActionURL:       actionURL,
+		TargetUsername:  target.Username,
+		IsSelf:          current.Username() == target.Username,
+		CSRFToken:       CSRFToken(r.Context()),
+		Error:           errMsg,
+		Success:         successMsg,
+		Modal:           htmx,
+		ModalBodyID:     modalBodyID,
+		TOTPEnabled:     target.TOTPSecret != "",
+		TOTPBaseURL:     a.totpEndpointBase(target.ID),
+		PasskeyBaseURL:  a.passkeyEndpointBase(target.ID),
+		PasskeyItems:    pkItems,
+		PasskeysEnabled: passkeysEnabled,
 	})
 
 	if htmx {

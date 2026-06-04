@@ -42,6 +42,13 @@ func main() {
 		log.Fatalf("NewAuthGORM: %v", err)
 	}
 	ag.AfterLogin = "/admin"
+	// WebAuthn relying-party config for passkey enrolment + login.
+	// For local dev: RPID is the bare host the browser sees; the
+	// origin string matches the URL bar exactly (scheme + port).
+	// Production: set both to your real public hostname.
+	ag.RPDisplayName = "gone auth_gorm demo"
+	ag.RPID = "localhost"
+	ag.RPOrigins = []string{"http://localhost:8080"}
 
 	// ── Seed admin / admin in admin group ───────────────────────────
 	if err := ag.GroupAdd("admin"); err != nil {

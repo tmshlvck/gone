@@ -4,11 +4,14 @@ package auth
 // struct so the templ signature stays short and the call site reads as
 // named arguments.
 type loginFormData struct {
-	Action    string // POST target (= GET path)
-	Next      string // safe redirect target after successful login
-	CSRFToken string // current session's CSRF token
-	Error     string // optional error to show above the form
-	Username  string // re-rendered after a failed POST so the user can fix the password
+	Action          string // POST target (= GET path)
+	Next            string // safe redirect target after successful login
+	CSRFToken       string // current session's CSRF token
+	Error           string // optional error to show above the form
+	Username        string // re-rendered after a failed POST so the user can fix the password
+	PasskeysEnabled bool   // controls "Use passkey" button + conditional-UI script
+	PasskeyOptions  string // /login/passkey/options
+	PasskeyFinish   string // /login/passkey/finish
 }
 
 // loginForm is the body fragment rendered by GET /login. The app's
@@ -30,7 +33,14 @@ templ loginForm(d loginFormData) {
 						<input type="hidden" name="next" value={ d.Next }/>
 						<label class="form-control">
 							<div class="label"><span class="label-text">Username</span></div>
-							<input type="text" name="username" value={ d.Username } class="input input-bordered" autofocus autocomplete="username"/>
+							if d.PasskeysEnabled {
+								<!-- autocomplete includes "webauthn" so
+								     conditional UI offers matching
+								     passkeys when the field is focused. -->
+								<input type="text" name="username" value={ d.Username } class="input input-bordered" autofocus autocomplete="username webauthn"/>
+							} else {
+								<input type="text" name="username" value={ d.Username } class="input input-bordered" autofocus autocomplete="username"/>
+							}
 						</label>
 						<label class="form-control">
 							<div class="label"><span class="label-text">Password</span></div>
@@ -38,10 +48,132 @@ templ loginForm(d loginFormData) {
 						</label>
 						<button type="submit" class="btn btn-primary mt-2">Sign in</button>
 					</form>
+					if d.PasskeysEnabled {
+						<div class="divider text-xs opacity-60">or</div>
+						<button
+							id="auth-passkey-login-btn"
+							type="button"
+							class="btn btn-outline"
+							data-passkey-options={ d.PasskeyOptions }
+							data-passkey-finish={ d.PasskeyFinish }
+							data-passkey-next={ d.Next }
+							data-csrf={ d.CSRFToken }
+						>🔑 Use passkey</button>
+						<div id="auth-passkey-login-error" role="alert" class="alert alert-error hidden">
+							<span></span>
+						</div>
+						@passkeyLoginScript()
+					}
 				</div>
 			</div>
 		</div>
 	</div>
+}
+
+// passkeyLoginScript drives the discoverable-login ceremony. Runs
+// twice:
+//   1) On the explicit "Use passkey" button click — pops the
+//      browser's native account picker immediately.
+//   2) On page load, if PublicKeyCredential.isConditionalMediation-
+//      Available is true — silently surfaces matching passkeys when
+//      the username field is focused (Chrome 108+, Safari 16+).
+//
+// Both paths share the begin → navigator.credentials.get → finish
+// round-trip. On success the server returns { next: "..." } and we
+// navigate there.
+templ passkeyLoginScript() {
+	<script>
+		(function(){
+			const btn = document.getElementById('auth-passkey-login-btn');
+			if (!btn || btn.dataset.passkeyAttached) return;
+			btn.dataset.passkeyAttached = '1';
+			const errBox = document.getElementById('auth-passkey-login-error');
+			const showErr = m => { errBox.classList.remove('hidden'); errBox.querySelector('span').textContent = m; };
+			const hideErr = () => errBox.classList.add('hidden');
+			const optsURL = btn.dataset.passkeyOptions;
+			const finURL = btn.dataset.passkeyFinish;
+			const csrf = btn.dataset.csrf;
+			const next = btn.dataset.passkeyNext;
+
+			async function attempt(conditional) {
+				hideErr();
+				try {
+					const fd = new FormData();
+					fd.set('csrf_token', csrf);
+					if (next) fd.set('next', next);
+					const r1 = await fetch(optsURL, { method: 'POST', body: fd, headers: { 'X-CSRF-Token': csrf }, credentials: 'same-origin' });
+					if (!r1.ok) throw new Error(await r1.text());
+					const optsJSON = await r1.json();
+					const opts = typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function'
+						? PublicKeyCredential.parseRequestOptionsFromJSON(optsJSON.publicKey)
+						: parseRequestOptionsJSON(optsJSON.publicKey);
+					const params = { publicKey: opts };
+					if (conditional) params.mediation = 'conditional';
+					const cred = await navigator.credentials.get(params);
+					if (!cred) return; // user cancelled or conditional dismissed
+					const credJSON = typeof cred.toJSON === 'function'
+						? cred.toJSON()
+						: serializeAssertion(cred);
+					const r2 = await fetch(finURL, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+						body: JSON.stringify(credJSON),
+						credentials: 'same-origin',
+					});
+					if (!r2.ok) throw new Error(await r2.text());
+					const ack = await r2.json();
+					location.href = ack.next || '/';
+				} catch (err) {
+					// Conditional UI failures are silent — the user
+					// can still use password / explicit button.
+					if (conditional) return;
+					showErr(err.message || String(err));
+				}
+			}
+			btn.addEventListener('click', () => attempt(false));
+			if (typeof PublicKeyCredential.isConditionalMediationAvailable === 'function') {
+				PublicKeyCredential.isConditionalMediationAvailable().then(avail => {
+					if (avail) attempt(true);
+				}).catch(()=>{});
+			}
+
+			// — base64url helpers —
+			function b64uToBuf(s) {
+				s = s.replace(/-/g, '+').replace(/_/g, '/');
+				while (s.length % 4) s += '=';
+				const bin = atob(s);
+				const buf = new Uint8Array(bin.length);
+				for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+				return buf.buffer;
+			}
+			function bufToB64u(buf) {
+				const bin = String.fromCharCode(...new Uint8Array(buf));
+				return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+			}
+			function parseRequestOptionsJSON(o) {
+				o = { ...o };
+				o.challenge = b64uToBuf(o.challenge);
+				if (Array.isArray(o.allowCredentials)) {
+					o.allowCredentials = o.allowCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));
+				}
+				return o;
+			}
+			function serializeAssertion(cred) {
+				return {
+					id: cred.id,
+					rawId: bufToB64u(cred.rawId),
+					type: cred.type,
+					response: {
+						clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+						authenticatorData: bufToB64u(cred.response.authenticatorData),
+						signature: bufToB64u(cred.response.signature),
+						userHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : null,
+					},
+					clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+				};
+			}
+		})();
+	</script>
 }
 
 // csrfField is the hidden input emitted by auth.CSRFField(ctx).
@@ -121,6 +253,16 @@ type accountFormData struct {
 	// TOTPEnabled reflects the persisted secret on the target user.
 	TOTPEnabled bool
 	TOTPBaseURL string
+
+	// Passkey card state. PasskeyBaseURL is the prefix for the
+	// begin / finish / delete endpoints (e.g. /account/5/passkey).
+	// PasskeyItems is the list of enrolled credentials rendered on
+	// the account page; empty list = "no passkeys enrolled" prompt.
+	// PasskeysEnabled is true when AuthGORM has RP fields configured;
+	// when false the card is hidden entirely.
+	PasskeyBaseURL  string
+	PasskeyItems    []passkeyItem
+	PasskeysEnabled bool
 }
 
 // totpSetupData drives the in-flight enrolment card after the user
@@ -163,12 +305,18 @@ templ accountForm(d accountFormData) {
 		<div class="gone-account-modal-form flex flex-col gap-4">
 			@passwordCard(d)
 			@totpCard(d)
+			if d.PasskeysEnabled {
+				@passkeyCard(d)
+			}
 		</div>
 	} else {
 		<div class="hero">
 			<div class="hero-content w-full max-w-md flex flex-col gap-4">
 				@passwordCard(d)
 				@totpCard(d)
+				if d.PasskeysEnabled {
+					@passkeyCard(d)
+				}
 			</div>
 		</div>
 	}
@@ -356,4 +504,173 @@ templ accountFormFields(d accountFormData) {
 	<div class="mt-4">
 		<button type="submit" class="btn btn-primary">Update password</button>
 	</div>
+}
+
+// passkeyItem is one row in the account-page passkey list.
+type passkeyItem struct {
+	ID         uint
+	Name       string
+	CreatedAt  string // pre-formatted (templ doesn't render time.Time)
+	LastUsedAt string
+}
+
+// passkeyCard renders the list of enrolled passkeys + (self only)
+// the Add button. Per-row Delete swaps the card back into place
+// after the row is gone. The card has a stable id
+// ("auth-passkey-card") so swap targets stay aligned across
+// add / delete.
+templ passkeyCard(d accountFormData) {
+	<div id="auth-passkey-card" class="card w-full bg-base-100 shadow-xl">
+		<div class="card-body">
+			<h2 class="card-title">Passkeys</h2>
+			if len(d.PasskeyItems) == 0 {
+				<p class="text-sm opacity-60">No passkeys enrolled.</p>
+			} else {
+				<ul class="flex flex-col gap-2">
+					for _, p := range d.PasskeyItems {
+						<li class="flex items-center justify-between gap-3">
+							<div>
+								<div class="font-medium">{ p.Name }</div>
+								<div class="text-xs opacity-60">added { p.CreatedAt } · last used { p.LastUsedAt }</div>
+							</div>
+							if d.IsSelf {
+								<form
+									method="post"
+									hx-post={ d.PasskeyBaseURL + "/" + passkeyIDStr(p.ID) + "/delete" }
+									hx-target="#auth-passkey-card"
+									hx-swap="outerHTML"
+									hx-confirm={ "Delete passkey \"" + p.Name + "\"?" }
+								>
+									<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+									<button type="submit" class="btn btn-outline btn-error btn-sm">Delete</button>
+								</form>
+							}
+						</li>
+					}
+				</ul>
+			}
+			if d.IsSelf {
+				<div class="divider"></div>
+				<!-- Add passkey: the JS below the form runs the WebAuthn
+				     ceremony (begin → navigator.credentials.create →
+				     finish), then HTMX-swaps the card back in to refresh
+				     the list. Form is hidden until JS picks it up so the
+				     no-JS path doesn't trigger a non-functional button. -->
+				<form
+					id="auth-passkey-add-form"
+					data-passkey-base={ d.PasskeyBaseURL }
+					class="flex flex-col gap-2"
+				>
+					<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+					<label class="flex flex-col gap-1.5 w-full">
+						<span class="font-medium">Name for this passkey</span>
+						<input type="text" name="name" placeholder="e.g. iPhone, YubiKey" class="input w-full" required/>
+					</label>
+					<button type="submit" class="btn btn-primary">Add passkey</button>
+					<div id="auth-passkey-add-error" role="alert" class="alert alert-error hidden">
+						<span></span>
+					</div>
+				</form>
+				@passkeyEnrolScript()
+			}
+		</div>
+	</div>
+}
+
+// passkeyEnrolScript drives the enrolment ceremony from the browser.
+// 1) POST /begin with the form data → server returns
+//    PublicKeyCredentialCreationOptions JSON.
+// 2) navigator.credentials.create() → attestation.
+// 3) POST /finish with the attestation → server persists the row
+//    and returns a small JSON ack. Then HTMX swaps the passkey card
+//    so the new entry shows up.
+//
+// The card embeds this script every time it renders; the IIFE
+// guards against duplicate listener attachment if HTMX swaps the
+// fragment in twice.
+templ passkeyEnrolScript() {
+	<script>
+		(function(){
+			const form = document.getElementById('auth-passkey-add-form');
+			if (!form || form.dataset.passkeyAttached) return;
+			form.dataset.passkeyAttached = '1';
+			const errBox = document.getElementById('auth-passkey-add-error');
+			const showErr = m => { errBox.classList.remove('hidden'); errBox.querySelector('span').textContent = m; };
+			const hideErr = () => errBox.classList.add('hidden');
+			const base = form.dataset.passkeyBase;
+			form.addEventListener('submit', async (e) => {
+				e.preventDefault();
+				hideErr();
+				const fd = new FormData(form);
+				try {
+					const r1 = await fetch(base + '/begin', { method: 'POST', body: fd, credentials: 'same-origin' });
+					if (!r1.ok) throw new Error(await r1.text());
+					const optsJSON = await r1.json();
+					// Modern browsers expose parseCreationOptionsFromJSON;
+					// older ones need a small base64url → ArrayBuffer
+					// polyfill. The library always emits base64url
+					// strings, so the polyfill is mechanical.
+					const opts = typeof PublicKeyCredential.parseCreationOptionsFromJSON === 'function'
+						? PublicKeyCredential.parseCreationOptionsFromJSON(optsJSON.publicKey)
+						: parseCreationOptionsJSON(optsJSON.publicKey);
+					const cred = await navigator.credentials.create({ publicKey: opts });
+					const credJSON = typeof cred.toJSON === 'function'
+						? cred.toJSON()
+						: serializeAttestation(cred);
+					const fd2 = new FormData();
+					fd2.set('csrf_token', fd.get('csrf_token'));
+					// fetch wants the credential JSON in the body; the
+					// go-webauthn library reads it as r.Body.
+					const r2 = await fetch(base + '/finish', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': fd.get('csrf_token') },
+						body: JSON.stringify(credJSON),
+						credentials: 'same-origin',
+					});
+					if (!r2.ok) throw new Error(await r2.text());
+					// Re-fetch the account page's passkey card so the
+					// new row appears. The base URL strips the /passkey
+					// suffix to get back to the account URL we can GET.
+					htmx.ajax('GET', new URL(window.location).pathname, { target: '#auth-passkey-card', select: '#auth-passkey-card', swap: 'outerHTML' });
+				} catch (err) {
+					showErr(err.message || String(err));
+				}
+			});
+			// — base64url helpers, shared across the create/get paths —
+			function b64uToBuf(s) {
+				s = s.replace(/-/g, '+').replace(/_/g, '/');
+				while (s.length % 4) s += '=';
+				const bin = atob(s);
+				const buf = new Uint8Array(bin.length);
+				for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+				return buf.buffer;
+			}
+			function bufToB64u(buf) {
+				const bin = String.fromCharCode(...new Uint8Array(buf));
+				return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+			}
+			function parseCreationOptionsJSON(o) {
+				o = { ...o };
+				o.challenge = b64uToBuf(o.challenge);
+				o.user = { ...o.user, id: b64uToBuf(o.user.id) };
+				if (Array.isArray(o.excludeCredentials)) {
+					o.excludeCredentials = o.excludeCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));
+				}
+				return o;
+			}
+			function serializeAttestation(cred) {
+				return {
+					id: cred.id,
+					rawId: bufToB64u(cred.rawId),
+					type: cred.type,
+					response: {
+						clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+						attestationObject: bufToB64u(cred.response.attestationObject),
+						transports: cred.response.getTransports ? cred.response.getTransports() : [],
+					},
+					clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+				};
+			}
+		})();
+	</script>
 }

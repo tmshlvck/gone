@@ -37,11 +37,40 @@ type UserGORM struct {
 	// time passwords. Empty = TOTP not enrolled. Non-empty = the
 	// user must enter a 6-digit code after the password step.
 	TOTPSecret string `gorm:"size:64"`
-	Disabled   bool
-	Groups     []GroupGORM `gorm:"many2many:auth_user_groups"`
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// WebAuthnHandle is the opaque per-user identifier the WebAuthn
+	// spec wants every authenticator to bind credentials to (NOT the
+	// numeric ID, which is account-derived). Generated on demand —
+	// stays empty until the first passkey enrolment. 32 bytes of
+	// crypto/rand.
+	WebAuthnHandle []byte `gorm:"size:32"`
+	Disabled       bool
+	Groups         []GroupGORM   `gorm:"many2many:auth_user_groups"`
+	Passkeys       []PasskeyGORM `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
+
+// PasskeyGORM is one WebAuthn credential bound to one UserGORM. A
+// user may have many (different devices). Fields mirror
+// webauthn.Credential plus the user-supplied label and last-used
+// timestamp for the account-page UI.
+type PasskeyGORM struct {
+	ID              uint   `gorm:"primaryKey"`
+	UserID          uint   `gorm:"index;not null"`
+	CredentialID    []byte `gorm:"uniqueIndex;size:255"`
+	PublicKey       []byte
+	SignCount       uint32
+	Transports      string `gorm:"size:128"` // CSV ("internal,usb,nfc,ble,hybrid")
+	AttestationType string `gorm:"size:32"`
+	AAGUID          []byte `gorm:"size:16"`
+	BackupEligible  bool
+	BackupState     bool
+	Name            string `gorm:"size:64"` // user-visible label
+	CreatedAt       time.Time
+	LastUsedAt      time.Time
+}
+
+func (PasskeyGORM) TableName() string { return "auth_passkeys" }
 
 // TableName overrides GORM's default pluralisation ("user_gorms").
 func (UserGORM) TableName() string { return "auth_users" }
@@ -114,10 +143,23 @@ type AuthGORM struct {
 	// Defaults to "gone" when empty.
 	TOTPIssuer string
 
-	urlBase    string
-	loginPath  string
-	logoutPath string
-	totpPath   string // {base}/login/totp
+	// WebAuthn relying-party info. Required iff passkey routes are
+	// in play (any user enrols a passkey, OR the login page is
+	// served on a host that supports them — which today is "all").
+	// RPID is the bare host the browser sees (no scheme, no port);
+	// RPOrigins are the full schemed+ported origins the browser may
+	// be loaded from (a list because dev typically wants both
+	// "http://localhost:8080" and "http://127.0.0.1:8080").
+	RPDisplayName string
+	RPID          string
+	RPOrigins     []string
+
+	urlBase             string
+	loginPath           string
+	logoutPath          string
+	totpPath            string // {base}/login/totp
+	passkeyOptionsPath  string // {base}/login/passkey/options
+	passkeyFinishPath   string // {base}/login/passkey/finish
 }
 
 // NewAuthGORM constructs an AuthGORM and runs db.AutoMigrate for
@@ -130,7 +172,7 @@ func NewAuthGORM(sm *scs.SessionManager, db *gorm.DB) (*AuthGORM, error) {
 	if db == nil {
 		return nil, errors.New("auth.NewAuthGORM: nil DB")
 	}
-	if err := db.AutoMigrate(&UserGORM{}, &GroupGORM{}); err != nil {
+	if err := db.AutoMigrate(&UserGORM{}, &GroupGORM{}, &PasskeyGORM{}); err != nil {
 		return nil, fmt.Errorf("auth.NewAuthGORM: migrate: %w", err)
 	}
 	return &AuthGORM{
@@ -335,9 +377,10 @@ func (a *AuthGORM) LoginURL(next string) string {
 	return path + "?next=" + url.QueryEscape(next)
 }
 
-// IsAuthPath: the password page + the staged TOTP step. Anything
-// else that AuthGORM exposes (account pages) is gated by the impl's
-// own authz, not by the page shell.
+// IsAuthPath: any path required by an auth ceremony that the user
+// reaches before being fully signed-in. Password page, staged TOTP
+// step, passkey JSON endpoints. Account pages are gated by impl
+// authz, not by the page shell.
 func (a *AuthGORM) IsAuthPath(path string) bool {
 	if a.loginPath != "" {
 		if path == a.loginPath {
@@ -347,6 +390,12 @@ func (a *AuthGORM) IsAuthPath(path string) bool {
 		return true
 	}
 	if a.totpPath != "" && path == a.totpPath {
+		return true
+	}
+	if a.passkeyOptionsPath != "" && path == a.passkeyOptionsPath {
+		return true
+	}
+	if a.passkeyFinishPath != "" && path == a.passkeyFinishPath {
 		return true
 	}
 	return false
@@ -399,18 +448,37 @@ func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, 
 	a.loginPath = base + "/login"
 	a.logoutPath = base + "/logout"
 	a.totpPath = base + "/login/totp"
+	a.passkeyOptionsPath = base + "/login/passkey/options"
+	a.passkeyFinishPath = base + "/login/passkey/finish"
+	// Passkey paths are wired into the login form only when RP is
+	// configured — gates the "Use passkey" button + conditional UI.
+	var pkOpts, pkFin string
+	if a.RPID != "" {
+		pkOpts = a.passkeyOptionsPath
+		pkFin = a.passkeyFinishPath
+	}
 	mountPasswordLogin(mux, passwordLoginOpts{
-		LoginPath:    a.loginPath,
-		LogoutPath:   a.logoutPath,
-		AfterLogin:   func() string { return a.AfterLogin },
-		Authenticate: a.Authenticate,
-		Login:        a.loginStage1, // staged: may detour through /login/totp
-		Logout:       a.Logout,
-		LoginURL:     a.LoginURL,
-		Shell:        shell,
+		LoginPath:          a.loginPath,
+		LogoutPath:         a.logoutPath,
+		AfterLogin:         func() string { return a.AfterLogin },
+		Authenticate:       a.Authenticate,
+		Login:              a.loginStage1, // staged: may detour through /login/totp
+		Logout:             a.Logout,
+		LoginURL:           a.LoginURL,
+		Shell:              shell,
+		PasskeyOptionsPath: pkOpts,
+		PasskeyFinishPath:  pkFin,
 	})
 	a.mountTOTPLoginRoutes(mux, shell)
 	a.mountAccountRoutes(mux, base, shell)
+	// Passkey login is mounted only when RP fields are set; without
+	// them the WebAuthn handler would panic on first call. Apps that
+	// don't need passkeys leave RPID="" and the endpoints stay
+	// unregistered — IsAuthPath also reports false, so nothing
+	// references the empty paths.
+	if a.RPID != "" {
+		a.mountPasskeyLoginRoutes(mux)
+	}
 	return a.urlBase, nil
 }
 

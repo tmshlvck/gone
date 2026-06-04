@@ -281,6 +281,8 @@ func (s *AuthSimple) Route(mux Mux, baseUrl string, shell PageShellFunc) (string
 		Logout:   s.Logout,
 		LoginURL: s.LoginURL,
 		Shell:    shell,
+		// AuthSimple has no passkeys — leaving these empty keeps the
+		// "Use passkey" button out of the login form.
 	})
 	return s.urlBase, nil
 }
@@ -307,15 +309,26 @@ type passwordLoginOpts struct {
 	Logout   func(ctx context.Context) error
 	LoginURL func(next string) string
 	Shell    PageShellFunc
+
+	// PasskeyOptionsPath + PasskeyFinishPath wire the "Use passkey"
+	// button into the rendered login form. When both are empty the
+	// button + the conditional-UI script are omitted entirely.
+	// AuthSimple leaves them empty (no passkeys); AuthGORM fills
+	// them only when RP fields are configured.
+	PasskeyOptionsPath string
+	PasskeyFinishPath  string
 }
 
 func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 	mux.HandleFunc("GET "+o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
 		next := safeNext(r.URL.Query().Get("next"))
 		body := loginForm(loginFormData{
-			Action:    o.LoginPath,
-			Next:      next,
-			CSRFToken: CSRFToken(r.Context()),
+			Action:          o.LoginPath,
+			Next:            next,
+			CSRFToken:       CSRFToken(r.Context()),
+			PasskeysEnabled: o.PasskeyOptionsPath != "" && o.PasskeyFinishPath != "",
+			PasskeyOptions:  o.PasskeyOptionsPath,
+			PasskeyFinish:   o.PasskeyFinishPath,
 		})
 		writeShell(w, r, "Sign in", body, o.Shell)
 	})
@@ -332,11 +345,14 @@ func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 		u, err := o.Authenticate(username, password)
 		if err != nil {
 			body := loginForm(loginFormData{
-				Action:    o.LoginPath,
-				Next:      next,
-				CSRFToken: CSRFToken(r.Context()),
-				Error:     "Invalid username or password.",
-				Username:  username,
+				Action:          o.LoginPath,
+				Next:            next,
+				CSRFToken:       CSRFToken(r.Context()),
+				Error:           "Invalid username or password.",
+				Username:        username,
+				PasskeysEnabled: o.PasskeyOptionsPath != "" && o.PasskeyFinishPath != "",
+				PasskeyOptions:  o.PasskeyOptionsPath,
+				PasskeyFinish:   o.PasskeyFinishPath,
 			})
 			w.WriteHeader(http.StatusUnauthorized)
 			writeShell(w, r, "Sign in", body, o.Shell)
