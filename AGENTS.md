@@ -40,6 +40,7 @@ Other top-level files:
 | `examples/admin_gorm`           | Same schema wrapped in `crud.Admin`. Sidebar custom link demo. |
 | `examples/auth_simple`          | `AuthSimple` gating a CRUDTable.                       |
 | `examples/auth_gorm`            | Full AuthGORM: User/Group admin, account modal, TOTP, passkeys. |
+| `examples/auth_sso`             | `auth_gorm` + SSO (Google / GitHub / Okta) via env vars. |
 
 Run any of them with `go run ./examples/<name>`.
 

@@ -11,43 +11,27 @@ What's specced but not built yet, or sketched as a future direction.
 
 Everything below is *not* covered by either reference yet.
 
-## SSO (OIDC)
+## Self-service SSO linking
 
-PRD-AUTH §6.5.3 specs federated login via `coreos/go-oidc/v3` +
-`golang.org/x/oauth2`. Authorization-code with PKCE, ID-token
-verification, per-(user, provider) `OIDCIdentityGORM` rows so a
-user can link several providers.
+SSO is **shipped** as of this commit — see [PRD-AUTH §6.5.3](PRD-AUTH.md#653-sso-oidc--oauth2--shipped),
+[`docs/AUTH.md` SSO section](docs/AUTH.md#sso-oidc--oauth2), and the
+working `examples/auth_sso` reference.
 
-Schema, route layout, user-mapping policy (subject → email →
-AutoCreate → 403), session keys (state / verifier / nonce / next),
-and the multi-provider login button row are all in the PRD. What's
-left is the implementation:
+What's deliberately **not** shipped yet:
 
-```go
-type OIDCProvider struct {
-    Name         string   // path segment, e.g. "github"
-    DisplayName  string   // button label, e.g. "GitHub"
-    IssuerURL    string
-    ClientID     string
-    ClientSecret string
-    Scopes       []string
-
-    AutoCreate    bool     // first-time-from-this-provider: create user?
-    DefaultGroups []string // groups for auto-created users
-}
-
-func (a *AuthGORM) AddOIDCProvider(p OIDCProvider) error
-```
-
-Routes (per registered provider):
-
-```
-POST /login/oidc/{name}            — redirect to IdP authorize
-GET  /login/oidc/{name}/callback   — verify token, log in (bypasses TOTP)
-```
-
-Account-page "Linked accounts" card with Link / Unlink buttons is
-part of the same milestone.
+- **Adding an SSO identity from the account page.** A user with a
+  local password account can't yet link, say, Google to their
+  existing account through the UI. Identities are created only by
+  first-login auto-create or admin pre-provisioning. The account
+  page already has the "Linked accounts" card with Unlink, so the
+  shape is there — what's missing is a "Link {Provider}" button
+  that dispatches the OAuth round-trip with a session flag
+  indicating "attach to current user, don't create new". Single
+  handler + one new session key + a templ tweak.
+- **Admin-side link management.** Admin can delete a user (which
+  cascades to identities), but can't add or move identity links
+  between users. Same shape as above but invoked by an admin on
+  someone else's account.
 
 ## API keys
 

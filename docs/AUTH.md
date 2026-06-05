@@ -517,6 +517,179 @@ Result:
   unconditionally) — useful for retaining rows if you ever flip it
   back on.
 
+## SSO (OIDC + OAuth2)
+
+Single sign-on against external IdPs. Two provider types behind
+one wire surface:
+
+- `auth.OIDCProvider` — any OIDC-compliant IdP. Library performs
+  discovery against `IssuerURL`, verifies the ID token + nonce, and
+  reads claims.
+- `auth.OAuth2Provider` — for non-OIDC IdPs (GitHub today). Caller
+  supplies a `UserInfo` func that turns an access token into an
+  `ssoIdentity{Subject, Email, DisplayName, Claims}`.
+
+Preset constructors:
+
+| Helper | Returns |
+|---|---|
+| `auth.GoogleProvider(clientID, secret, redirectURL)` | `OIDCProvider` for `accounts.google.com` |
+| `auth.OktaProvider(domain, clientID, secret, redirectURL)` | `OIDCProvider` for `https://<domain>` |
+| `auth.GitHubProvider(clientID, secret, redirectURL)` | `OAuth2Provider` (calls `/user` + `/user/emails` for the verified primary email) |
+
+`OIDCProvider` is exported, so on-prem providers (Keycloak,
+Authentik, Dex, ZITADEL, Authelia) work as a literal struct — no
+preset needed.
+
+### Configuration
+
+```go
+ag, _ := auth.NewAuthGORM(sm, db)
+
+// Public IdP — keep AutoLinkByEmail off.
+ag.AddOIDCProvider(auth.GoogleProvider(
+    os.Getenv("GOOGLE_CLIENT_ID"),
+    os.Getenv("GOOGLE_CLIENT_SECRET"),
+    "https://app.example.com/login/sso/google/callback",
+))
+
+// Trusted corporate IdP — opt in to email-linking + groups claim.
+okta := auth.OktaProvider("dev-12345.okta.com",
+    os.Getenv("OKTA_CLIENT_ID"),
+    os.Getenv("OKTA_CLIENT_SECRET"),
+    "https://app.example.com/login/sso/okta/callback")
+okta.AutoLinkByEmail = true
+okta.GroupsClaim     = "groups"   // expects Okta auth server to emit it
+okta.DefaultGroups   = []string{"users"}
+ag.AddOIDCProvider(okta)
+
+// GitHub.
+ag.AddOAuth2Provider(auth.GitHubProvider(
+    os.Getenv("GITHUB_CLIENT_ID"),
+    os.Getenv("GITHUB_CLIENT_SECRET"),
+    "https://app.example.com/login/sso/github/callback",
+))
+
+// Routes are registered automatically when ag.Route runs.
+ag.Route(mux, "", pageShell)
+```
+
+The `RedirectURL` must match the URL you registered with the IdP
+exactly. The library can't compute the public origin itself — it
+sees only request URLs, which a reverse proxy may mangle.
+
+### Group assignment
+
+Layered: union of three sources, deduped, missing groups silently
+skipped (or auto-created when `CreateGroups=true`).
+
+| Source | Field | Behaviour |
+|---|---|---|
+| Static | `DefaultGroups []string` | Always added on first login. |
+| Claim  | `GroupsClaim string`     | Read named claim from ID token / UserInfo, coerce to `[]string`. Empty = skip. |
+| Hook   | `GroupMapper func(claims map[string]any) []string` | Full custom logic; runs in addition to the above. |
+
+```go
+p.DefaultGroups = []string{"users"}     // baseline
+p.GroupsClaim   = "groups"               // pick up IdP-supplied groups
+p.CreateGroups  = false                  // unknown group names skipped (logged)
+p.GroupMapper   = func(claims map[string]any) []string {
+    if dom, _ := claims["hd"].(string); dom == "example.com" {
+        return []string{"employees"}
+    }
+    return nil
+}
+```
+
+### User-mapping policy
+
+For callback identity `(Provider=P, Subject=S, Email=E)`:
+
+1. Existing `SSOIdentityGORM(Provider=P, Subject=S)` → log that
+   user in (and update `LastUsedAt` + Email/DisplayName snapshots).
+   Disabled users rejected here.
+2. `provider.AutoLinkByEmail` *and* an existing `UserGORM(Email=E,
+   !Disabled)` → create the identity link, log in.
+3. `!provider.DisableAutoCreate` → create
+   `UserGORM(Username=E, Email=E, SSOOnly=true)`, assign groups,
+   create identity link, log in.
+4. Else → 403 with `ErrSSONoAccount` ("no account matches this
+   identity").
+
+New users get `Username = Email`. The local UNIQUE constraint on
+`username` blocks step 3 when a pre-existing local user owns the
+same email — the callback returns `ErrSSONoAccount` rather than
+silently overwriting.
+
+### SSO-Only flag
+
+`UserGORM.SSOOnly bool`. Set to `true` automatically when first-
+login SSO auto-creates the user. While set:
+
+- The account page hides the password change card and the passkey
+  enrolment card; renders a short notice ("this account is
+  SSO-managed; ask an admin to clear the SSO-Only flag to set a
+  local password").
+- `POST /account/{id}` (password change) returns 403.
+- `POST /account/{id}/passkey/begin` and `/passkey/finish` return
+  403.
+- `POST /account/{id}/sso/{identityID}/delete` allowed except for
+  the **last** linked identity (would lock the user out — defended
+  in both the templ and the handler).
+- TOTP card stays. TOTP layers on top of every sign-in method.
+
+Admin clears the flag in the admin UI (`crud.MetaModel` renders it
+as a checkbox automatically). After that the user's account page
+re-renders the password + passkey cards.
+
+### Login page
+
+`AuthGORM.Route` renders one `<a class="btn btn-outline">Sign in
+with X</a>` per registered provider, in registration order, below
+the password form. With zero providers configured the section
+disappears entirely — `auth_simple` and zero-SSO `auth_gorm` are
+unchanged.
+
+The `?next=` query parameter survives the OAuth round-trip via the
+`auth:sso_next` session value, so a user who tried to reach
+`/admin/users` and was bounced to `/login` lands back at
+`/admin/users` after sign-in.
+
+### Routes registered
+
+When at least one provider is configured:
+
+```
+GET  /login/sso/{name}            — start ceremony
+GET  /login/sso/{name}/callback   — handle redirect-back
+```
+
+`POST /account/{ref}/sso/{identityID}/delete` is registered
+unconditionally — users with historical identities should be able
+to clean them up even if all providers have since been
+unconfigured.
+
+### Trust posture
+
+Configure `AutoLinkByEmail` per-provider, not globally:
+
+- **Public IdPs** (Google, generic GitHub): leave off. An ID token
+  claiming `alice@example.com` from an IdP that doesn't verify the
+  email = local account takeover.
+- **Trusted IdPs** (corporate Okta, on-prem Keycloak/Authentik):
+  flip on. Their email verification is sufficient.
+
+Strict deployments can set `DisableAutoCreate=true` everywhere and
+pre-provision users via the admin UI; the callback then refuses to
+mint accounts.
+
+### Example
+
+`examples/auth_sso/main.go` registers all three preset providers
+from environment variables and ships a `README.md` walking through
+OAuth-app registration on Google, GitHub, and Okta. With no env
+vars set it's identical to `examples/auth_gorm`.
+
 ## Account page
 
 `/account/{id}` is the all-in-one self-service / admin-management

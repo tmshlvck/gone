@@ -503,73 +503,141 @@ or any AuthGORM.Route attempt would mount the passkey endpoints.
 For dev, `RPID = "localhost"` + `RPOrigins = ["http://localhost:8080"]`
 works.
 
-#### 6.5.3 SSO (OIDC)
+#### 6.5.3 SSO (OIDC + OAuth2) — shipped
 
-Library: `github.com/coreos/go-oidc/v3/oidc` for ID-token verification;
-`golang.org/x/oauth2` for the authorization-code-with-PKCE dance.
+Libraries:
+- `github.com/coreos/go-oidc/v3/oidc` — ID-token verification, nonce
+  check, discovery against `IssuerURL`.
+- `golang.org/x/oauth2` — authorization-code flow + PKCE on both
+  provider types.
 
-Each registered provider:
+GitHub doesn't speak OIDC, so the v1 design ships **two** provider
+types behind one internal `ssoProvider` interface:
+
+- `OIDCProvider` (Google, Okta, on-prem Keycloak / Authentik / Dex /
+  ZITADEL): performs discovery, verifies ID tokens + nonce.
+- `OAuth2Provider` (GitHub today, other non-OIDC IdPs in future):
+  caller supplies `UserInfo func(ctx, accessToken)` that fetches the
+  provider-specific user-info REST endpoint and returns the same
+  `ssoIdentity{Subject, Email, DisplayName, Claims}` shape.
+
+Both share the same policy fields:
 
 ```go
-type OIDCProvider struct {
-    Name         string   // path segment, e.g. "github"
-    DisplayName  string   // button label, e.g. "GitHub"
-    IssuerURL    string   // OIDC discovery base
-    ClientID     string
-    ClientSecret string
-    Scopes       []string // default: ["openid", "email", "profile"]
-
-    // AutoCreate controls what happens on first sign-in from this
-    // provider when no UserGORM row matches by email.
-    //   false (default): 403 with "no account matches this identity".
-    //                    The admin must create the user first.
-    //   true:           create a UserGORM row with the provider's
-    //                    email + display name; link OIDCIdentityGORM.
-    AutoCreate bool
-
-    // DefaultGroups: when AutoCreate creates a user, add them to
-    // these groups. Empty = no groups; the user can read public
-    // pages only.
-    DefaultGroups []string
+type providerPolicy struct {
+    DefaultGroups   []string  // always added on first login
+    GroupsClaim     string    // optional claim → group names
+    CreateGroups    bool      // auto-create unknown groups from claim
+    GroupMapper     func(map[string]any) []string  // optional hook
+    AutoLinkByEmail bool      // trust email to link to existing local user
+    DisableAutoCreate bool    // refuse new identities; admin must pre-provision
 }
 ```
 
-Routes (one set per provider, registered by AddOIDCProvider):
+Preset constructors: `auth.GoogleProvider(clientID, secret, redirect)`,
+`auth.OktaProvider(domain, clientID, secret, redirect)`,
+`auth.GitHubProvider(clientID, secret, redirect)`.
 
-  POST /login/oidc/{name}            — generate state + nonce + PKCE
-                                       verifier, stash in session,
-                                       redirect 303 to the IdP's
-                                       authorize endpoint.
-  GET  /login/oidc/{name}/callback   — IdP redirects back with code +
-                                       state. Server validates state,
-                                       exchanges code for tokens,
-                                       verifies ID-token signature +
-                                       claims, maps subject → user,
-                                       finalises session (bypassing
-                                       TOTP).
+Routes (registered once per `AuthGORM` when at least one provider is
+configured):
 
-User mapping policy on first sign-in from provider P with subject S
-and email E:
+```
+GET  /login/sso/{name}           — start ceremony (state + PKCE + nonce
+                                   stashed in session, redirect to IdP)
+GET  /login/sso/{name}/callback  — IdP redirects back with code+state;
+                                   server validates state, exchanges
+                                   code (provider-specific), maps
+                                   identity → user, finalizes via
+                                   loginStage1 (so TOTP-enrolled
+                                   SSO users still get the second step)
+```
 
-  1. Match (Provider=P, Subject=S) in OIDCIdentityGORM → log in.
-  2. Else match UserGORM by Email=E → create OIDCIdentityGORM linking
-     P:S to that user, log in.
-  3. Else if `P.AutoCreate`: create UserGORM(email=E) + identity row,
-     add default groups, log in.
-  4. Else: 403 "no account matches".
+**SSO-only flag**. `UserGORM` gets a `SSOOnly bool` field. Set to
+true automatically when first-login SSO auto-creates a user. While
+the flag is set:
 
-Account page gets an optional "Linked accounts" card listing the
-user's OIDCIdentityGORM rows, with a per-row Unlink button
-(self only — admin doesn't manage other users' SSO links).
+- Account page hides the password and passkey cards; renders a
+  short "this account is SSO-managed" notice in their place. TOTP
+  card stays — TOTP layers on top of any sign-in method.
+- `POST /account/{id}` (password change) returns 403.
+- `POST /account/{id}/passkey/begin` and `/passkey/finish` return
+  403.
+- `POST /account/{id}/sso/{identityID}/delete` allowed, except for
+  the last linked identity (would lock the user out).
 
-Session keys during ceremony:
+Admin clears the flag in the admin UI (the field renders as a
+checkbox via `crud.MetaModel`), unlocking the local-credential
+surfaces.
 
-  auth:oidc_state         — random state for CSRF
-  auth:oidc_pkce_verifier — PKCE verifier (the matching challenge
-                            sat in the redirect URL)
-  auth:oidc_nonce         — replay defense for ID token
-  auth:oidc_provider      — which provider the user picked
-  auth:oidc_next          — original ?next= the user wanted
+**User-mapping policy** on callback identity `(Provider=P,
+Subject=S, Email=E)`:
+
+  1. `SSOIdentityGORM` row where `(Provider=P, Subject=S)` exists →
+     update `LastUsedAt` + Email/DisplayName snapshots, load
+     `UserGORM`, finalize. (Disabled users rejected here.)
+  2. `provider.AutoLinkByEmail && UserGORM(Email=E, !Disabled)`
+     exists → create the identity link, finalize.
+  3. `!provider.DisableAutoCreate` → create
+     `UserGORM(Username=E, Email=E, SSOOnly=true)`, assign groups
+     (DefaultGroups ∪ GroupsClaim-derived ∪ GroupMapper-derived,
+     deduped), create identity link, finalize.
+  4. Else → 403 with `ErrSSONoAccount`.
+
+**Username derivation** for auto-create: full email address. No
+collisions across providers (different emails → different
+usernames). Local UNIQUE constraint on `username` means a
+pre-existing local `alice@example.com` blocks auto-create; the
+callback returns `ErrSSONoAccount` with a "username already in
+use" message.
+
+**Schema**. One link table:
+
+```go
+type SSOIdentityGORM struct {
+    ID          uint
+    UserID      uint   `gorm:"index;not null"`
+    Provider    string `gorm:"size:64;uniqueIndex:idx_sso_provider_subject"`
+    Subject     string `gorm:"size:255;uniqueIndex:idx_sso_provider_subject"`
+    Email       string
+    DisplayName string
+    CreatedAt   time.Time
+    LastUsedAt  time.Time
+}
+```
+
+One user → many identities (so a person with corporate Okta + a
+personal Google can link both to one local user). The
+`(Provider, Subject)` unique index guarantees an IdP-issued
+identity maps to at most one local user.
+
+**Account page** lists linked identities with per-row Unlink
+buttons (self only). Adding a new SSO link from the account page
+is *not* shipped — identities arrive via first sign-in only.
+Defer "self-service link" to a follow-up.
+
+**Session keys** during ceremony (all cleared on successful
+callback or on a new start):
+
+```
+auth:sso_state     — random state for CSRF
+auth:sso_pkce      — PKCE code_verifier (S256)
+auth:sso_nonce     — OIDC nonce (replay defense)
+auth:sso_provider  — provider name (which IdP redirected back)
+auth:sso_next      — original ?next= URL
+```
+
+**Login form** renders one `<a class="btn btn-outline">Sign in with
+X</a>` per registered provider, in registration order, below the
+password form (or below the passkey button when present). With
+zero providers configured the section disappears entirely.
+
+**Trust posture**. Public IdPs (Google, generic GitHub) should keep
+`AutoLinkByEmail=false` — anyone who can get an ID token claiming
+`alice@example.com` could otherwise take over a local `alice@example.com`.
+Trusted IdPs (corporate Okta, your own on-prem Keycloak) can flip
+the flag on; their email verification is sufficient. The example
+`examples/auth_sso/main.go` ships with this posture: Google + GitHub
+off, Okta on.
 
 ### 6.6 `Authz` interface + stock impls
 

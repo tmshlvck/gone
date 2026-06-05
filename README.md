@@ -192,6 +192,7 @@ Or implement `auth.Authz` directly for per-resource policy. See
 | `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` with `DeriveAdminAutoWire`. Custom sidebar link demo. Zero per-field tweaking. |
 | `examples/auth_simple`        | `AuthSimple` + a single CRUDTable behind a gated page shell. |
 | `examples/auth_gorm`          | Full `AuthGORM`: User + Group CRUDTables under Admin; `AuthzLoggedInReadAdminWrite`; password / TOTP / passkey login; account modal. |
+| `examples/auth_sso`           | `auth_gorm` + SSO providers (Google / GitHub / Okta) wired from env vars. README walks through OAuth-app registration on each. |
 
 ```sh
 go run ./examples/admin_gorm
