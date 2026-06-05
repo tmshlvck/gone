@@ -200,7 +200,20 @@ func (a *AuthGORM) handlePasskeyEnrolBegin(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	creation, sessionData, err := wa.BeginRegistration(webauthnUser{u: target, passkeys: passkeys})
+	// ResidentKeyRequirementRequired forces a *discoverable* credential.
+	// Without it the authenticator can choose to store the credential
+	// server-side-only, which means discoverable-login (empty
+	// allowCredentials) won't find it — Bitwarden in particular
+	// reports "No passkey found for this application" in that case.
+	// UserVerificationPreferred lines up with what the login side
+	// asks for, so the authenticator picks UV-capable keys.
+	creation, sessionData, err := wa.BeginRegistration(
+		webauthnUser{u: target, passkeys: passkeys},
+		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
+			ResidentKey:      protocol.ResidentKeyRequirementRequired,
+			UserVerification: protocol.VerificationPreferred,
+		}),
+	)
 	if err != nil {
 		http.Error(w, "webauthn begin: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -330,7 +343,11 @@ func (a *AuthGORM) handlePasskeyLoginOptions(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	assertion, sessionData, err := wa.BeginDiscoverableLogin()
+	// VerificationPreferred matches what registration asks for —
+	// nudges UV-capable authenticators to actually prompt for it.
+	assertion, sessionData, err := wa.BeginDiscoverableLogin(
+		webauthn.WithUserVerification(protocol.VerificationPreferred),
+	)
 	if err != nil {
 		http.Error(w, "webauthn begin: "+err.Error(), http.StatusInternalServerError)
 		return
