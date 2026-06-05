@@ -13,21 +13,21 @@ detail lives in the linked docs.
 
 ## Documentation
 
-Two flavours of doc per package:
-
-| Audience          | CRUD                        | Auth                        |
-|-------------------|-----------------------------|-----------------------------|
+| Scope             | CRUD                           | Auth                           |
+|-------------------|--------------------------------|--------------------------------|
 | User reference    | [`docs/CRUD.md`](docs/CRUD.md) | [`docs/AUTH.md`](docs/AUTH.md) |
-| Design rationale  | [`PRD-CRUD.md`](PRD-CRUD.md)   | [`PRD-AUTH.md`](PRD-AUTH.md)   |
 
-The reference docs explain *what's there and how to use it*. The
-PRDs explain *why it's shaped that way* and capture open questions
-+ future-direction notes.
+The reference docs explain *what's there and how to use it*.
+[`DESIGN.md`](DESIGN.md) explains *why it's shaped that way* — the
+design decisions and the open-questions/future-work log for both
+packages.
 
 Other top-level files:
 
 - [`README.md`](README.md) — overview + quick start + example index.
-- [`TODO.md`](TODO.md) — specced but unbuilt (SSO, API keys, JSON API).
+- [`DESIGN.md`](DESIGN.md) — design rationale + decision log.
+- [`TODO.md`](TODO.md) — specced but unbuilt (API keys, JSON API,
+  self-service SSO linking).
 - `NOTES.md` — scratchpad, not authoritative.
 
 ## Examples

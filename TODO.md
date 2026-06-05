@@ -4,18 +4,18 @@ What's specced but not built yet, or sketched as a future direction.
 
 ## Documentation map
 
-- `gone/crud` design → [`PRD-CRUD.md`](PRD-CRUD.md); user reference
-  → [`docs/CRUD.md`](docs/CRUD.md).
-- `gone/auth` design → [`PRD-AUTH.md`](PRD-AUTH.md); user reference
-  → [`docs/AUTH.md`](docs/AUTH.md).
+- User reference → [`docs/CRUD.md`](docs/CRUD.md) +
+  [`docs/AUTH.md`](docs/AUTH.md).
+- Design rationale + decision log → [`DESIGN.md`](DESIGN.md).
 
 Everything below is *not* covered by either reference yet.
 
 ## Self-service SSO linking
 
-SSO is **shipped** as of this commit — see [PRD-AUTH §6.5.3](PRD-AUTH.md#653-sso-oidc--oauth2--shipped),
-[`docs/AUTH.md` SSO section](docs/AUTH.md#sso-oidc--oauth2), and the
-working `examples/auth_sso` reference.
+SSO is **shipped** — see the
+[`docs/AUTH.md` SSO section](docs/AUTH.md#sso-oidc--oauth2), the SSO
+design notes in [`DESIGN.md`](DESIGN.md), and the working
+`examples/auth_sso` reference.
 
 What's deliberately **not** shipped yet:
 
@@ -93,9 +93,9 @@ Future: `gone/jsonapi`.
 ## Other deferred items
 
 - **Per-row authz on CRUDTable**: today's `Authz.CanRead(r)` etc.
-  don't see the row ID. Decision (PRD-AUTH): per-row visibility is
-  the app's design space — implement `auth.Authz` directly and
-  filter at the SQL/data layer. Not planned for the core interface.
+  don't see the row ID. Decision: per-row visibility is the app's
+  design space — implement `auth.Authz` directly and filter at the
+  SQL/data layer. Not planned for the core interface.
 - **Software authenticator for passkey unit tests**: the existing
   passkey tests cover schema / routes / IsAuthPath / UI, but the
   full WebAuthn ceremony is exercised live in `examples/auth_gorm`,

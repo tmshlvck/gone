@@ -518,7 +518,7 @@ func (a *AuthGORM) findSSOProvider(name string) ssoProvider {
 // User mapping policy.
 
 // resolveSSOLogin runs the (Provider, Subject) → UserGORM decision
-// described in PRD-AUTH §6.5.3. Returns ErrSSONoAccount when the
+// described in docs/AUTH.md (SSO section). Returns ErrSSONoAccount when the
 // configured policy refuses the identity (no existing link, email
 // auto-link disabled, auto-create disabled, etc.). Updates
 // LastUsedAt + Email/DisplayName snapshots on every successful

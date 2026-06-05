@@ -1,8 +1,9 @@
 # gone/auth — sessions, login, passkeys, authorization
 
 User-facing reference for `github.com/tmshlvck/gone/auth`. Design
-rationale is in [`../PRD-AUTH.md`](../PRD-AUTH.md). For the parallel
-CRUD reference see [`CRUD.md`](CRUD.md).
+rationale — why it's shaped this way, plus the decision log — is in
+[`DESIGN.md`](../DESIGN.md). For the parallel CRUD reference see
+[`CRUD.md`](CRUD.md).
 
 ## What it does
 
@@ -840,7 +841,7 @@ authenticator is a follow-up.
 
 ## See also
 
-- [`PRD-AUTH.md`](../PRD-AUTH.md) — design rationale and open
-  questions (including SSO, which is specced but not yet built).
+- [`DESIGN.md`](../DESIGN.md) — design rationale and the
+  open-questions / future-work decision log.
 - [`docs/CRUD.md`](CRUD.md) — CRUDTable / Admin reference.
 - [`README.md`](../README.md) — top-level project overview.

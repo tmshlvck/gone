@@ -211,33 +211,32 @@ User-facing references (the practical "how do I…?" docs):
 - [`docs/AUTH.md`](docs/AUTH.md) — sessions / CSRF / login (password,
   TOTP, passkeys) / authz reference, with worked examples.
 
-Design history (the "why does it look like this?" docs):
+Design rationale (the "why does it look like this?" doc):
 
-- [`PRD-CRUD.md`](PRD-CRUD.md) — design document for the CRUD package
-  (target API + rationale).
-- [`PRD-AUTH.md`](PRD-AUTH.md) — design document for the auth / CSRF /
-  authz packages, including the full passkey + SSO plan.
+- [`DESIGN.md`](DESIGN.md) — design decisions for both packages plus
+  an open-questions / future-work log.
 
 Operational:
 
-- [`TODO.md`](TODO.md) — what's specced but not yet built (SSO, API
-  keys, observability).
+- [`TODO.md`](TODO.md) — what's specced but not yet built (API keys,
+  JSON API, self-service SSO linking).
 - [`AGENTS.md`](AGENTS.md) — short pointer for agents / new contributors.
 
 ## Status
 
-Built and exercised by six examples + 200+ unit/HTTP tests. Stable
+Built and exercised by seven examples + 200+ unit/HTTP tests. Stable
 enough to run in-house tools and small production apps:
 
 - **`gone/crud`** — settled. CRUDTable + Admin + MetaModel +
   validators + relation pickers.
 - **`gone/auth`** — sessions, CSRF, AuthSimple, AuthGORM, TOTP,
-  passkeys, account page, authz interface.
+  passkeys, SSO (OIDC + OAuth2), account page, authz interface.
 
 Planned (see [`TODO.md`](TODO.md)):
 
-- **SSO via OIDC** — design done (PRD-AUTH §6.5.3), implementation
-  pending.
+- **Self-service SSO linking** — let a logged-in user attach a new
+  SSO provider to an existing account (identities currently arrive
+  only via first login).
 - **API keys** — bearer-token auth that bypasses CSRF but uses the
   same authz path.
 - **JSON API** — `JSONAPI` component sharing MetaModel + data
