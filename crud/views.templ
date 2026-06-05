@@ -624,33 +624,46 @@ func pageRange(cur, total int) []int {
 templ AdminView(d AdminViewData) {
 	<div id="crud-admin-root">
 		<div class="flex gap-6">
-			<!-- hx-boost is scoped to the sidebar so it only intercepts
-			     <a>/sidebar clicks — earlier it sat on #crud-admin-root and
-			     was inherited by the working area, where the CRUDTable's
-			     edit/delete buttons each have their own hx-target/swap.
-			     The inherited hx-select="#crud-admin-root" then ran on
-			     responses that don't contain that id, returning empty
-			     content and silently blanking the modal body. -->
-			<aside
-				class="w-56 shrink-0"
-				hx-boost="true"
-				hx-target="#crud-admin-root"
-				hx-select="#crud-admin-root"
-				hx-swap="outerHTML"
-			>
+			<!-- Each model-entry anchor carries its own hx-boost +
+			     target + select + swap, instead of inheriting them
+			     from <aside>. Two reasons:
+			     1. CRUDTable's edit/delete buttons live INSIDE the
+			        working area. With boost on the aside, the inherited
+			        hx-select="#crud-admin-root" leaked down — modal
+			        Save responses (which are bare form fragments) had
+			        no such element, so the swap silently blanked the
+			        modal body.
+			     2. Custom SidebarLink rows want different target+swap
+			        behaviour (fragment into #crud-admin-main, not the
+			        whole admin tree). With per-anchor attrs there's
+			        nothing to inherit / disinherit; each link is
+			        self-contained. -->
+			<aside class="w-56 shrink-0">
 				<ul class="menu bg-base-200 rounded-box w-full">
+					for _, link := range d.TopLinks {
+						@adminSidebarCustomLink(link)
+					}
 					for _, e := range d.Entries {
 						<li>
-							if e.Active {
-								<a href={ templ.URL(e.URL) } class="menu-active" aria-current="page">{ e.DisplayName }</a>
-							} else {
-								<a href={ templ.URL(e.URL) }>{ e.DisplayName }</a>
-							}
+							<a
+								href={ templ.URL(e.URL) }
+								hx-boost="true"
+								hx-target="#crud-admin-root"
+								hx-select="#crud-admin-root"
+								hx-swap="outerHTML"
+								if e.Active {
+									class="menu-active"
+									aria-current="page"
+								}
+							>{ e.DisplayName }</a>
 						</li>
+					}
+					for _, link := range d.BottomLinks {
+						@adminSidebarCustomLink(link)
 					}
 				</ul>
 			</aside>
-			<main class="flex-1 min-w-0">
+			<main id="crud-admin-main" class="flex-1 min-w-0">
 				if d.ActiveContent != nil {
 					@d.ActiveContent
 				} else {
@@ -659,4 +672,30 @@ templ AdminView(d AdminViewData) {
 			</main>
 		</div>
 	</div>
+}
+
+// adminSidebarCustomLink renders one SidebarLink. The link fetches its
+// URL via hx-get and swaps the response into the working area
+// (#crud-admin-main) — so the response should be a *fragment* of the
+// content area only, not a full <html> document. The address bar
+// updates via hx-push-url, so direct loads work too if the handler
+// distinguishes HX-Request and returns the page-shell-wrapped variant.
+//
+// If link.DisplayName == "" the link slot just renders the divider
+// (Separator=true) — useful for a pure visual break.
+templ adminSidebarCustomLink(link SidebarLink) {
+	if link.Separator {
+		<li class="menu-disabled my-1"><div class="h-px bg-base-300"></div></li>
+	}
+	if link.DisplayName != "" {
+		<li>
+			<a
+				href={ templ.URL(link.URL) }
+				hx-get={ link.URL }
+				hx-target="#crud-admin-main"
+				hx-swap="innerHTML"
+				hx-push-url="true"
+			>{ link.DisplayName }</a>
+		</li>
+	}
 }

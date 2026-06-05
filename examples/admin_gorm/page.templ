@@ -52,3 +52,18 @@ templ pageLayout(title string, content templ.Component) {
 		</body>
 	</html>
 }
+
+// helloFragment is the body for /testlink. Rendered as a fragment
+// inside admin's working area when HX-Request: true; wrapped in
+// pageLayout when the user hits /testlink directly.
+templ helloFragment() {
+	<div class="card bg-base-100 shadow">
+		<div class="card-body">
+			<h2 class="card-title">Hello from /testlink</h2>
+			<p>This page lives outside the CRUD admin. The sidebar link
+			pulled it in via HTMX (just the content area swapped); a
+			direct request to <code>/testlink</code> renders it inside the
+			app's page shell instead.</p>
+		</div>
+	</div>
+}

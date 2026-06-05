@@ -162,6 +162,15 @@ func main() {
 	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
 	admin := crud.DeriveAdminAutoWire(tables, nil)
 
+	// Demonstrate Admin's custom sidebar links. Each link swaps the
+	// response into the admin working area (#crud-admin-main); the
+	// /testlink handler below returns a fragment under HTMX and a
+	// full page when navigated to directly.
+	admin.SidebarBottom = []crud.SidebarLink{
+		{Separator: true},
+		{DisplayName: "Hello", URL: "/testlink"},
+	}
+
 	// admin.Route mounts Admin at baseUrl + "/" + Admin.Slug — here
 	// "/" + "admin" = "/admin". The library auto-routes:
 	//   - GET /admin → 303 to /admin/{first.Slug}
@@ -175,6 +184,21 @@ func main() {
 	}
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, adminURL, http.StatusSeeOther)
+	})
+
+	// /testlink — the target of the custom sidebar link. HTMX
+	// requests get the bare fragment swapped into the admin's main
+	// pane; direct browser hits get the full page wrapped in the
+	// shell.
+	mux.HandleFunc("GET /testlink", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := helloFragment().Render(r.Context(), w); err != nil {
+				log.Printf("render: %v", err)
+			}
+			return
+		}
+		pageShell(w, r, "Hello", helloFragment())
 	})
 
 	addr := ":8080"

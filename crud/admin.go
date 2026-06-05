@@ -42,9 +42,38 @@ type Admin struct {
 	// multi-admin scenarios.
 	Slug string
 
+	// SidebarTop / SidebarBottom are optional app-defined links that
+	// render above / below the table entries. Clicking one HTMX-swaps
+	// the response into the working area (#crud-admin-main) instead
+	// of the whole admin root, so the response should be a *fragment*
+	// of the content area (the app's handler returns whatever should
+	// occupy the right pane).
+	//
+	// The app is responsible for handling the URLs. The library doesn't
+	// auto-route them — they can point at any path the mux already
+	// covers.
+	SidebarTop    []SidebarLink
+	SidebarBottom []SidebarLink
+
 	// urlBase is the absolute prefix Admin was routed under (e.g.
 	// "/admin"). Set by Route.
 	urlBase string
+}
+
+// SidebarLink is one custom entry in Admin's sidebar — a static link
+// at the top or bottom of the menu. Clicking it HTMX-fetches URL and
+// swaps the response into the working area; the address bar updates
+// via hx-push-url, so reloading the page or navigating directly to
+// URL also works (the app's handler decides whether to return a
+// fragment or a full page based on HX-Request).
+type SidebarLink struct {
+	DisplayName string
+	URL         string
+	// Separator: render a thin divider above this link. Use for
+	// grouping ("Custom" section after the models, etc.) or as a
+	// dummy entry on its own (DisplayName / URL both empty) for a
+	// pure visual break.
+	Separator bool
 }
 
 // DeriveAdmin builds an Admin from a list of pre-derived CRUDTables.
@@ -202,6 +231,8 @@ func (a *Admin) Render(r *http.Request) (templ.Component, error) {
 	return AdminView(AdminViewData{
 		Entries:       entries,
 		ActiveContent: activeContent,
+		TopLinks:      a.SidebarTop,
+		BottomLinks:   a.SidebarBottom,
 	}), nil
 }
 
@@ -231,4 +262,6 @@ type AdminEntry struct {
 type AdminViewData struct {
 	Entries       []AdminEntry
 	ActiveContent templ.Component // nil when no slug matches
+	TopLinks      []SidebarLink   // rendered above Entries
+	BottomLinks   []SidebarLink   // rendered below Entries
 }
