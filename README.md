@@ -1,10 +1,12 @@
 # gone — Go Object Navigation Elements
 
-A Go library that renders **HTMX-driven CRUD UIs** from a struct's
-metadata. Describe a model once and get a working list page, create /
+A Go library for **HTMX-driven CRUD UIs and the auth stack** around
+them. Describe a model once and get a working list page, create /
 edit forms, and a per-row detail view — with validation, relation
 pickers, an HTMX modal flow, and an Admin that bundles many models
-behind a sidebar.
+behind a sidebar. Plug in sessions, CSRF, login (password + TOTP +
+passkeys), and an authorization interface that gates everything
+above.
 
 ```go
 type Hero struct {
@@ -143,34 +145,99 @@ peer tables' model names and fills `RelatedCRUD` automatically — Hero's
 `Skills []Skill` widget knows about the Skill table without any manual
 wiring.
 
+## Auth
+
+`gone/auth` ships two `Auth` implementations:
+
+- **`AuthSimple`** — in-memory users, argon2id at rest. For tests,
+  prototypes, and one-admin setups.
+- **`AuthGORM`** — GORM-backed users + groups + passkeys + TOTP.
+  Multi-method login form (password / passkey / SSO-once-built).
+  Self-service account page.
+
+Both implement the same `auth.Auth` interface, so apps swap impls
+by changing one constructor.
+
+```go
+sm := scs.New()
+sa := auth.NewAuthSimple(sm)
+sa.UserAdd("admin", "admin@local", "admin")
+
+mux := http.NewServeMux()
+sa.Route(mux, "", pageShell)
+
+// Pipeline: scs.LoadAndSave → auth.CSRFWrap → app mux.
+handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
+```
+
+For CRUDTable / Admin gating, drop in one of the stock `Authz`
+helpers — `AuthzLoggedIn`, `AuthzLoggedInReadOnly`,
+`AuthzLoggedInReadAdminWrite`, `AuthzAllowAll`, `AuthzDenyAll`:
+
+```go
+zoneTable := crud.DeriveGormCRUDTable[Zone](zoneMM,
+    auth.AuthzLoggedInReadAdminWrite{Auth: a}, db)
+```
+
+Or implement `auth.Authz` directly for per-resource policy. See
+[`docs/AUTH.md`](docs/AUTH.md) for the full surface.
+
 ## Examples
 
 | Path                          | Demonstrates                                                  |
 |-------------------------------|---------------------------------------------------------------|
 | `examples/form_mem`           | Single struct, manual handlers using `MetaModel.RenderForm` / `TryBindForm`. Shows the IPv4-or-IPv6 validator. |
-| `examples/crud_mem`           | One `CRUDTable` over an in-memory map.                         |
+| `examples/crud_mem`           | One `CRUDTable` over an in-memory map.                        |
 | `examples/crud_gorm`          | Three `CRUDTable`s (Hero, Weapon, Skill) with 1:N and N:M relations. GORM backend. MPA-style — one model per page. |
-| `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` with `DeriveAdminAutoWire`. Zero per-field tweaking. |
+| `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` with `DeriveAdminAutoWire`. Custom sidebar link demo. Zero per-field tweaking. |
+| `examples/auth_simple`        | `AuthSimple` + a single CRUDTable behind a gated page shell. |
+| `examples/auth_gorm`          | Full `AuthGORM`: User + Group CRUDTables under Admin; `AuthzLoggedInReadAdminWrite`; password / TOTP / passkey login; account modal. |
 
 ```sh
 go run ./examples/admin_gorm
 # open http://localhost:8080/admin
+
+go run ./examples/auth_gorm
+# open http://localhost:8080/login — login admin / admin
 ```
 
 ## Documentation
 
-- [`docs/CRUD.md`](docs/CRUD.md) — full API reference, design notes,
-  modal flow, validation pipeline, composition trade-offs.
+User-facing references (the practical "how do I…?" docs):
+
+- [`docs/CRUD.md`](docs/CRUD.md) — full CRUD API reference, design
+  notes, modal flow, validation pipeline, composition trade-offs.
+- [`docs/AUTH.md`](docs/AUTH.md) — sessions / CSRF / login (password,
+  TOTP, passkeys) / authz reference, with worked examples.
+
+Design history (the "why does it look like this?" docs):
+
 - [`PRD-CRUD.md`](PRD-CRUD.md) — design document for the CRUD package
   (target API + rationale).
-- [`PRD-AUTH.md`](PRD-AUTH.md) — design document for the auth /
-  CSRF / RBAC packages (work in progress).
-- [`TODO.md`](TODO.md) — sketched-but-unbuilt features outside the
-  auth scope (JSON API, observability, etc.).
+- [`PRD-AUTH.md`](PRD-AUTH.md) — design document for the auth / CSRF /
+  authz packages, including the full passkey + SSO plan.
+
+Operational:
+
+- [`TODO.md`](TODO.md) — what's specced but not yet built (SSO, API
+  keys, observability).
+- [`AGENTS.md`](AGENTS.md) — short pointer for agents / new contributors.
 
 ## Status
 
-Built and exercised by the four examples + ~50 unit/HTTP tests.
-Stable enough to use for in-house tools; the API for `CRUDTable` /
-`Admin` / `MetaModel` is settled. Auth / CSRF / API key work is
-planned (see TODO).
+Built and exercised by six examples + 200+ unit/HTTP tests. Stable
+enough to run in-house tools and small production apps:
+
+- **`gone/crud`** — settled. CRUDTable + Admin + MetaModel +
+  validators + relation pickers.
+- **`gone/auth`** — sessions, CSRF, AuthSimple, AuthGORM, TOTP,
+  passkeys, account page, authz interface.
+
+Planned (see [`TODO.md`](TODO.md)):
+
+- **SSO via OIDC** — design done (PRD-AUTH §6.5.3), implementation
+  pending.
+- **API keys** — bearer-token auth that bypasses CSRF but uses the
+  same authz path.
+- **JSON API** — `JSONAPI` component sharing MetaModel + data
+  closures with CRUDTable.

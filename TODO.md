@@ -1,13 +1,53 @@
 # gone — TODO
 
-Features outside the scope of the two PRDs:
+What's specced but not built yet, or sketched as a future direction.
 
-- `gone/crud` design is documented in [`PRD-CRUD.md`](PRD-CRUD.md);
-  see [`docs/CRUD.md`](docs/CRUD.md) for the user-facing reference.
-- `gone/auth` + `gone/authz` design is in [`PRD-AUTH.md`](PRD-AUTH.md)
-  (in flight).
+## Documentation map
 
-What's collected here is what's *not* covered by either PRD yet.
+- `gone/crud` design → [`PRD-CRUD.md`](PRD-CRUD.md); user reference
+  → [`docs/CRUD.md`](docs/CRUD.md).
+- `gone/auth` design → [`PRD-AUTH.md`](PRD-AUTH.md); user reference
+  → [`docs/AUTH.md`](docs/AUTH.md).
+
+Everything below is *not* covered by either reference yet.
+
+## SSO (OIDC)
+
+PRD-AUTH §6.5.3 specs federated login via `coreos/go-oidc/v3` +
+`golang.org/x/oauth2`. Authorization-code with PKCE, ID-token
+verification, per-(user, provider) `OIDCIdentityGORM` rows so a
+user can link several providers.
+
+Schema, route layout, user-mapping policy (subject → email →
+AutoCreate → 403), session keys (state / verifier / nonce / next),
+and the multi-provider login button row are all in the PRD. What's
+left is the implementation:
+
+```go
+type OIDCProvider struct {
+    Name         string   // path segment, e.g. "github"
+    DisplayName  string   // button label, e.g. "GitHub"
+    IssuerURL    string
+    ClientID     string
+    ClientSecret string
+    Scopes       []string
+
+    AutoCreate    bool     // first-time-from-this-provider: create user?
+    DefaultGroups []string // groups for auto-created users
+}
+
+func (a *AuthGORM) AddOIDCProvider(p OIDCProvider) error
+```
+
+Routes (per registered provider):
+
+```
+POST /login/oidc/{name}            — redirect to IdP authorize
+GET  /login/oidc/{name}/callback   — verify token, log in (bypasses TOTP)
+```
+
+Account-page "Linked accounts" card with Link / Unlink buttons is
+part of the same milestone.
 
 ## API keys
 
@@ -32,7 +72,8 @@ type APIKey struct {
 }
 ```
 
-Will land in `gone/auth/apikey/` after the base session/login work.
+Will land in `gone/auth/apikey.go` (single file, follows the
+pattern set by `passkey.go` / `totp_account.go` etc.).
 
 ## JSON API
 
@@ -67,19 +108,29 @@ Future: `gone/jsonapi`.
 
 ## Other deferred items
 
-- **Per-row authz on CRUDTable**: today's `Authz.CanRead(r)` etc. don't
-  see the row ID. For per-resource grants we'd want
-  `CanReadRow(r, id uint)`. Worth doing in the same milestone as
-  RBAC — see PRD-AUTH §17 open question.
-- **Observability defaults**: structured logs via `log/slog`, Prometheus
-  metrics, request IDs.
+- **Per-row authz on CRUDTable**: today's `Authz.CanRead(r)` etc.
+  don't see the row ID. Decision (PRD-AUTH): per-row visibility is
+  the app's design space — implement `auth.Authz` directly and
+  filter at the SQL/data layer. Not planned for the core interface.
+- **Software authenticator for passkey unit tests**: the existing
+  passkey tests cover schema / routes / IsAuthPath / UI, but the
+  full WebAuthn ceremony is exercised live in `examples/auth_gorm`,
+  not in unit tests. Adding a mock authenticator (CBOR + ECDSA
+  signing) would close the gap.
+- **Observability defaults**: structured logs via `log/slog`,
+  Prometheus metrics, request IDs.
 - **Proxy support**: trust list for `X-Forwarded-*` headers; optional
   PROXY-protocol listener.
-- **Plural slug derivation**: today defaults to `strings.ToLower(Name) + "s"`,
-  which is wrong for irregular plurals (Hero→heros, Person→persons,
-  Sheep→sheeps). A `Pluralize` tag or a small dictionary would help.
+- **Plural slug derivation**: today defaults to
+  `strings.ToLower(Name) + "s"`, which is wrong for irregular plurals
+  (Hero→heros, Person→persons, Sheep→sheeps). A `Pluralize` tag or a
+  small dictionary would help.
 - **Field-level audit logging**: opt-in via GORM hooks per model.
-- **Multi-DB user federation**: out of scope; the single `User` table
-  with optional external-auth links (`OIDCSubject`) is enough.
 - **Password reset / email verification**: needs an email-sending
-  abstraction the library doesn't have yet.
+  abstraction the library doesn't have yet. Relevant for
+  passwordless users (passkey-only) who lose access to all their
+  devices — currently the admin-disable rescue path is the only way
+  back.
+- **Single Sign-Out (SLO)** for OIDC: destroying the local session
+  is sufficient. SLO requires per-provider machinery we're
+  intentionally skipping.
