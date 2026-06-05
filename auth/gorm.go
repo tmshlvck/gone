@@ -44,10 +44,18 @@ type UserGORM struct {
 	// crypto/rand.
 	WebAuthnHandle []byte `gorm:"size:32"`
 	Disabled       bool
-	Groups         []GroupGORM   `gorm:"many2many:auth_user_groups"`
-	Passkeys       []PasskeyGORM `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// SSOOnly: when true the user can sign in only via a linked SSO
+	// identity (or an enrolled TOTP code on top of it). Self-service
+	// password change and passkey enrolment are blocked at the
+	// account-page handlers; the admin can clear this flag to give
+	// the user back local-credential access. Set automatically when
+	// first-login SSO auto-creates a user.
+	SSOOnly       bool
+	Groups        []GroupGORM       `gorm:"many2many:auth_user_groups"`
+	Passkeys      []PasskeyGORM     `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	SSOIdentities []SSOIdentityGORM `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // PasskeyGORM is one WebAuthn credential bound to one UserGORM. A
@@ -77,8 +85,8 @@ func (UserGORM) TableName() string { return "auth_users" }
 
 // GroupGORM is the GORM-backed group row.
 type GroupGORM struct {
-	ID        uint   `gorm:"primaryKey"`
-	Name      string `gorm:"uniqueIndex;size:64"`
+	ID        uint       `gorm:"primaryKey"`
+	Name      string     `gorm:"uniqueIndex;size:64"`
 	Users     []UserGORM `gorm:"many2many:auth_user_groups"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -154,12 +162,21 @@ type AuthGORM struct {
 	RPID          string
 	RPOrigins     []string
 
-	urlBase             string
-	loginPath           string
-	logoutPath          string
-	totpPath            string // {base}/login/totp
-	passkeyOptionsPath  string // {base}/login/passkey/options
-	passkeyFinishPath   string // {base}/login/passkey/finish
+	// ssoProviders are the registered SSO (OIDC + OAuth2) providers,
+	// in registration order. Empty = SSO not in use; the login form
+	// renders no "Sign in with …" buttons and IsAuthPath excludes
+	// /login/sso/*. See sso.go for the provider types and AddOIDCProvider
+	// / AddOAuth2Provider for registration.
+	ssoProviders []ssoProvider
+
+	urlBase            string
+	loginPath          string
+	logoutPath         string
+	totpPath           string // {base}/login/totp
+	passkeyOptionsPath string // {base}/login/passkey/options
+	passkeyFinishPath  string // {base}/login/passkey/finish
+	ssoStartPath       string // {base}/login/sso (prefix; route uses {name})
+	ssoCallbackPath    string // {base}/login/sso (prefix; route uses {name}/callback)
 }
 
 // NewAuthGORM constructs an AuthGORM and runs db.AutoMigrate for
@@ -172,7 +189,7 @@ func NewAuthGORM(sm *scs.SessionManager, db *gorm.DB) (*AuthGORM, error) {
 	if db == nil {
 		return nil, errors.New("auth.NewAuthGORM: nil DB")
 	}
-	if err := db.AutoMigrate(&UserGORM{}, &GroupGORM{}, &PasskeyGORM{}); err != nil {
+	if err := db.AutoMigrate(&UserGORM{}, &GroupGORM{}, &PasskeyGORM{}, &SSOIdentityGORM{}); err != nil {
 		return nil, fmt.Errorf("auth.NewAuthGORM: migrate: %w", err)
 	}
 	return &AuthGORM{
@@ -379,8 +396,8 @@ func (a *AuthGORM) LoginURL(next string) string {
 
 // IsAuthPath: any path required by an auth ceremony that the user
 // reaches before being fully signed-in. Password page, staged TOTP
-// step, passkey JSON endpoints. Account pages are gated by impl
-// authz, not by the page shell.
+// step, passkey JSON endpoints, SSO start + callback. Account pages
+// are gated by impl authz, not by the page shell.
 func (a *AuthGORM) IsAuthPath(path string) bool {
 	if a.loginPath != "" {
 		if path == a.loginPath {
@@ -396,6 +413,13 @@ func (a *AuthGORM) IsAuthPath(path string) bool {
 		return true
 	}
 	if a.passkeyFinishPath != "" && path == a.passkeyFinishPath {
+		return true
+	}
+	// SSO start and callback both live under {base}/login/sso/ and
+	// terminate at /{name} or /{name}/callback. Any path with that
+	// prefix is treated as an auth path so the page shell doesn't
+	// redirect anonymous browsers mid-ceremony.
+	if a.ssoStartPath != "" && strings.HasPrefix(path, a.ssoStartPath+"/") {
 		return true
 	}
 	return false
@@ -450,6 +474,8 @@ func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, 
 	a.totpPath = base + "/login/totp"
 	a.passkeyOptionsPath = base + "/login/passkey/options"
 	a.passkeyFinishPath = base + "/login/passkey/finish"
+	a.ssoStartPath = base + "/login/sso"
+	a.ssoCallbackPath = base + "/login/sso"
 	// Passkey paths are wired into the login form only when RP is
 	// configured — gates the "Use passkey" button + conditional UI.
 	var pkOpts, pkFin string
@@ -468,6 +494,7 @@ func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, 
 		Shell:              shell,
 		PasskeyOptionsPath: pkOpts,
 		PasskeyFinishPath:  pkFin,
+		SSOButtons:         a.ssoLoginButtons,
 	})
 	a.mountTOTPLoginRoutes(mux, shell)
 	a.mountAccountRoutes(mux, base, shell)
@@ -479,6 +506,10 @@ func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, 
 	if a.RPID != "" {
 		a.mountPasskeyLoginRoutes(mux)
 	}
+	// SSO is opt-in per provider. With zero providers configured the
+	// mount is a no-op and IsAuthPath reports false for the sso
+	// prefix.
+	a.mountSSOLoginRoutes(mux, shell)
 	return a.urlBase, nil
 }
 

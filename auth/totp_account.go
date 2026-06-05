@@ -198,6 +198,28 @@ func (a *AuthGORM) requireAccountSelf(w http.ResponseWriter, r *http.Request) (U
 	return current, target, true
 }
 
+// requireSelfNotSSO is requireAccountSelf plus the SSOOnly flag
+// check. Used by enrolment paths that create new local credentials
+// (password change, passkey begin / finish) — SSO-managed accounts
+// shouldn't be able to bootstrap themselves out of the SSO-only
+// policy without the admin first clearing the flag.
+//
+// TOTP enrolment intentionally does NOT use this gate — TOTP layers
+// on top of any sign-in method, including SSO. Passkey *delete*
+// also doesn't gate (housekeeping should stay available so users
+// can clean up legacy credentials).
+func (a *AuthGORM) requireSelfNotSSO(w http.ResponseWriter, r *http.Request) (User, *UserGORM, bool) {
+	current, target, ok := a.requireAccountSelf(w, r)
+	if !ok {
+		return nil, nil, false
+	}
+	if target.SSOOnly {
+		http.Error(w, "this account is managed via SSO; password and passkey self-enrolment is disabled. Ask an admin to clear the SSO-Only flag.", http.StatusForbidden)
+		return nil, nil, false
+	}
+	return current, target, true
+}
+
 // totpIssuer returns the configured issuer or the package default.
 func (a *AuthGORM) totpIssuer() string {
 	if a.TOTPIssuer != "" {
@@ -271,4 +293,3 @@ func isURLPathSafe(c byte) bool {
 	}
 	return false
 }
-

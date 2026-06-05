@@ -6,10 +6,12 @@ require (
 	github.com/a-h/templ v0.3.1020
 	github.com/alexedwards/argon2id v1.0.0
 	github.com/alexedwards/scs/v2 v2.9.0
+	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-webauthn/webauthn v0.17.4
 	github.com/pquerna/otp v1.5.0
 	github.com/swaggest/openapi-go v0.2.61
+	golang.org/x/oauth2 v0.36.0
 	gorm.io/gorm v1.31.1
 )
 
@@ -18,6 +20,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/x v0.2.6 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect

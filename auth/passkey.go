@@ -174,7 +174,7 @@ type passkeyEnrolPending struct {
 // PublicKeyCredentialCreationOptions JSON the browser will hand to
 // navigator.credentials.create().
 func (a *AuthGORM) handlePasskeyEnrolBegin(w http.ResponseWriter, r *http.Request) {
-	_, target, ok := a.requireAccountSelf(w, r)
+	_, target, ok := a.requireSelfNotSSO(w, r)
 	if !ok {
 		return
 	}
@@ -232,7 +232,7 @@ func (a *AuthGORM) handlePasskeyEnrolBegin(w http.ResponseWriter, r *http.Reques
 // handlePasskeyEnrolFinish: parses the attestation, verifies it
 // against the stashed challenge, and persists the credential.
 func (a *AuthGORM) handlePasskeyEnrolFinish(w http.ResponseWriter, r *http.Request) {
-	_, target, ok := a.requireAccountSelf(w, r)
+	_, target, ok := a.requireSelfNotSSO(w, r)
 	if !ok {
 		return
 	}

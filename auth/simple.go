@@ -317,6 +317,12 @@ type passwordLoginOpts struct {
 	// them only when RP fields are configured.
 	PasskeyOptionsPath string
 	PasskeyFinishPath  string
+
+	// SSOButtons is a closure (rather than a static slice) because
+	// the per-request `next` URL needs to be baked into each button's
+	// URL — `Sign in with X` carries the user's original destination
+	// through the OAuth round-trip. nil = no SSO section rendered.
+	SSOButtons func(next string) []ssoButtonInfo
 }
 
 func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
@@ -329,6 +335,7 @@ func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 			PasskeysEnabled: o.PasskeyOptionsPath != "" && o.PasskeyFinishPath != "",
 			PasskeyOptions:  o.PasskeyOptionsPath,
 			PasskeyFinish:   o.PasskeyFinishPath,
+			SSOButtons:      ssoButtonList(o.SSOButtons, next),
 		})
 		writeShell(w, r, "Sign in", body, o.Shell)
 	})
@@ -353,6 +360,7 @@ func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 				PasskeysEnabled: o.PasskeyOptionsPath != "" && o.PasskeyFinishPath != "",
 				PasskeyOptions:  o.PasskeyOptionsPath,
 				PasskeyFinish:   o.PasskeyFinishPath,
+				SSOButtons:      ssoButtonList(o.SSOButtons, next),
 			})
 			w.WriteHeader(http.StatusUnauthorized)
 			writeShell(w, r, "Sign in", body, o.Shell)

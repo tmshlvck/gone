@@ -8,6 +8,8 @@ package auth
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
+import "strconv"
+
 // loginFormData carries the parameters loginForm needs. Bundled into a
 // struct so the templ signature stays short and the call site reads as
 // named arguments.
@@ -20,6 +22,11 @@ type loginFormData struct {
 	PasskeysEnabled bool   // controls "Use passkey" button + conditional-UI script
 	PasskeyOptions  string // /login/passkey/options
 	PasskeyFinish   string // /login/passkey/finish
+	// SSOButtons is one entry per registered SSO provider; empty
+	// when no providers are configured. The template renders one
+	// "Sign in with <DisplayName>" link per entry below the password
+	// "Sign in" button.
+	SSOButtons []ssoButtonInfo
 }
 
 // loginForm is the body fragment rendered by GET /login. The app's
@@ -58,7 +65,7 @@ func loginForm(d loginFormData) templ.Component {
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 28, Col: 22}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 35, Col: 22}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -76,7 +83,7 @@ func loginForm(d loginFormData) templ.Component {
 		var templ_7745c5c3_Var3 templ.SafeURL
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.Action))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 31, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 38, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -89,7 +96,7 @@ func loginForm(d loginFormData) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 32, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 39, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -102,7 +109,7 @@ func loginForm(d loginFormData) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Next)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 33, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 40, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -120,7 +127,7 @@ func loginForm(d loginFormData) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 40, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 47, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
@@ -138,7 +145,7 @@ func loginForm(d loginFormData) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 42, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 49, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 			if templ_7745c5c3_Err != nil {
@@ -153,60 +160,66 @@ func loginForm(d loginFormData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
+		if d.PasskeysEnabled || len(d.SSOButtons) > 0 {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"divider text-xs opacity-60\">or</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
 		if d.PasskeysEnabled {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"divider text-xs opacity-60\">or</div><button id=\"auth-passkey-login-btn\" type=\"button\" class=\"btn btn-outline\" data-passkey-options=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<button id=\"auth-passkey-login-btn\" type=\"button\" class=\"btn btn-outline\" data-passkey-options=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyOptions)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 57, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 66, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" data-passkey-finish=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" data-passkey-finish=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyFinish)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 58, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 67, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" data-passkey-next=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" data-passkey-next=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.Next)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 59, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 68, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" data-csrf=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" data-csrf=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 60, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 69, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\">🔑 Use passkey</button><div id=\"auth-passkey-login-error\" role=\"alert\" class=\"alert alert-error hidden\"><span></span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\">🔑 Use passkey</button><div id=\"auth-passkey-login-error\" role=\"alert\" class=\"alert alert-error hidden\"><span></span></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -215,7 +228,39 @@ func loginForm(d loginFormData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</div></div></div></div>")
+		for _, b := range d.SSOButtons {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var12 templ.SafeURL
+			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(b.URL))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 77, Col: 36}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" class=\"btn btn-outline\" data-testid=\"sso-login\">Sign in with ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(b.DisplayName)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 78, Col: 35}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "</a>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "</div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -250,12 +295,12 @@ func passkeyLoginScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var12 == nil {
-			templ_7745c5c3_Var12 = templ.NopComponent
+		templ_7745c5c3_Var14 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var14 == nil {
+			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<script>\n\t\t(function(){\n\t\t\tconst btn = document.getElementById('auth-passkey-login-btn');\n\t\t\tif (!btn || btn.dataset.passkeyAttached) return;\n\t\t\tbtn.dataset.passkeyAttached = '1';\n\t\t\tconst errBox = document.getElementById('auth-passkey-login-error');\n\t\t\tconst showErr = m => { errBox.classList.remove('hidden'); errBox.querySelector('span').textContent = m; };\n\t\t\tconst hideErr = () => errBox.classList.add('hidden');\n\t\t\tconst optsURL = btn.dataset.passkeyOptions;\n\t\t\tconst finURL = btn.dataset.passkeyFinish;\n\t\t\tconst csrf = btn.dataset.csrf;\n\t\t\tconst next = btn.dataset.passkeyNext;\n\n\t\t\tasync function attempt(conditional) {\n\t\t\t\thideErr();\n\t\t\t\ttry {\n\t\t\t\t\tconst fd = new FormData();\n\t\t\t\t\tfd.set('csrf_token', csrf);\n\t\t\t\t\tif (next) fd.set('next', next);\n\t\t\t\t\tconst r1 = await fetch(optsURL, { method: 'POST', body: fd, headers: { 'X-CSRF-Token': csrf }, credentials: 'same-origin' });\n\t\t\t\t\tif (!r1.ok) throw new Error(await r1.text());\n\t\t\t\t\tconst optsJSON = await r1.json();\n\t\t\t\t\tconst opts = typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function'\n\t\t\t\t\t\t? PublicKeyCredential.parseRequestOptionsFromJSON(optsJSON.publicKey)\n\t\t\t\t\t\t: parseRequestOptionsJSON(optsJSON.publicKey);\n\t\t\t\t\tconst params = { publicKey: opts };\n\t\t\t\t\tif (conditional) params.mediation = 'conditional';\n\t\t\t\t\tconst cred = await navigator.credentials.get(params);\n\t\t\t\t\tif (!cred) return; // user cancelled or conditional dismissed\n\t\t\t\t\tconst credJSON = typeof cred.toJSON === 'function'\n\t\t\t\t\t\t? cred.toJSON()\n\t\t\t\t\t\t: serializeAssertion(cred);\n\t\t\t\t\tconst r2 = await fetch(finURL, {\n\t\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\t\theaders: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },\n\t\t\t\t\t\tbody: JSON.stringify(credJSON),\n\t\t\t\t\t\tcredentials: 'same-origin',\n\t\t\t\t\t});\n\t\t\t\t\tif (!r2.ok) throw new Error(await r2.text());\n\t\t\t\t\tconst ack = await r2.json();\n\t\t\t\t\tlocation.href = ack.next || '/';\n\t\t\t\t} catch (err) {\n\t\t\t\t\t// Conditional UI failures are silent — the user\n\t\t\t\t\t// can still use password / explicit button.\n\t\t\t\t\tif (conditional) return;\n\t\t\t\t\tshowErr(err.message || String(err));\n\t\t\t\t}\n\t\t\t}\n\t\t\tbtn.addEventListener('click', () => attempt(false));\n\t\t\tif (typeof PublicKeyCredential.isConditionalMediationAvailable === 'function') {\n\t\t\t\tPublicKeyCredential.isConditionalMediationAvailable().then(avail => {\n\t\t\t\t\tif (avail) attempt(true);\n\t\t\t\t}).catch(()=>{});\n\t\t\t}\n\n\t\t\t// — base64url helpers —\n\t\t\tfunction b64uToBuf(s) {\n\t\t\t\ts = s.replace(/-/g, '+').replace(/_/g, '/');\n\t\t\t\twhile (s.length % 4) s += '=';\n\t\t\t\tconst bin = atob(s);\n\t\t\t\tconst buf = new Uint8Array(bin.length);\n\t\t\t\tfor (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);\n\t\t\t\treturn buf.buffer;\n\t\t\t}\n\t\t\tfunction bufToB64u(buf) {\n\t\t\t\tconst bin = String.fromCharCode(...new Uint8Array(buf));\n\t\t\t\treturn btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n\t\t\t}\n\t\t\tfunction parseRequestOptionsJSON(o) {\n\t\t\t\to = { ...o };\n\t\t\t\to.challenge = b64uToBuf(o.challenge);\n\t\t\t\tif (Array.isArray(o.allowCredentials)) {\n\t\t\t\t\to.allowCredentials = o.allowCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));\n\t\t\t\t}\n\t\t\t\treturn o;\n\t\t\t}\n\t\t\tfunction serializeAssertion(cred) {\n\t\t\t\treturn {\n\t\t\t\t\tid: cred.id,\n\t\t\t\t\trawId: bufToB64u(cred.rawId),\n\t\t\t\t\ttype: cred.type,\n\t\t\t\t\tresponse: {\n\t\t\t\t\t\tclientDataJSON: bufToB64u(cred.response.clientDataJSON),\n\t\t\t\t\t\tauthenticatorData: bufToB64u(cred.response.authenticatorData),\n\t\t\t\t\t\tsignature: bufToB64u(cred.response.signature),\n\t\t\t\t\t\tuserHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : null,\n\t\t\t\t\t},\n\t\t\t\t\tclientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},\n\t\t\t\t};\n\t\t\t}\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<script>\n\t\t(function(){\n\t\t\tconst btn = document.getElementById('auth-passkey-login-btn');\n\t\t\tif (!btn || btn.dataset.passkeyAttached) return;\n\t\t\tbtn.dataset.passkeyAttached = '1';\n\t\t\tconst errBox = document.getElementById('auth-passkey-login-error');\n\t\t\tconst showErr = m => { errBox.classList.remove('hidden'); errBox.querySelector('span').textContent = m; };\n\t\t\tconst hideErr = () => errBox.classList.add('hidden');\n\t\t\tconst optsURL = btn.dataset.passkeyOptions;\n\t\t\tconst finURL = btn.dataset.passkeyFinish;\n\t\t\tconst csrf = btn.dataset.csrf;\n\t\t\tconst next = btn.dataset.passkeyNext;\n\n\t\t\tasync function attempt(conditional) {\n\t\t\t\thideErr();\n\t\t\t\ttry {\n\t\t\t\t\tconst fd = new FormData();\n\t\t\t\t\tfd.set('csrf_token', csrf);\n\t\t\t\t\tif (next) fd.set('next', next);\n\t\t\t\t\tconst r1 = await fetch(optsURL, { method: 'POST', body: fd, headers: { 'X-CSRF-Token': csrf }, credentials: 'same-origin' });\n\t\t\t\t\tif (!r1.ok) throw new Error(await r1.text());\n\t\t\t\t\tconst optsJSON = await r1.json();\n\t\t\t\t\tconst opts = typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function'\n\t\t\t\t\t\t? PublicKeyCredential.parseRequestOptionsFromJSON(optsJSON.publicKey)\n\t\t\t\t\t\t: parseRequestOptionsJSON(optsJSON.publicKey);\n\t\t\t\t\tconst params = { publicKey: opts };\n\t\t\t\t\tif (conditional) params.mediation = 'conditional';\n\t\t\t\t\tconst cred = await navigator.credentials.get(params);\n\t\t\t\t\tif (!cred) return; // user cancelled or conditional dismissed\n\t\t\t\t\tconst credJSON = typeof cred.toJSON === 'function'\n\t\t\t\t\t\t? cred.toJSON()\n\t\t\t\t\t\t: serializeAssertion(cred);\n\t\t\t\t\tconst r2 = await fetch(finURL, {\n\t\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\t\theaders: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },\n\t\t\t\t\t\tbody: JSON.stringify(credJSON),\n\t\t\t\t\t\tcredentials: 'same-origin',\n\t\t\t\t\t});\n\t\t\t\t\tif (!r2.ok) throw new Error(await r2.text());\n\t\t\t\t\tconst ack = await r2.json();\n\t\t\t\t\tlocation.href = ack.next || '/';\n\t\t\t\t} catch (err) {\n\t\t\t\t\t// Conditional UI failures are silent — the user\n\t\t\t\t\t// can still use password / explicit button.\n\t\t\t\t\tif (conditional) return;\n\t\t\t\t\tshowErr(err.message || String(err));\n\t\t\t\t}\n\t\t\t}\n\t\t\tbtn.addEventListener('click', () => attempt(false));\n\t\t\tif (typeof PublicKeyCredential.isConditionalMediationAvailable === 'function') {\n\t\t\t\tPublicKeyCredential.isConditionalMediationAvailable().then(avail => {\n\t\t\t\t\tif (avail) attempt(true);\n\t\t\t\t}).catch(()=>{});\n\t\t\t}\n\n\t\t\t// — base64url helpers —\n\t\t\tfunction b64uToBuf(s) {\n\t\t\t\ts = s.replace(/-/g, '+').replace(/_/g, '/');\n\t\t\t\twhile (s.length % 4) s += '=';\n\t\t\t\tconst bin = atob(s);\n\t\t\t\tconst buf = new Uint8Array(bin.length);\n\t\t\t\tfor (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);\n\t\t\t\treturn buf.buffer;\n\t\t\t}\n\t\t\tfunction bufToB64u(buf) {\n\t\t\t\tconst bin = String.fromCharCode(...new Uint8Array(buf));\n\t\t\t\treturn btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n\t\t\t}\n\t\t\tfunction parseRequestOptionsJSON(o) {\n\t\t\t\to = { ...o };\n\t\t\t\to.challenge = b64uToBuf(o.challenge);\n\t\t\t\tif (Array.isArray(o.allowCredentials)) {\n\t\t\t\t\to.allowCredentials = o.allowCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));\n\t\t\t\t}\n\t\t\t\treturn o;\n\t\t\t}\n\t\t\tfunction serializeAssertion(cred) {\n\t\t\t\treturn {\n\t\t\t\t\tid: cred.id,\n\t\t\t\t\trawId: bufToB64u(cred.rawId),\n\t\t\t\t\ttype: cred.type,\n\t\t\t\t\tresponse: {\n\t\t\t\t\t\tclientDataJSON: bufToB64u(cred.response.clientDataJSON),\n\t\t\t\t\t\tauthenticatorData: bufToB64u(cred.response.authenticatorData),\n\t\t\t\t\t\tsignature: bufToB64u(cred.response.signature),\n\t\t\t\t\t\tuserHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : null,\n\t\t\t\t\t},\n\t\t\t\t\tclientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},\n\t\t\t\t};\n\t\t\t}\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -280,25 +325,25 @@ func csrfField(token string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var13 == nil {
-			templ_7745c5c3_Var13 = templ.NopComponent
+		templ_7745c5c3_Var15 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var15 == nil {
+			templ_7745c5c3_Var15 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<input type=\"hidden\" name=\"csrf_token\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<input type=\"hidden\" name=\"csrf_token\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var14 string
-		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.ResolveAttributeValue(token)
+		var templ_7745c5c3_Var16 string
+		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(token)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 181, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 195, Col: 53}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -335,74 +380,74 @@ func totpLoginForm(d totpLoginFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var15 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var15 == nil {
-			templ_7745c5c3_Var15 = templ.NopComponent
+		templ_7745c5c3_Var17 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var17 == nil {
+			templ_7745c5c3_Var17 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"hero min-h-[60vh]\"><div class=\"hero-content w-full max-w-sm\"><div class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h1 class=\"card-title\">Two-factor authentication</h1><p class=\"text-sm opacity-80\">Enter the 6-digit code from your authenticator app for <b>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"hero min-h-[60vh]\"><div class=\"hero-content w-full max-w-sm\"><div class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h1 class=\"card-title\">Two-factor authentication</h1><p class=\"text-sm opacity-80\">Enter the 6-digit code from your authenticator app for <b>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var16 string
-		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(d.Username)
+		var templ_7745c5c3_Var18 string
+		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(d.Username)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 204, Col: 76}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</b>.</p>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		if d.Error != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<div role=\"alert\" class=\"alert alert-error\"><span>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var17 string
-			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 208, Col: 22}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</span></div>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<form method=\"post\" action=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var18 templ.SafeURL
-		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.Action))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 211, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 218, Col: 76}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</b>.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var19 string
-		templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 212, Col: 64}
+		if d.Error != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div role=\"alert\" class=\"alert alert-error\"><span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var19 string
+			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 222, Col: 22}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</span></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<form method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Verification code</span> <input type=\"text\" name=\"code\" inputmode=\"numeric\" pattern=\"[0-9]{6}\" maxlength=\"6\" autocomplete=\"one-time-code\" class=\"input w-full\" autofocus></label> <button type=\"submit\" class=\"btn btn-primary mt-2\">Verify</button></form></div></div></div></div>")
+		var templ_7745c5c3_Var20 templ.SafeURL
+		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.Action))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 225, Col: 57}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var21 string
+		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 226, Col: 64}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Verification code</span> <input type=\"text\" name=\"code\" inputmode=\"numeric\" pattern=\"[0-9]{6}\" maxlength=\"6\" autocomplete=\"one-time-code\" class=\"input w-full\" autofocus></label> <button type=\"submit\" class=\"btn btn-primary mt-2\">Verify</button></form></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -442,6 +487,30 @@ type accountFormData struct {
 	PasskeyBaseURL  string
 	PasskeyItems    []passkeyItem
 	PasskeysEnabled bool
+
+	// SSOOnly mirrors the UserGORM.SSOOnly flag for the target user.
+	// When true, the password and passkey enrolment cards are
+	// suppressed and replaced by a short notice — the only
+	// self-service surface left to the user is TOTP enrolment and
+	// SSO-identity unlinking.
+	SSOOnly bool
+
+	// SSOIdentities is the list of linked SSO identities for the
+	// target user; empty = the linked-accounts card is omitted. The
+	// per-row Unlink button POSTs to SSOBaseURL + "/{id}/delete".
+	SSOIdentities []ssoIdentityItem
+	SSOBaseURL    string // /account/{id}/sso
+}
+
+// ssoIdentityItem is one row in the linked-accounts card.
+type ssoIdentityItem struct {
+	ID          uint
+	Provider    string // raw provider name (lowercase, e.g. "google")
+	DisplayName string // human label snapshot ("Google", or user's
+	// chosen display name from the IdP — depends on context)
+	Email    string
+	LastUsed string // pre-formatted ("2025-12-03 14:00") or "" if never
+	IsLast   bool   // true when this is the only identity AND SSOOnly
 }
 
 // totpSetupData drives the in-flight enrolment card after the user
@@ -486,60 +555,274 @@ func accountForm(d accountFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var20 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var20 == nil {
-			templ_7745c5c3_Var20 = templ.NopComponent
+		templ_7745c5c3_Var22 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var22 == nil {
+			templ_7745c5c3_Var22 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if d.Modal {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<!-- The shared modal-box is max-w-2xl (672px) — way too wide\n\t\t     for a four-field password form. :has() narrows the\n\t\t     specific modal hosting the account form to max-w-md\n\t\t     (matches the standalone card width); other modals\n\t\t     (CRUDTable's edit form, the L2 nested-create) keep their\n\t\t     default width. CSS is inline so it travels with the\n\t\t     fragment and disappears when the modal body is swapped\n\t\t     out for other content. --> <style>.modal-box:has(.gone-account-modal-form) { max-width: 28rem; }</style> <div class=\"gone-account-modal-form flex flex-col gap-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<!-- The shared modal-box is max-w-2xl (672px) — way too wide\n\t\t     for a four-field password form. :has() narrows the\n\t\t     specific modal hosting the account form to max-w-md\n\t\t     (matches the standalone card width); other modals\n\t\t     (CRUDTable's edit form, the L2 nested-create) keep their\n\t\t     default width. CSS is inline so it travels with the\n\t\t     fragment and disappears when the modal body is swapped\n\t\t     out for other content. --> <style>.modal-box:has(.gone-account-modal-form) { max-width: 28rem; }</style> <div class=\"gone-account-modal-form flex flex-col gap-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = passwordCard(d).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
+			if d.SSOOnly {
+				templ_7745c5c3_Err = ssoOnlyNotice().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = passwordCard(d).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 			templ_7745c5c3_Err = totpCard(d).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if d.PasskeysEnabled {
+			if d.PasskeysEnabled && !d.SSOOnly {
 				templ_7745c5c3_Err = passkeyCard(d).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div>")
+			if len(d.SSOIdentities) > 0 {
+				templ_7745c5c3_Err = linkedAccountsCard(d).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div class=\"hero\"><div class=\"hero-content w-full max-w-md flex flex-col gap-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<div class=\"hero\"><div class=\"hero-content w-full max-w-md flex flex-col gap-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = passwordCard(d).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
+			if d.SSOOnly {
+				templ_7745c5c3_Err = ssoOnlyNotice().Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = passwordCard(d).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 			templ_7745c5c3_Err = totpCard(d).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if d.PasskeysEnabled {
+			if d.PasskeysEnabled && !d.SSOOnly {
 				templ_7745c5c3_Err = passkeyCard(d).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div></div>")
+			if len(d.SSOIdentities) > 0 {
+				templ_7745c5c3_Err = linkedAccountsCard(d).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "</div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		return nil
 	})
+}
+
+// ssoOnlyNotice replaces the passwordCard for SSO-managed accounts.
+// Explains why no password change is available and points the user
+// at the next-best self-service action (clear the flag via admin).
+func ssoOnlyNotice() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var23 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var23 == nil {
+			templ_7745c5c3_Var23 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">SSO-managed account</h2><p class=\"text-sm opacity-80\">This account signs in only through SSO. Password and passkey enrolment are disabled. Ask an admin to clear the <b>SSO-Only</b> flag in the user record if you want to set a local password or enrol a passkey.</p></div></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// linkedAccountsCard lists the SSO identities linked to the target
+// user with a per-row Unlink button. Renders only when at least one
+// identity exists (caller guard).
+func linkedAccountsCard(d accountFormData) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var24 == nil {
+			templ_7745c5c3_Var24 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<div id=\"auth-sso-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Linked sign-in providers</h2><ul class=\"flex flex-col gap-2\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, it := range d.SSOIdentities {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<li class=\"flex items-center justify-between gap-2 border border-base-300 rounded p-2\"><div class=\"flex flex-col\"><span class=\"font-medium\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var25 string
+			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(it.Provider)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 405, Col: 46}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</span> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if it.Email != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<span class=\"text-xs opacity-70\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var26 string
+				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(it.Email)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 407, Col: 51}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</span> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			if it.LastUsed != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<span class=\"text-xs opacity-50\">Last used ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var27 string
+				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(it.LastUsed)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 410, Col: 64}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if it.IsLast {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "<button type=\"button\" class=\"btn btn-xs btn-outline btn-disabled\" disabled title=\"Last SSO identity on an SSO-Only account — admin must clear the flag first.\">Unlink</button>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<form method=\"post\" action=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var28 templ.SafeURL
+				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(ssoUnlinkURL(d, it.ID)))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 423, Col: 54}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "\" hx-post=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var29 string
+				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(ssoUnlinkURL(d, it.ID))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 424, Col: 40}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "\" hx-target=\"#auth-sso-card\" hx-swap=\"outerHTML\" hx-confirm=\"Unlink this SSO identity?\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var30 string
+				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 429, Col: 66}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "\"> <button type=\"submit\" class=\"btn btn-xs btn-outline btn-error\">Unlink</button></form>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</li>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</ul></div></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// ssoUnlinkURL builds /account/{id}/sso/{identityID}/delete.
+func ssoUnlinkURL(d accountFormData, identityID uint) string {
+	return d.SSOBaseURL + "/" + strconv.FormatUint(uint64(identityID), 10) + "/delete"
 }
 
 // passwordCard wraps the existing password-change form body in card
@@ -561,12 +844,12 @@ func passwordCard(d accountFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var21 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var21 == nil {
-			templ_7745c5c3_Var21 = templ.NopComponent
+		templ_7745c5c3_Var31 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var31 == nil {
+			templ_7745c5c3_Var31 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<div class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<div class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -574,7 +857,7 @@ func passwordCard(d accountFormData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -607,110 +890,110 @@ func totpCard(d accountFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var22 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var22 == nil {
-			templ_7745c5c3_Var22 = templ.NopComponent
+		templ_7745c5c3_Var32 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var32 == nil {
+			templ_7745c5c3_Var32 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "<div id=\"auth-totp-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Two-factor authentication</h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<div id=\"auth-totp-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Two-factor authentication</h2>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if d.TOTPEnabled {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<p class=\"text-sm opacity-80\">Two-factor authentication is enabled.</p><form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<p class=\"text-sm opacity-80\">Two-factor authentication is enabled.</p><form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var23 templ.SafeURL
-			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.TOTPBaseURL + "/disable"))
+			var templ_7745c5c3_Var33 templ.SafeURL
+			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.TOTPBaseURL + "/disable"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 353, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 473, Col: 55}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "\" hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var24 string
-			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.TOTPBaseURL + "/disable")
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 354, Col: 41}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\" hx-confirm=\"Disable two-factor authentication?\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+			var templ_7745c5c3_Var34 string
+			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.TOTPBaseURL + "/disable")
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 474, Col: 41}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var25 string
-			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 360, Col: 63}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\" hx-confirm=\"Disable two-factor authentication?\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "\"> <button type=\"submit\" class=\"btn btn-error\">Disable TOTP</button></form>")
+			var templ_7745c5c3_Var35 string
+			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 480, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "\"> <button type=\"submit\" class=\"btn btn-error\">Disable TOTP</button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if d.IsSelf {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<p class=\"text-sm opacity-80\">Add a code-from-app step to every sign-in. Use any TOTP authenticator (Google Authenticator, 1Password, …).</p><form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<p class=\"text-sm opacity-80\">Add a code-from-app step to every sign-in. Use any TOTP authenticator (Google Authenticator, 1Password, …).</p><form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var26 templ.SafeURL
-			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.TOTPBaseURL + "/begin"))
+			var templ_7745c5c3_Var36 templ.SafeURL
+			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.TOTPBaseURL + "/begin"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 370, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 490, Col: 53}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "\" hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var27 string
-			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.TOTPBaseURL + "/begin")
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 371, Col: 39}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+			var templ_7745c5c3_Var37 string
+			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.TOTPBaseURL + "/begin")
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 491, Col: 39}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var28 string
-			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 376, Col: 63}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "\"> <button type=\"submit\" class=\"btn btn-primary\">Enable TOTP</button></form>")
+			var templ_7745c5c3_Var38 string
+			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 496, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "\"> <button type=\"submit\" class=\"btn btn-primary\">Enable TOTP</button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<p class=\"text-sm opacity-60\">Two-factor authentication is not enabled.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<p class=\"text-sm opacity-60\">Two-factor authentication is not enabled.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -740,113 +1023,113 @@ func totpSetupCard(d totpSetupData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var29 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var29 == nil {
-			templ_7745c5c3_Var29 = templ.NopComponent
+		templ_7745c5c3_Var39 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var39 == nil {
+			templ_7745c5c3_Var39 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "<div id=\"auth-totp-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Set up two-factor authentication</h2><p class=\"text-sm opacity-80\">Scan this QR with your authenticator app.</p><img src=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<div id=\"auth-totp-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Set up two-factor authentication</h2><p class=\"text-sm opacity-80\">Scan this QR with your authenticator app.</p><img src=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var30 string
-		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.QRDataURL)
+		var templ_7745c5c3_Var40 string
+		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.QRDataURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 397, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 517, Col: 25}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "\" alt=\"TOTP QR code\" class=\"self-center w-48 h-48\"><p class=\"text-xs opacity-70\">Or enter manually:</p><code class=\"text-xs break-all\">")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var31 string
-		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(d.Secret)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 399, Col: 45}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "\" alt=\"TOTP QR code\" class=\"self-center w-48 h-48\"><p class=\"text-xs opacity-70\">Or enter manually:</p><code class=\"text-xs break-all\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "</code> ")
+		var templ_7745c5c3_Var41 string
+		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(d.Secret)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 519, Col: 45}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</code> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if d.Error != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<div role=\"alert\" class=\"alert alert-error\"><span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "<div role=\"alert\" class=\"alert alert-error\"><span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var32 string
-			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
+			var templ_7745c5c3_Var42 string
+			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 402, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 522, Col: 20}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</span></div>")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "</span></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<form method=\"post\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var33 templ.SafeURL
-		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.VerifyURL))
+		var templ_7745c5c3_Var43 templ.SafeURL
+		templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.VerifyURL))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 407, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 527, Col: 39}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "\" hx-post=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var34 string
-		templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.VerifyURL)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 408, Col: 25}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "\" hx-post=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+		var templ_7745c5c3_Var44 string
+		templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.VerifyURL)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 528, Col: 25}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var35 string
-		templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 413, Col: 62}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\" class=\"flex flex-col gap-3\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Verification code</span> <input type=\"text\" name=\"code\" inputmode=\"numeric\" pattern=\"[0-9]{6}\" maxlength=\"6\" autocomplete=\"one-time-code\" class=\"input w-full\" autofocus></label><div class=\"flex gap-2\"><button type=\"submit\" class=\"btn btn-primary\">Verify & enable</button> <button type=\"button\" class=\"btn btn-ghost\" hx-post=\"")
+		var templ_7745c5c3_Var45 string
+		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 533, Col: 62}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var36 string
-		templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CancelURL)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 432, Col: 27}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Verification code</span> <input type=\"text\" name=\"code\" inputmode=\"numeric\" pattern=\"[0-9]{6}\" maxlength=\"6\" autocomplete=\"one-time-code\" class=\"input w-full\" autofocus></label><div class=\"flex gap-2\"><button type=\"submit\" class=\"btn btn-primary\">Verify & enable</button> <button type=\"button\" class=\"btn btn-ghost\" hx-post=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\">Cancel</button></div></form></div></div>")
+		var templ_7745c5c3_Var46 string
+		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CancelURL)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 552, Col: 27}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "\" hx-target=\"#auth-totp-card\" hx-swap=\"outerHTML\">Cancel</button></div></form></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -870,114 +1153,114 @@ func accountFormBody(d accountFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var37 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var37 == nil {
-			templ_7745c5c3_Var37 = templ.NopComponent
+		templ_7745c5c3_Var47 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var47 == nil {
+			templ_7745c5c3_Var47 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if d.IsSelf {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<h2 class=\"card-title\">Change your password</h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<h2 class=\"card-title\">Change your password</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<h2 class=\"card-title\">Change password for ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "<h2 class=\"card-title\">Change password for ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var38 string
-			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(d.TargetUsername)
+			var templ_7745c5c3_Var48 string
+			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(d.TargetUsername)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 446, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 566, Col: 63}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if d.Error != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<div role=\"alert\" class=\"alert alert-error mb-3\"><span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<div role=\"alert\" class=\"alert alert-error mb-3\"><span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var39 string
-			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
+			var templ_7745c5c3_Var49 string
+			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(d.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 450, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 570, Col: 18}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "</span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "</span></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if d.Success != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "<div role=\"alert\" class=\"alert alert-success mb-3\"><span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "<div role=\"alert\" class=\"alert alert-success mb-3\"><span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var40 string
-			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(d.Success)
+			var templ_7745c5c3_Var50 string
+			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(d.Success)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 455, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 575, Col: 20}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "</span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "</span></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if d.Modal {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<!-- Modal flow: form submits via HTMX into the same modal body\n\t\t     so the browser doesn't navigate. On validation error the\n\t\t     handler re-renders the form into the modal body; on success\n\t\t     it sets HX-Trigger:closeModal + HX-Reswap:none so the modal\n\t\t     closes and the page underneath (the admin table) stays. --> <form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<!-- Modal flow: form submits via HTMX into the same modal body\n\t\t     so the browser doesn't navigate. On validation error the\n\t\t     handler re-renders the form into the modal body; on success\n\t\t     it sets HX-Trigger:closeModal + HX-Reswap:none so the modal\n\t\t     closes and the page underneath (the admin table) stays. --> <form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var41 templ.SafeURL
-			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.ActionURL))
+			var templ_7745c5c3_Var51 templ.SafeURL
+			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 466, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 586, Col: 38}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "\" hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var42 string
-			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 467, Col: 24}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "\" hx-target=\"")
+			var templ_7745c5c3_Var52 string
+			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 587, Col: 24}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var43 string
-			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ModalBodyID)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 468, Col: 34}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "\" hx-swap=\"innerHTML\" class=\"flex flex-col gap-3\">")
+			var templ_7745c5c3_Var53 string
+			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ModalBodyID)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 588, Col: 34}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "\" hx-swap=\"innerHTML\" class=\"flex flex-col gap-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -985,25 +1268,25 @@ func accountFormBody(d accountFormData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "</form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "</form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<!-- Page flow: plain POST, response replaces the page with\n\t\t     the success-flagged variant via the page shell. --> <form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<!-- Page flow: plain POST, response replaces the page with\n\t\t     the success-flagged variant via the page shell. --> <form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var44 templ.SafeURL
-			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.ActionURL))
+			var templ_7745c5c3_Var54 templ.SafeURL
+			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 477, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 597, Col: 57}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "\" class=\"flex flex-col gap-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "\" class=\"flex flex-col gap-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1011,7 +1294,7 @@ func accountFormBody(d accountFormData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "</form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "</form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1039,53 +1322,53 @@ func accountFormFields(d accountFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var45 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var45 == nil {
-			templ_7745c5c3_Var45 = templ.NopComponent
+		templ_7745c5c3_Var55 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var55 == nil {
+			templ_7745c5c3_Var55 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<input type=\"hidden\" name=\"csrf_token\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "<input type=\"hidden\" name=\"csrf_token\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var46 string
-		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+		var templ_7745c5c3_Var56 string
+		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 487, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 607, Col: 59}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Your current password</span> <input type=\"password\" name=\"old_password\" class=\"input w-full\" autocomplete=\"current-password\" autofocus></label> <label class=\"flex flex-col gap-1.5 w-full\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Your current password</span> <input type=\"password\" name=\"old_password\" class=\"input w-full\" autocomplete=\"current-password\" autofocus></label> <label class=\"flex flex-col gap-1.5 w-full\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if d.IsSelf {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<span class=\"font-medium\">New password</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "<span class=\"font-medium\">New password</span> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<span class=\"font-medium\">New password for ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "<span class=\"font-medium\">New password for ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var47 string
-			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(d.TargetUsername)
+			var templ_7745c5c3_Var57 string
+			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(d.TargetUsername)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 496, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 616, Col: 64}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "</span> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<input type=\"password\" name=\"new_password\" class=\"input w-full\" autocomplete=\"new-password\"></label> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Confirm new password</span> <input type=\"password\" name=\"new_password_confirm\" class=\"input w-full\" autocomplete=\"new-password\"></label><div class=\"mt-4\"><button type=\"submit\" class=\"btn btn-primary\">Update password</button></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<input type=\"password\" name=\"new_password\" class=\"input w-full\" autocomplete=\"new-password\"></label> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Confirm new password</span> <input type=\"password\" name=\"new_password_confirm\" class=\"input w-full\" autocomplete=\"new-password\"></label><div class=\"mt-4\"><button type=\"submit\" class=\"btn btn-primary\">Update password</button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1122,152 +1405,152 @@ func passkeyCard(d accountFormData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var48 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var48 == nil {
-			templ_7745c5c3_Var48 = templ.NopComponent
+		templ_7745c5c3_Var58 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var58 == nil {
+			templ_7745c5c3_Var58 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "<div id=\"auth-passkey-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Passkeys</h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 97, "<div id=\"auth-passkey-card\" class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h2 class=\"card-title\">Passkeys</h2>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(d.PasskeyItems) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "<p class=\"text-sm opacity-60\">No passkeys enrolled.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "<p class=\"text-sm opacity-60\">No passkeys enrolled.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<ul class=\"flex flex-col gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "<ul class=\"flex flex-col gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, p := range d.PasskeyItems {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<li class=\"flex items-center justify-between gap-3\"><div><div class=\"font-medium\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "<li class=\"flex items-center justify-between gap-3\"><div><div class=\"font-medium\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var49 string
-				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
+				var templ_7745c5c3_Var59 string
+				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 533, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 653, Col: 41}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "</div><div class=\"text-xs opacity-60\">added ")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var50 string
-				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(p.CreatedAt)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 534, Col: 59}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "</div><div class=\"text-xs opacity-60\">added ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, " · last used ")
+				var templ_7745c5c3_Var60 string
+				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(p.CreatedAt)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 654, Col: 59}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var51 string
-				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(p.LastUsedAt)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 534, Col: 89}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, " · last used ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "</div></div>")
+				var templ_7745c5c3_Var61 string
+				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(p.LastUsedAt)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 654, Col: 89}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "</div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if d.IsSelf {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<form method=\"post\" hx-post=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "<form method=\"post\" hx-post=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var52 string
-					templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyBaseURL + "/" + passkeyIDStr(p.ID) + "/delete")
+					var templ_7745c5c3_Var62 string
+					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyBaseURL + "/" + passkeyIDStr(p.ID) + "/delete")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 539, Col: 74}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 659, Col: 74}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "\" hx-target=\"#auth-passkey-card\" hx-swap=\"outerHTML\" hx-confirm=\"")
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var53 string
-					templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue("Delete passkey \"" + p.Name + "\"?")
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 542, Col: 58}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "\" hx-target=\"#auth-passkey-card\" hx-swap=\"outerHTML\" hx-confirm=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+					var templ_7745c5c3_Var63 string
+					templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.ResolveAttributeValue("Delete passkey \"" + p.Name + "\"?")
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 662, Col: 58}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var63)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var54 string
-					templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 544, Col: 67}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "\"> <button type=\"submit\" class=\"btn btn-outline btn-error btn-sm\">Delete</button></form>")
+					var templ_7745c5c3_Var64 string
+					templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 664, Col: 67}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "\"> <button type=\"submit\" class=\"btn btn-outline btn-error btn-sm\">Delete</button></form>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "</li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "</ul>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "</ul>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if d.IsSelf {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "<div class=\"divider\"></div><!-- Add passkey: the JS below the form runs the WebAuthn\n\t\t\t\t     ceremony (begin → navigator.credentials.create →\n\t\t\t\t     finish), then HTMX-swaps the card back in to refresh\n\t\t\t\t     the list. Form is hidden until JS picks it up so the\n\t\t\t\t     no-JS path doesn't trigger a non-functional button. --> <form id=\"auth-passkey-add-form\" data-passkey-base=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "<div class=\"divider\"></div><!-- Add passkey: the JS below the form runs the WebAuthn\n\t\t\t\t     ceremony (begin → navigator.credentials.create →\n\t\t\t\t     finish), then HTMX-swaps the card back in to refresh\n\t\t\t\t     the list. Form is hidden until JS picks it up so the\n\t\t\t\t     no-JS path doesn't trigger a non-functional button. --> <form id=\"auth-passkey-add-form\" data-passkey-base=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var55 string
-			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyBaseURL)
+			var templ_7745c5c3_Var65 string
+			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyBaseURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 561, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 681, Col: 41}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "\" class=\"flex flex-col gap-2\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var65)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var56 string
-			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 564, Col: 63}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "\" class=\"flex flex-col gap-2\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Name for this passkey</span> <input type=\"text\" name=\"name\" placeholder=\"e.g. iPhone, YubiKey\" class=\"input w-full\" required></label> <button type=\"submit\" class=\"btn btn-primary\">Add passkey</button><div id=\"auth-passkey-add-error\" role=\"alert\" class=\"alert alert-error hidden\"><span></span></div></form>")
+			var templ_7745c5c3_Var66 string
+			templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 684, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var66)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "\"> <label class=\"flex flex-col gap-1.5 w-full\"><span class=\"font-medium\">Name for this passkey</span> <input type=\"text\" name=\"name\" placeholder=\"e.g. iPhone, YubiKey\" class=\"input w-full\" required></label> <button type=\"submit\" class=\"btn btn-primary\">Add passkey</button><div id=\"auth-passkey-add-error\" role=\"alert\" class=\"alert alert-error hidden\"><span></span></div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1276,7 +1559,7 @@ func passkeyCard(d accountFormData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1311,12 +1594,12 @@ func passkeyEnrolScript() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var57 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var57 == nil {
-			templ_7745c5c3_Var57 = templ.NopComponent
+		templ_7745c5c3_Var67 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var67 == nil {
+			templ_7745c5c3_Var67 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "<script>\n\t\t(function(){\n\t\t\tconst form = document.getElementById('auth-passkey-add-form');\n\t\t\tif (!form || form.dataset.passkeyAttached) return;\n\t\t\tform.dataset.passkeyAttached = '1';\n\t\t\tconst errBox = document.getElementById('auth-passkey-add-error');\n\t\t\tconst showErr = m => { errBox.classList.remove('hidden'); errBox.querySelector('span').textContent = m; };\n\t\t\tconst hideErr = () => errBox.classList.add('hidden');\n\t\t\tconst base = form.dataset.passkeyBase;\n\t\t\tform.addEventListener('submit', async (e) => {\n\t\t\t\te.preventDefault();\n\t\t\t\thideErr();\n\t\t\t\tconst fd = new FormData(form);\n\t\t\t\ttry {\n\t\t\t\t\tconst r1 = await fetch(base + '/begin', { method: 'POST', body: fd, credentials: 'same-origin' });\n\t\t\t\t\tif (!r1.ok) throw new Error(await r1.text());\n\t\t\t\t\tconst optsJSON = await r1.json();\n\t\t\t\t\t// Modern browsers expose parseCreationOptionsFromJSON;\n\t\t\t\t\t// older ones need a small base64url → ArrayBuffer\n\t\t\t\t\t// polyfill. The library always emits base64url\n\t\t\t\t\t// strings, so the polyfill is mechanical.\n\t\t\t\t\tconst opts = typeof PublicKeyCredential.parseCreationOptionsFromJSON === 'function'\n\t\t\t\t\t\t? PublicKeyCredential.parseCreationOptionsFromJSON(optsJSON.publicKey)\n\t\t\t\t\t\t: parseCreationOptionsJSON(optsJSON.publicKey);\n\t\t\t\t\tconst cred = await navigator.credentials.create({ publicKey: opts });\n\t\t\t\t\tconst credJSON = typeof cred.toJSON === 'function'\n\t\t\t\t\t\t? cred.toJSON()\n\t\t\t\t\t\t: serializeAttestation(cred);\n\t\t\t\t\tconst fd2 = new FormData();\n\t\t\t\t\tfd2.set('csrf_token', fd.get('csrf_token'));\n\t\t\t\t\t// fetch wants the credential JSON in the body; the\n\t\t\t\t\t// go-webauthn library reads it as r.Body.\n\t\t\t\t\tconst r2 = await fetch(base + '/finish', {\n\t\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\t\theaders: { 'Content-Type': 'application/json', 'X-CSRF-Token': fd.get('csrf_token') },\n\t\t\t\t\t\tbody: JSON.stringify(credJSON),\n\t\t\t\t\t\tcredentials: 'same-origin',\n\t\t\t\t\t});\n\t\t\t\t\tif (!r2.ok) throw new Error(await r2.text());\n\t\t\t\t\t// Re-fetch the account page's passkey card so the\n\t\t\t\t\t// new row appears. The base URL strips the /passkey\n\t\t\t\t\t// suffix to get back to the account URL we can GET.\n\t\t\t\t\thtmx.ajax('GET', new URL(window.location).pathname, { target: '#auth-passkey-card', select: '#auth-passkey-card', swap: 'outerHTML' });\n\t\t\t\t} catch (err) {\n\t\t\t\t\tshowErr(err.message || String(err));\n\t\t\t\t}\n\t\t\t});\n\t\t\t// — base64url helpers, shared across the create/get paths —\n\t\t\tfunction b64uToBuf(s) {\n\t\t\t\ts = s.replace(/-/g, '+').replace(/_/g, '/');\n\t\t\t\twhile (s.length % 4) s += '=';\n\t\t\t\tconst bin = atob(s);\n\t\t\t\tconst buf = new Uint8Array(bin.length);\n\t\t\t\tfor (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);\n\t\t\t\treturn buf.buffer;\n\t\t\t}\n\t\t\tfunction bufToB64u(buf) {\n\t\t\t\tconst bin = String.fromCharCode(...new Uint8Array(buf));\n\t\t\t\treturn btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n\t\t\t}\n\t\t\tfunction parseCreationOptionsJSON(o) {\n\t\t\t\to = { ...o };\n\t\t\t\to.challenge = b64uToBuf(o.challenge);\n\t\t\t\to.user = { ...o.user, id: b64uToBuf(o.user.id) };\n\t\t\t\tif (Array.isArray(o.excludeCredentials)) {\n\t\t\t\t\to.excludeCredentials = o.excludeCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));\n\t\t\t\t}\n\t\t\t\treturn o;\n\t\t\t}\n\t\t\tfunction serializeAttestation(cred) {\n\t\t\t\treturn {\n\t\t\t\t\tid: cred.id,\n\t\t\t\t\trawId: bufToB64u(cred.rawId),\n\t\t\t\t\ttype: cred.type,\n\t\t\t\t\tresponse: {\n\t\t\t\t\t\tclientDataJSON: bufToB64u(cred.response.clientDataJSON),\n\t\t\t\t\t\tattestationObject: bufToB64u(cred.response.attestationObject),\n\t\t\t\t\t\ttransports: cred.response.getTransports ? cred.response.getTransports() : [],\n\t\t\t\t\t},\n\t\t\t\t\tclientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},\n\t\t\t\t};\n\t\t\t}\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, "<script>\n\t\t(function(){\n\t\t\tconst form = document.getElementById('auth-passkey-add-form');\n\t\t\tif (!form || form.dataset.passkeyAttached) return;\n\t\t\tform.dataset.passkeyAttached = '1';\n\t\t\tconst errBox = document.getElementById('auth-passkey-add-error');\n\t\t\tconst showErr = m => { errBox.classList.remove('hidden'); errBox.querySelector('span').textContent = m; };\n\t\t\tconst hideErr = () => errBox.classList.add('hidden');\n\t\t\tconst base = form.dataset.passkeyBase;\n\t\t\tform.addEventListener('submit', async (e) => {\n\t\t\t\te.preventDefault();\n\t\t\t\thideErr();\n\t\t\t\tconst fd = new FormData(form);\n\t\t\t\ttry {\n\t\t\t\t\tconst r1 = await fetch(base + '/begin', { method: 'POST', body: fd, credentials: 'same-origin' });\n\t\t\t\t\tif (!r1.ok) throw new Error(await r1.text());\n\t\t\t\t\tconst optsJSON = await r1.json();\n\t\t\t\t\t// Modern browsers expose parseCreationOptionsFromJSON;\n\t\t\t\t\t// older ones need a small base64url → ArrayBuffer\n\t\t\t\t\t// polyfill. The library always emits base64url\n\t\t\t\t\t// strings, so the polyfill is mechanical.\n\t\t\t\t\tconst opts = typeof PublicKeyCredential.parseCreationOptionsFromJSON === 'function'\n\t\t\t\t\t\t? PublicKeyCredential.parseCreationOptionsFromJSON(optsJSON.publicKey)\n\t\t\t\t\t\t: parseCreationOptionsJSON(optsJSON.publicKey);\n\t\t\t\t\tconst cred = await navigator.credentials.create({ publicKey: opts });\n\t\t\t\t\tconst credJSON = typeof cred.toJSON === 'function'\n\t\t\t\t\t\t? cred.toJSON()\n\t\t\t\t\t\t: serializeAttestation(cred);\n\t\t\t\t\tconst fd2 = new FormData();\n\t\t\t\t\tfd2.set('csrf_token', fd.get('csrf_token'));\n\t\t\t\t\t// fetch wants the credential JSON in the body; the\n\t\t\t\t\t// go-webauthn library reads it as r.Body.\n\t\t\t\t\tconst r2 = await fetch(base + '/finish', {\n\t\t\t\t\t\tmethod: 'POST',\n\t\t\t\t\t\theaders: { 'Content-Type': 'application/json', 'X-CSRF-Token': fd.get('csrf_token') },\n\t\t\t\t\t\tbody: JSON.stringify(credJSON),\n\t\t\t\t\t\tcredentials: 'same-origin',\n\t\t\t\t\t});\n\t\t\t\t\tif (!r2.ok) throw new Error(await r2.text());\n\t\t\t\t\t// Re-fetch the account page's passkey card so the\n\t\t\t\t\t// new row appears. The base URL strips the /passkey\n\t\t\t\t\t// suffix to get back to the account URL we can GET.\n\t\t\t\t\thtmx.ajax('GET', new URL(window.location).pathname, { target: '#auth-passkey-card', select: '#auth-passkey-card', swap: 'outerHTML' });\n\t\t\t\t} catch (err) {\n\t\t\t\t\tshowErr(err.message || String(err));\n\t\t\t\t}\n\t\t\t});\n\t\t\t// — base64url helpers, shared across the create/get paths —\n\t\t\tfunction b64uToBuf(s) {\n\t\t\t\ts = s.replace(/-/g, '+').replace(/_/g, '/');\n\t\t\t\twhile (s.length % 4) s += '=';\n\t\t\t\tconst bin = atob(s);\n\t\t\t\tconst buf = new Uint8Array(bin.length);\n\t\t\t\tfor (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);\n\t\t\t\treturn buf.buffer;\n\t\t\t}\n\t\t\tfunction bufToB64u(buf) {\n\t\t\t\tconst bin = String.fromCharCode(...new Uint8Array(buf));\n\t\t\t\treturn btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\n\t\t\t}\n\t\t\tfunction parseCreationOptionsJSON(o) {\n\t\t\t\to = { ...o };\n\t\t\t\to.challenge = b64uToBuf(o.challenge);\n\t\t\t\to.user = { ...o.user, id: b64uToBuf(o.user.id) };\n\t\t\t\tif (Array.isArray(o.excludeCredentials)) {\n\t\t\t\t\to.excludeCredentials = o.excludeCredentials.map(c => ({ ...c, id: b64uToBuf(c.id) }));\n\t\t\t\t}\n\t\t\t\treturn o;\n\t\t\t}\n\t\t\tfunction serializeAttestation(cred) {\n\t\t\t\treturn {\n\t\t\t\t\tid: cred.id,\n\t\t\t\t\trawId: bufToB64u(cred.rawId),\n\t\t\t\t\ttype: cred.type,\n\t\t\t\t\tresponse: {\n\t\t\t\t\t\tclientDataJSON: bufToB64u(cred.response.clientDataJSON),\n\t\t\t\t\t\tattestationObject: bufToB64u(cred.response.attestationObject),\n\t\t\t\t\t\ttransports: cred.response.getTransports ? cred.response.getTransports() : [],\n\t\t\t\t\t},\n\t\t\t\t\tclientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},\n\t\t\t\t};\n\t\t\t}\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

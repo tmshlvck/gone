@@ -1,5 +1,7 @@
 package auth
 
+import "strconv"
+
 // loginFormData carries the parameters loginForm needs. Bundled into a
 // struct so the templ signature stays short and the call site reads as
 // named arguments.
@@ -12,6 +14,11 @@ type loginFormData struct {
 	PasskeysEnabled bool   // controls "Use passkey" button + conditional-UI script
 	PasskeyOptions  string // /login/passkey/options
 	PasskeyFinish   string // /login/passkey/finish
+	// SSOButtons is one entry per registered SSO provider; empty
+	// when no providers are configured. The template renders one
+	// "Sign in with <DisplayName>" link per entry below the password
+	// "Sign in" button.
+	SSOButtons []ssoButtonInfo
 }
 
 // loginForm is the body fragment rendered by GET /login. The app's
@@ -48,8 +55,10 @@ templ loginForm(d loginFormData) {
 						</label>
 						<button type="submit" class="btn btn-primary mt-2">Sign in</button>
 					</form>
-					if d.PasskeysEnabled {
+					if d.PasskeysEnabled || len(d.SSOButtons) > 0 {
 						<div class="divider text-xs opacity-60">or</div>
+					}
+					if d.PasskeysEnabled {
 						<button
 							id="auth-passkey-login-btn"
 							type="button"
@@ -63,6 +72,11 @@ templ loginForm(d loginFormData) {
 							<span></span>
 						</div>
 						@passkeyLoginScript()
+					}
+					for _, b := range d.SSOButtons {
+						<a href={ templ.SafeURL(b.URL) } class="btn btn-outline" data-testid="sso-login">
+							Sign in with { b.DisplayName }
+						</a>
 					}
 				</div>
 			</div>
@@ -263,6 +277,30 @@ type accountFormData struct {
 	PasskeyBaseURL  string
 	PasskeyItems    []passkeyItem
 	PasskeysEnabled bool
+
+	// SSOOnly mirrors the UserGORM.SSOOnly flag for the target user.
+	// When true, the password and passkey enrolment cards are
+	// suppressed and replaced by a short notice — the only
+	// self-service surface left to the user is TOTP enrolment and
+	// SSO-identity unlinking.
+	SSOOnly bool
+
+	// SSOIdentities is the list of linked SSO identities for the
+	// target user; empty = the linked-accounts card is omitted. The
+	// per-row Unlink button POSTs to SSOBaseURL + "/{id}/delete".
+	SSOIdentities []ssoIdentityItem
+	SSOBaseURL    string // /account/{id}/sso
+}
+
+// ssoIdentityItem is one row in the linked-accounts card.
+type ssoIdentityItem struct {
+	ID          uint
+	Provider    string // raw provider name (lowercase, e.g. "google")
+	DisplayName string // human label snapshot ("Google", or user's
+	// chosen display name from the IdP — depends on context)
+	Email       string
+	LastUsed    string // pre-formatted ("2025-12-03 14:00") or "" if never
+	IsLast      bool   // true when this is the only identity AND SSOOnly
 }
 
 // totpSetupData drives the in-flight enrolment card after the user
@@ -303,23 +341,105 @@ templ accountForm(d accountFormData) {
 		     out for other content. -->
 		<style>.modal-box:has(.gone-account-modal-form) { max-width: 28rem; }</style>
 		<div class="gone-account-modal-form flex flex-col gap-4">
-			@passwordCard(d)
+			if d.SSOOnly {
+				@ssoOnlyNotice()
+			} else {
+				@passwordCard(d)
+			}
 			@totpCard(d)
-			if d.PasskeysEnabled {
+			if d.PasskeysEnabled && !d.SSOOnly {
 				@passkeyCard(d)
+			}
+			if len(d.SSOIdentities) > 0 {
+				@linkedAccountsCard(d)
 			}
 		</div>
 	} else {
 		<div class="hero">
 			<div class="hero-content w-full max-w-md flex flex-col gap-4">
-				@passwordCard(d)
+				if d.SSOOnly {
+					@ssoOnlyNotice()
+				} else {
+					@passwordCard(d)
+				}
 				@totpCard(d)
-				if d.PasskeysEnabled {
+				if d.PasskeysEnabled && !d.SSOOnly {
 					@passkeyCard(d)
+				}
+				if len(d.SSOIdentities) > 0 {
+					@linkedAccountsCard(d)
 				}
 			</div>
 		</div>
 	}
+}
+
+// ssoOnlyNotice replaces the passwordCard for SSO-managed accounts.
+// Explains why no password change is available and points the user
+// at the next-best self-service action (clear the flag via admin).
+templ ssoOnlyNotice() {
+	<div class="card w-full bg-base-100 shadow-xl">
+		<div class="card-body">
+			<h2 class="card-title">SSO-managed account</h2>
+			<p class="text-sm opacity-80">
+				This account signs in only through SSO. Password and
+				passkey enrolment are disabled. Ask an admin to clear
+				the <b>SSO-Only</b> flag in the user record if you want
+				to set a local password or enrol a passkey.
+			</p>
+		</div>
+	</div>
+}
+
+// linkedAccountsCard lists the SSO identities linked to the target
+// user with a per-row Unlink button. Renders only when at least one
+// identity exists (caller guard).
+templ linkedAccountsCard(d accountFormData) {
+	<div id="auth-sso-card" class="card w-full bg-base-100 shadow-xl">
+		<div class="card-body">
+			<h2 class="card-title">Linked sign-in providers</h2>
+			<ul class="flex flex-col gap-2">
+				for _, it := range d.SSOIdentities {
+					<li class="flex items-center justify-between gap-2 border border-base-300 rounded p-2">
+						<div class="flex flex-col">
+							<span class="font-medium">{ it.Provider }</span>
+							if it.Email != "" {
+								<span class="text-xs opacity-70">{ it.Email }</span>
+							}
+							if it.LastUsed != "" {
+								<span class="text-xs opacity-50">Last used { it.LastUsed }</span>
+							}
+						</div>
+						if it.IsLast {
+							<button
+								type="button"
+								class="btn btn-xs btn-outline btn-disabled"
+								disabled
+								title="Last SSO identity on an SSO-Only account — admin must clear the flag first."
+							>Unlink</button>
+						} else {
+							<form
+								method="post"
+								action={ templ.SafeURL(ssoUnlinkURL(d, it.ID)) }
+								hx-post={ ssoUnlinkURL(d, it.ID) }
+								hx-target="#auth-sso-card"
+								hx-swap="outerHTML"
+								hx-confirm="Unlink this SSO identity?"
+							>
+								<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
+								<button type="submit" class="btn btn-xs btn-outline btn-error">Unlink</button>
+							</form>
+						}
+					</li>
+				}
+			</ul>
+		</div>
+	</div>
+}
+
+// ssoUnlinkURL builds /account/{id}/sso/{identityID}/delete.
+func ssoUnlinkURL(d accountFormData, identityID uint) string {
+	return d.SSOBaseURL + "/" + strconv.FormatUint(uint64(identityID), 10) + "/delete"
 }
 
 // passwordCard wraps the existing password-change form body in card
