@@ -2,7 +2,7 @@
 
 User-facing reference for `github.com/tmshlvck/gone/auth`. Design
 rationale — why it's shaped this way, plus the decision log — is in
-[`DESIGN.md`](../DESIGN.md). For the parallel CRUD reference see
+[`DESIGN.md`](DESIGN.md). For the parallel CRUD reference see
 [`CRUD.md`](CRUD.md).
 
 ## What it does
@@ -841,7 +841,7 @@ authenticator is a follow-up.
 
 ## See also
 
-- [`DESIGN.md`](../DESIGN.md) — design rationale and the
+- [`DESIGN.md`](DESIGN.md) — design rationale and the
   open-questions / future-work decision log.
 - [`docs/CRUD.md`](CRUD.md) — CRUDTable / Admin reference.
 - [`README.md`](../README.md) — top-level project overview.

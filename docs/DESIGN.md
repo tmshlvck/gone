@@ -1,8 +1,8 @@
 # gone — design notes
 
 The **why** behind the library. For the **what / how** — API surface,
-usage, examples — see [`docs/CRUD.md`](docs/CRUD.md) and
-[`docs/AUTH.md`](docs/AUTH.md); this file doesn't repeat them. The
+usage, examples — see [`CRUD.md`](CRUD.md) and
+[`AUTH.md`](AUTH.md); this file doesn't repeat them. The
 full design-document history (the original per-package PRDs, with
 their v1/v2 staging and superseded sketches) lives in git history if
 you need the archaeology.
@@ -122,7 +122,7 @@ one internal `ssoProvider` interface:
 
 Both run authorization-code + PKCE; state/nonce/PKCE-verifier live in
 the session across the redirect. Mapping a callback identity to a
-local user (full policy in [`docs/AUTH.md`](docs/AUTH.md)):
+local user (full policy in [`AUTH.md`](AUTH.md)):
 
 1. existing `(provider, subject)` link → log in;
 2. `AutoLinkByEmail` + matching local email → link + log in;
@@ -187,7 +187,26 @@ still open. Implementation-track items live in [`TODO.md`](TODO.md).
 - **Session payload is gob.** scs's default. JSON would be more
   debuggable but needs a custom store key; gob is fine until there's
   a concrete reason to inspect session blobs.
-- **API keys / JSON API.** Header- or query-string-authenticated
-  programmatic access, and JSON content negotiation, are both
-  sketched in [`TODO.md`](TODO.md) and deliberately outside the
-  session/cookie story.
+- **API keys / JSON API / CSV.** Bearer-token programmatic access,
+  a JSON API derived from the same `MetaModel`, and CSV import/export
+  on `CRUDTable` are the active build queue — fully sketched in
+  [`TODO.md`](TODO.md).
+
+### Parked — engineering, revisit on real need
+
+Not decisions so much as work we've consciously not done. Cheap to
+list, expensive to forget:
+
+- **Per-row authz.** `Authz.Can*(r)` doesn't see the row ID — decided:
+  per-row visibility is the app's space (filter at the data layer /
+  implement `auth.Authz` directly), not a core-interface concern.
+- **Mock authenticator for passkey unit tests.** The WebAuthn ceremony
+  is exercised live in `examples/auth_gorm`; a CBOR+ECDSA mock would
+  let the unit tests cover the full round-trip.
+- **Plural slug derivation.** Defaults to `ToLower(Name)+"s"`, wrong
+  for irregular plurals (Hero→heros, Person→persons). A `Pluralize`
+  tag or small dictionary would fix it.
+- **Observability defaults.** `log/slog` structured logs, Prometheus
+  metrics, request IDs.
+- **Proxy support.** Trust list for `X-Forwarded-*`; optional
+  PROXY-protocol listener.

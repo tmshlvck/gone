@@ -2,7 +2,7 @@
 
 This document is the user-facing reference for `github.com/tmshlvck/gone/crud`.
 For the design rationale — why the package is shaped this way, plus the
-decision log — see [`DESIGN.md`](../DESIGN.md). For the auth/CSRF/authz
+decision log — see [`DESIGN.md`](DESIGN.md). For the auth/CSRF/authz
 reference see [`docs/AUTH.md`](AUTH.md).
 
 ## What it does

@@ -213,13 +213,13 @@ User-facing references (the practical "how do I…?" docs):
 
 Design rationale (the "why does it look like this?" doc):
 
-- [`DESIGN.md`](DESIGN.md) — design decisions for both packages plus
-  an open-questions / future-work log.
+- [`docs/DESIGN.md`](docs/DESIGN.md) — design decisions for both
+  packages plus an open-questions / future-work log.
 
 Operational:
 
-- [`TODO.md`](TODO.md) — what's specced but not yet built (API keys,
-  JSON API, self-service SSO linking).
+- [`docs/TODO.md`](docs/TODO.md) — what's specced but not yet built
+  (API keys, CSV import/export, JSON API).
 - [`AGENTS.md`](AGENTS.md) — short pointer for agents / new contributors.
 
 ## Status
@@ -232,12 +232,12 @@ enough to run in-house tools and small production apps:
 - **`gone/auth`** — sessions, CSRF, AuthSimple, AuthGORM, TOTP,
   passkeys, SSO (OIDC + OAuth2), account page, authz interface.
 
-Planned (see [`TODO.md`](TODO.md)):
+Planned (see [`docs/TODO.md`](docs/TODO.md)):
 
-- **Self-service SSO linking** — let a logged-in user attach a new
-  SSO provider to an existing account (identities currently arrive
-  only via first login).
-- **API keys** — bearer-token auth that bypasses CSRF but uses the
-  same authz path.
-- **JSON API** — `JSONAPI` component sharing MetaModel + data
-  closures with CRUDTable.
+- **API keys** — optional bearer-token credentials on AuthGORM;
+  ships the model + a verify function + account-page management,
+  wired into no routes by default.
+- **CSV import/export** — round-trip a CRUDTable's rows through CSV,
+  driven by the existing MetaModel.
+- **JSON API** — a `JSONAPI` derived from a CRUDTable's MetaModel +
+  data closures.

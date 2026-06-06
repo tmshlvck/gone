@@ -13,22 +13,19 @@ detail lives in the linked docs.
 
 ## Documentation
 
-| Scope             | CRUD                           | Auth                           |
-|-------------------|--------------------------------|--------------------------------|
-| User reference    | [`docs/CRUD.md`](docs/CRUD.md) | [`docs/AUTH.md`](docs/AUTH.md) |
+Everything lives under [`docs/`](docs/):
 
-The reference docs explain *what's there and how to use it*.
-[`DESIGN.md`](DESIGN.md) explains *why it's shaped that way* — the
-design decisions and the open-questions/future-work log for both
-packages.
+| Doc                              | Scope                                                            |
+|----------------------------------|-----------------------------------------------------------------|
+| [`docs/CRUD.md`](docs/CRUD.md)   | User reference for `gone/crud` — what's there and how to use it. |
+| [`docs/AUTH.md`](docs/AUTH.md)   | User reference for `gone/auth`.                                  |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | *Why* it's shaped this way — design decisions + open-questions / future-work log, both packages. |
+| [`docs/TODO.md`](docs/TODO.md)   | Active build queue (API keys, CSV import/export, JSON API).      |
 
-Other top-level files:
+Root files:
 
 - [`README.md`](README.md) — overview + quick start + example index.
-- [`DESIGN.md`](DESIGN.md) — design rationale + decision log.
-- [`TODO.md`](TODO.md) — specced but unbuilt (API keys, JSON API,
-  self-service SSO linking).
-- `NOTES.md` — scratchpad, not authoritative.
+- [`AGENTS.md`](AGENTS.md) — this file.
 
 ## Examples
 
