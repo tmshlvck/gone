@@ -11,8 +11,8 @@ rationale — why it's shaped this way, plus the decision log — is in
 - **Two `Auth` implementations**:
   - **`AuthSimple`** — in-memory users, argon2id hashes. For tests,
     prototypes, and one-admin setups.
-  - **`AuthGORM`** — GORM-backed users + groups + passkeys + TOTP.
-    Multi-method login form. Self-service account page.
+  - **`AuthGORM`** — GORM-backed users + groups + passkeys + TOTP +
+    SSO. Multi-method login form. Self-service account page.
 - **Authz interface** — five `Can*(r)` methods consumed by
   `gone/crud`. Stock impls cover anonymous / logged-in / read-only /
   admin-write. App-defined impls drop in for richer policy.
@@ -20,9 +20,13 @@ rationale — why it's shaped this way, plus the decision log — is in
   - Password (+ optional TOTP).
   - Passkeys (WebAuthn discoverable login, with conditional UI
     autofill). Bypasses TOTP.
+  - SSO (OIDC + OAuth2) — "Sign in with Google / GitHub / Okta / …".
+    Optional, per-provider; auto-provisions users on first login.
+    TOTP-enrolled users still get the second-factor prompt after the
+    SSO round-trip.
 - **Account page** — change password, enrol/reset TOTP, list /
-  delete passkeys. Admins can disable other users' TOTP (rescue);
-  enrolment is always self-service.
+  delete passkeys, manage linked SSO identities. Admins can disable
+  other users' TOTP (rescue); enrolment is always self-service.
 
 The library emits HTML fragments and JSON; page chrome (head, theme,
 DaisyUI/Tailwind/HTMX) is supplied by the caller via a `PageShellFunc`
