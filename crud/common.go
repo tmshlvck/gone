@@ -2,41 +2,21 @@ package crud
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/htmx"
 )
 
 // ──────────────────────────────────────────────────────────────────────────
 // HTTP / HTMX helpers shared by single.go and table.go.
 //
-// These were previously duplicated (writeFragment in single.go,
-// makeFragmentHandler inline in table.go) or one-sided (isHTMXRequest
-// only on the table). Consolidated here so both code paths use the
-// same surface.
+// HTMX request classification and HX-* response directives live in
+// gone/htmx; fragment writing in gone/site. The helpers here are the
+// crud-specific glue (id parsing, modal-id derivation, error shaping).
 // ──────────────────────────────────────────────────────────────────────────
-
-// writeFragment writes a templ.Component as the entire response body
-// (no <html>/<body> chrome). Sets Content-Type and the supplied status.
-// Used by every endpoint that returns an HTMX-friendly fragment.
-func writeFragment(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := c.Render(r.Context(), w); err != nil {
-		log.Printf("render: %v", err)
-	}
-}
-
-// isHTMXRequest reports whether r came from HTMX. When true, handlers
-// respond with a partial fragment + HX-* headers; otherwise they
-// redirect (303) or send a full response.
-func isHTMXRequest(r *http.Request) bool {
-	return r.Header.Get("HX-Request") == "true"
-}
 
 // modalIDsFromHeader returns (modalID, bodyID, isL2) for the originating
 // modal, derived from the HX-Target request header.
@@ -50,7 +30,7 @@ func isHTMXRequest(r *http.Request) bool {
 // Browser (non-HTMX) callers have no HX-Target — returns empty strings
 // and isL2=false. Handlers that branch on level use isL2 as the test.
 func modalIDsFromHeader(r *http.Request) (modalID, bodyID string, isL2 bool) {
-	bodyID = r.Header.Get("HX-Target")
+	bodyID = htmx.Target(r)
 	if bodyID == "" {
 		return "", "", false
 	}
