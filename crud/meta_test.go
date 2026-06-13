@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/a-h/templ"
 )
 
 type sampleConfig struct {
@@ -242,6 +244,34 @@ func TestDefaultDisplayValues_RenderShape(t *testing.T) {
 		if c == nil {
 			t.Errorf("cell[%d] (%s) is nil", i, mm.Fields[i].Name)
 		}
+	}
+}
+
+func TestDefaultDisplayValue_BoolBadgeAndUTCTime(t *testing.T) {
+	render := func(c templ.Component) string {
+		var sb strings.Builder
+		if err := c.Render(context.Background(), &sb); err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		return sb.String()
+	}
+	mf := MetaField{Name: "X"}
+
+	if got := render(DefaultDisplayValue(mf, true)); !strings.Contains(got, "badge-success") || !strings.Contains(got, "yes") {
+		t.Errorf("bool true display = %q, want green yes badge", got)
+	}
+	if got := render(DefaultDisplayValue(mf, false)); !strings.Contains(got, "badge-error") || !strings.Contains(got, "no") {
+		t.Errorf("bool false display = %q, want red no badge", got)
+	}
+
+	// A non-UTC instant is shown converted to UTC, with the suffix.
+	loc := time.FixedZone("CET", 2*3600)
+	ts := time.Date(2026, 1, 2, 15, 4, 5, 0, loc) // 13:04:05 UTC
+	if got := render(DefaultDisplayValue(mf, ts)); got != "2026-01-02 13:04:05 UTC" {
+		t.Errorf("time display = %q, want 2026-01-02 13:04:05 UTC", got)
+	}
+	if got := render(DefaultDisplayValue(mf, time.Time{})); got != "" {
+		t.Errorf("zero time display = %q, want empty", got)
 	}
 }
 

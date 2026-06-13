@@ -427,9 +427,40 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 // package while keeping output safe.
 // ──────────────────────────────────────────────────────────────────────────
 
-// DefaultDisplayValue renders the value as a text node.
+// DefaultDisplayValue renders the value for a table cell or detail row:
+//   - a bool as a coloured yes/no badge (green = yes, red = no);
+//   - a time.Time in UTC with an explicit "UTC" suffix (blank when zero);
+//   - everything else as the escaped formatValue text.
+//
+// This is display-only. The form pre-fill (DefaultGenFormElement) uses
+// formatValue directly, so a datetime-local input keeps its timezone-less
+// "2006-01-02T15:04" value and a checkbox stays a checkbox.
 func DefaultDisplayValue(mf MetaField, value any) templ.Component {
+	switch v := value.(type) {
+	case bool:
+		return boolBadge(v)
+	case time.Time:
+		return templ.Raw(html.EscapeString(displayTime(v)))
+	}
 	return templ.Raw(html.EscapeString(formatValue(mf, value)))
+}
+
+// boolBadge renders a DaisyUI yes/no badge — green for true, red for false.
+func boolBadge(b bool) templ.Component {
+	if b {
+		return templ.Raw(`<span class="badge badge-success">yes</span>`)
+	}
+	return templ.Raw(`<span class="badge badge-error">no</span>`)
+}
+
+// displayTime formats t in UTC with an explicit "UTC" suffix; a zero time
+// renders blank. (The "MST" layout token prints the zone abbreviation, which
+// is "UTC" after the .UTC() conversion.)
+func displayTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format("2006-01-02 15:04:05 MST")
 }
 
 // DefaultGenFormElement renders an HTML form element appropriate for

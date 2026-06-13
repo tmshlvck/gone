@@ -519,12 +519,21 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 }
 
 // listQueryFor returns the query params that describe the current list
-// state. For GET /<slug>/view requests the params are on r.URL. For
-// POST mutations (which carry r.URL at /<slug>/create or /{id}/edit)
-// HTMX includes HX-Current-URL — the page URL the user was looking at —
-// so we parse those params instead. That keeps page/sort/search across
-// edit/delete refreshes.
+// state. For list GETs (the /view sort/search/paginate links, and the
+// page route itself) r.URL IS the desired state — the link encodes it in
+// full, including "no params" meaning "sort off" — so we read r.URL.
+// HX-Current-URL must NOT be consulted here: it holds the PRE-click URL
+// (hx-push-url runs only after the swap), so trusting it lags the table one
+// click behind (the classic "sort arrow appears a click late" bug).
+//
+// POST mutations are different: their r.URL is the mutation endpoint
+// (/create, /{id}/edit, /{id}/delete) and carries no list state, so we
+// recover the page/sort/search the user was looking at from HX-Current-URL —
+// that keeps a delete on page 3 refreshing page 3.
 func listQueryFor(r *http.Request) url.Values {
+	if r.Method == http.MethodGet {
+		return r.URL.Query()
+	}
 	if u, ok := htmx.CurrentURL(r); ok {
 		return u.Query()
 	}
