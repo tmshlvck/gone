@@ -66,12 +66,14 @@ type CRUDTableInterface interface {
 //
 //  1. a "Name" field (case-insensitive), if a non-empty string;
 //  2. a "Label" field (case-insensitive), if a non-empty string;
-//  3. any string field whose name contains "name" (Username, FullName, …);
-//  4. an identifier — an "id" field, else a "…ID"/"…Id" foreign-key-style
+//  3. a "Title" field (case-insensitive), if a non-empty string;
+//  4. any string field whose name contains "name" (Username, FullName, …);
+//  5. any string field whose name contains "title" (Subtitle, JobTitle, …);
+//  6. an identifier — an "id" field, else a "…ID"/"…Id" foreign-key-style
 //     integer field — rendered as "#<n>";
-//  5. a JSON dump of the instance, as a last resort.
+//  7. a JSON dump of the instance, as a last resort.
 //
-// Stages 1–3 return the label alone (no "id:" prefix). A non-struct instance
+// Stages 1–5 return the label alone (no "id:" prefix). A non-struct instance
 // is formatted with fmt.
 func DefaultShortValue(instance any) string {
 	rv := reflect.ValueOf(instance)
@@ -87,7 +89,13 @@ func DefaultShortValue(instance any) string {
 	if s := stringFieldNamed(rv, "label"); s != "" {
 		return s
 	}
+	if s := stringFieldNamed(rv, "title"); s != "" {
+		return s
+	}
 	if s := stringFieldContaining(rv, "name"); s != "" {
+		return s
+	}
+	if s := stringFieldContaining(rv, "title"); s != "" {
 		return s
 	}
 	if s := idLabel(rv); s != "" {

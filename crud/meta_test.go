@@ -284,9 +284,17 @@ func TestDefaultShortValue_Stages(t *testing.T) {
 		ID    uint
 		Label string
 	}
+	type withTitle struct {
+		ID    uint
+		Title string
+	}
 	type withFullName struct {
 		ID       uint
 		FullName string
+	}
+	type withJobTitle struct {
+		ID       uint
+		JobTitle string
 	}
 	type onlyID struct {
 		ID    uint
@@ -306,7 +314,9 @@ func TestDefaultShortValue_Stages(t *testing.T) {
 	}{
 		{"name wins, no id prefix", withName{5, "Aragorn"}, "Aragorn"},
 		{"label", withLabel{5, "Gondor"}, "Gondor"},
+		{"title", withTitle{5, "The Two Towers"}, "The Two Towers"},
 		{"contains-name", withFullName{5, "Frodo Baggins"}, "Frodo Baggins"},
+		{"contains-title", withJobTitle{5, "Steward"}, "Steward"},
 		{"id only (Width not mistaken for id)", onlyID{7, 0}, "#7"},
 		{"fk suffix", onlyFK{9}, "#9"},
 		{"empty Name falls through to Label", emptyNameThenLabel{"", "Shire"}, "Shire"},
