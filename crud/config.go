@@ -165,9 +165,9 @@ func (fc Field) applyTo(f *MetaField) {
 //	"TOTPSecret": {Label: "TOTP", ReadOnly: true, DisplayValue: crud.Redact},
 func Redact(_ MetaField, value any) templ.Component {
 	if valuePresent(value) {
-		return templ.Raw("-hidden-")
+		return templ.Raw(`<span class="italic">-hidden-</span>`)
 	}
-	return templ.Raw("-empty-")
+	return templ.Raw(`<span class="italic">-empty-</span>`)
 }
 
 // PasswordInput is a GenFormElement hook rendering an empty password box, so

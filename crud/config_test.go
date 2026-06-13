@@ -143,8 +143,9 @@ func TestRedactHelper(t *testing.T) {
 		{[]byte{}, "-empty-"},
 	}
 	for _, c := range cases {
-		if got := renderHook(t, Redact(*h, c.val)); got != c.want {
-			t.Errorf("Redact(%v) = %q, want %q", c.val, got, c.want)
+		got := renderHook(t, Redact(*h, c.val))
+		if !strings.Contains(got, c.want) || !strings.Contains(got, "italic") {
+			t.Errorf("Redact(%v) = %q, want italic %q", c.val, got, c.want)
 		}
 	}
 }
@@ -175,8 +176,8 @@ func TestPasswordFieldViaHelpers(t *testing.T) {
 		t.Error("stored hash leaked into the form input")
 	}
 	// Display redacted.
-	if got := renderHook(t, f.DisplayValue(*f, "argon2$secret")); got != "-hidden-" {
-		t.Errorf("display = %q, want -hidden-", got)
+	if got := renderHook(t, f.DisplayValue(*f, "argon2$secret")); !strings.Contains(got, "-hidden-") {
+		t.Errorf("display = %q, want redacted -hidden-", got)
 	}
 	// Non-blank input is hashed into the field.
 	m := secretModel{PasswordHash: "old"}

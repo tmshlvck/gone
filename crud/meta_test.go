@@ -275,6 +275,50 @@ func TestDefaultDisplayValue_BoolBadgeAndUTCTime(t *testing.T) {
 	}
 }
 
+func TestDefaultShortValue_Stages(t *testing.T) {
+	type withName struct {
+		ID   uint
+		Name string
+	}
+	type withLabel struct {
+		ID    uint
+		Label string
+	}
+	type withFullName struct {
+		ID       uint
+		FullName string
+	}
+	type onlyID struct {
+		ID    uint
+		Width int // contains "id" but must NOT be picked as the identifier
+	}
+	type onlyFK struct{ OwnerID uint }
+	type emptyNameThenLabel struct {
+		Name  string
+		Label string
+	}
+	type nothing struct{ Active bool }
+
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"name wins, no id prefix", withName{5, "Aragorn"}, "Aragorn"},
+		{"label", withLabel{5, "Gondor"}, "Gondor"},
+		{"contains-name", withFullName{5, "Frodo Baggins"}, "Frodo Baggins"},
+		{"id only (Width not mistaken for id)", onlyID{7, 0}, "#7"},
+		{"fk suffix", onlyFK{9}, "#9"},
+		{"empty Name falls through to Label", emptyNameThenLabel{"", "Shire"}, "Shire"},
+		{"json last resort", nothing{Active: true}, `{"Active":true}`},
+	}
+	for _, c := range cases {
+		if got := DefaultShortValue(c.in); got != c.want {
+			t.Errorf("%s: DefaultShortValue = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestNormalizePrefix(t *testing.T) {
 	cases := []struct {
 		in, want string

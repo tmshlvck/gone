@@ -2,6 +2,7 @@ package crud
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -59,23 +60,19 @@ type CRUDTableInterface interface {
 	StampRelations(byType map[string]string)
 }
 
-// DefaultShortValue derives a short human-readable label from an instance.
-// "ID: <label>" when both ID and a label-shaped string field are present
-// and non-zero; falls back to either alone, then to fmt.Sprintf as a last
-// resort.
+// DefaultShortValue derives a short, human-readable label for one related
+// instance — the text shown in a relation <select> option and in a relation
+// table cell. It works in stages, returning the first that yields a value:
 //
-// The label field is found by scanning the struct's exported string fields
-// for a name like "Name", "Title", "Username", "DisplayName", or any
-// field whose name contains "name" (case-insensitive). The order of
-// preference is:
-//  1. Name
-//  2. Title
-//  3. Username / DisplayName
-//  4. any other field containing "name" (e.g. FullName, FirstName, Nickname)
+//  1. a "Name" field (case-insensitive), if a non-empty string;
+//  2. a "Label" field (case-insensitive), if a non-empty string;
+//  3. any string field whose name contains "name" (Username, FullName, …);
+//  4. an identifier — an "id" field, else a "…ID"/"…Id" foreign-key-style
+//     integer field — rendered as "#<n>";
+//  5. a JSON dump of the instance, as a last resort.
 //
-// This keeps the common "ID + Name" case fast while letting models with
-// non-Name identifiers (AuthGORM's UserGORM.Username, blog posts' Title)
-// render usefully in relation pickers without per-model wiring.
+// Stages 1–3 return the label alone (no "id:" prefix). A non-struct instance
+// is formatted with fmt.
 func DefaultShortValue(instance any) string {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
@@ -84,50 +81,89 @@ func DefaultShortValue(instance any) string {
 	if rv.Kind() != reflect.Struct {
 		return fmt.Sprintf("%v", instance)
 	}
-	idF := rv.FieldByName("ID")
-	label := findLabelField(rv)
-	hasID := idF.IsValid() && idF.Kind() >= reflect.Uint && idF.Kind() <= reflect.Uint64 && idF.Uint() != 0
-	hasIntID := idF.IsValid() && idF.Kind() >= reflect.Int && idF.Kind() <= reflect.Int64 && idF.Int() != 0
-	switch {
-	case hasID && label != "":
-		return fmt.Sprintf("%d: %s", idF.Uint(), label)
-	case hasIntID && label != "":
-		return fmt.Sprintf("%d: %s", idF.Int(), label)
-	case hasID:
-		return fmt.Sprintf("#%d", idF.Uint())
-	case hasIntID:
-		return fmt.Sprintf("#%d", idF.Int())
-	case label != "":
-		return label
+	if s := stringFieldNamed(rv, "name"); s != "" {
+		return s
+	}
+	if s := stringFieldNamed(rv, "label"); s != "" {
+		return s
+	}
+	if s := stringFieldContaining(rv, "name"); s != "" {
+		return s
+	}
+	if s := idLabel(rv); s != "" {
+		return s
+	}
+	if b, err := json.Marshal(instance); err == nil {
+		return string(b)
 	}
 	return fmt.Sprintf("%v", instance)
 }
 
-// findLabelField returns the value of the best label-shaped string field
-// on rv (assumed a struct), or "" if none match. See DefaultShortValue
-// for the preference order.
-func findLabelField(rv reflect.Value) string {
-	// Fast path: the canonical names, in priority order.
-	for _, name := range []string{"Name", "Title", "Username", "DisplayName"} {
-		if f := rv.FieldByName(name); f.IsValid() && f.Kind() == reflect.String {
-			if s := f.String(); s != "" {
-				return s
-			}
+// stringFieldNamed returns the value of the exported string field whose name
+// equals want (case-insensitive), or "".
+func stringFieldNamed(rv reflect.Value, want string) string {
+	t := rv.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if sf.IsExported() && sf.Type.Kind() == reflect.String && strings.EqualFold(sf.Name, want) {
+			return rv.Field(i).String()
 		}
 	}
-	// Slow path: any exported string field whose name contains "name"
-	// (case-insensitive). Catches FullName / FirstName / Nickname etc.
+	return ""
+}
+
+// stringFieldContaining returns the first non-empty exported string field
+// whose name contains sub (case-insensitive), or "".
+func stringFieldContaining(rv reflect.Value, sub string) string {
 	t := rv.Type()
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
 		if !sf.IsExported() || sf.Type.Kind() != reflect.String {
 			continue
 		}
-		if !strings.Contains(strings.ToLower(sf.Name), "name") {
-			continue
+		if strings.Contains(strings.ToLower(sf.Name), sub) {
+			if s := rv.Field(i).String(); s != "" {
+				return s
+			}
 		}
-		if s := rv.Field(i).String(); s != "" {
-			return s
+	}
+	return ""
+}
+
+// idLabel renders an identifier field as "#<n>": an exact "id" field
+// (case-insensitive) first, then a foreign-key-style "…ID"/"…Id" integer
+// field. Returns "" if no non-zero integer identifier is found.
+func idLabel(rv reflect.Value) string {
+	t := rv.Type()
+	for i := 0; i < t.NumField(); i++ {
+		if sf := t.Field(i); sf.IsExported() && strings.EqualFold(sf.Name, "id") {
+			if s := intLikeString(rv.Field(i)); s != "" {
+				return "#" + s
+			}
+		}
+	}
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if sf.IsExported() && (strings.HasSuffix(sf.Name, "ID") || strings.HasSuffix(sf.Name, "Id")) {
+			if s := intLikeString(rv.Field(i)); s != "" {
+				return "#" + s
+			}
+		}
+	}
+	return ""
+}
+
+// intLikeString renders a non-zero integer reflect.Value as a decimal string,
+// or "" if it isn't an integer kind or is zero.
+func intLikeString(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if n := v.Uint(); n != 0 {
+			return strconv.FormatUint(n, 10)
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if n := v.Int(); n != 0 {
+			return strconv.FormatInt(n, 10)
 		}
 	}
 	return ""
