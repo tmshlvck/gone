@@ -82,7 +82,7 @@ by `Authz.CanList` / `CanRead`.
 
 **Import** — a toolbar "Import" button opening a file-upload form →
 `POST {base}/import` (multipart). Parse the header row to map columns
-to `MetaField`s, then per data row run `MetaField.FromStrings` + the
+to `MetaField`s, then per data row run `MetaField.BindStrings` + the
 validation pipeline, and create (or upsert by ID — decide and
 document). Gated by `Authz.CanCreate` / `CanUpdate`.
 

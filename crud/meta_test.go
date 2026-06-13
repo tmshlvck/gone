@@ -37,8 +37,8 @@ func TestByteSliceBindAndDisplay(t *testing.T) {
 
 	// Empty string → empty bytes, no error (the actual create blocker).
 	var empty blobModel
-	if err := h.FromStrings(*h, []string{""}, &empty); err != nil {
-		t.Fatalf("FromStrings empty: %v", err)
+	if err := h.BindStrings(*h, []string{""}, &empty); err != nil {
+		t.Fatalf("BindStrings empty: %v", err)
 	}
 	if len(empty.Handle) != 0 {
 		t.Errorf("empty Handle len = %d, want 0", len(empty.Handle))
@@ -46,8 +46,8 @@ func TestByteSliceBindAndDisplay(t *testing.T) {
 
 	// Non-empty string → its UTF-8 bytes.
 	var m blobModel
-	if err := h.FromStrings(*h, []string{"hi"}, &m); err != nil {
-		t.Fatalf("FromStrings: %v", err)
+	if err := h.BindStrings(*h, []string{"hi"}, &m); err != nil {
+		t.Fatalf("BindStrings: %v", err)
 	}
 	if string(m.Handle) != "hi" {
 		t.Errorf("Handle = %q, want hi", m.Handle)

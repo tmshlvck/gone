@@ -72,13 +72,13 @@ type MetaField struct {
 	// relations).
 	GenFormElement func(mf MetaField, value any) templ.Component
 
-	// FromStrings parses wire form values into the field's Go type and
+	// BindStrings parses wire form values into the field's Go type and
 	// writes them into instance via reflection. strs is form[mf.Name]
 	// (or form[mf.FormFieldName] for relations); an empty slice means the
 	// field was absent (e.g. unchecked checkbox).
-	FromStrings func(mf MetaField, strs []string, instance any) error
+	BindStrings func(mf MetaField, strs []string, instance any) error
 
-	// FieldValidate runs after FromStrings has populated the field. It
+	// FieldValidate runs after BindStrings has populated the field. It
 	// receives only the field's own value — no MetaField, no instance.
 	// Cross-field rules belong on MetaModel.Validate. Helpers in
 	// validators.go (NotEmpty, MinLen, …) plus All(...) for composition.
@@ -208,7 +208,7 @@ func deriveField(f reflect.StructField) MetaField {
 		FormFieldName:  f.Name,
 		DisplayValue:   DefaultDisplayValue,
 		GenFormElement: DefaultGenFormElement,
-		FromStrings:    DefaultFromStrings,
+		BindStrings:    DefaultBindStrings,
 	}
 
 	// Detect relations: struct (non-time.Time) → single; slice-of-struct
@@ -228,7 +228,7 @@ func deriveField(f reflect.StructField) MetaField {
 		mf.FormFieldName = mf.FKFieldName
 		mf.DisplayValue = relationSingleDisplay
 		mf.GenFormElement = relationSingleFormElement
-		mf.FromStrings = relationSingleFromStrings
+		mf.BindStrings = relationSingleBindStrings
 		mf.Sortable = false
 		mf.Searchable = false
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Struct && t.Elem() != timeType:
@@ -244,7 +244,7 @@ func deriveField(f reflect.StructField) MetaField {
 			mf.Multiple = true
 			mf.DisplayValue = relationMultipleDisplay
 			mf.GenFormElement = relationMultipleFormElement
-			mf.FromStrings = relationMultipleFromStrings
+			mf.BindStrings = relationMultipleBindStrings
 		default:
 			// foreignKey:... or no tag — treat as has-many: read-only on
 			// the parent form, but visible in the dump/list.
@@ -253,7 +253,7 @@ func deriveField(f reflect.StructField) MetaField {
 			mf.ReadOnly = true
 			mf.DisplayValue = relationMultipleDisplay
 			mf.GenFormElement = nil // never rendered (ReadOnly)
-			mf.FromStrings = relationHasManyFromStrings
+			mf.BindStrings = relationHasManyBindStrings
 		}
 		mf.Sortable = false
 		mf.Searchable = false
@@ -364,7 +364,7 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 	return out
 }
 
-// DefaultBindForm walks the fields, parses each via FromStrings, runs
+// DefaultBindForm walks the fields, parses each via BindStrings, runs
 // FieldValidate on the parsed *value*, and finally calls mm.Validate
 // (if set) for cross-field rules. Errors accumulate into
 // ValidationErrors keyed by field name (or ModelLevelKey for the
@@ -372,7 +372,7 @@ func DefaultGenFormElements[T any](mm MetaModel[T], instance T) []templ.Componen
 //
 // Validation pipeline (per field, then once for the model):
 //
-//  1. FromStrings parses the wire value. On failure, record under the
+//  1. BindStrings parses the wire value. On failure, record under the
 //     field name and skip step 2 — no Go value to feed it.
 //  2. FieldValidate receives the field's value (not the whole struct).
 //     On failure, record under the field name.
@@ -392,7 +392,7 @@ func DefaultBindForm[T any](mm MetaModel[T], form map[string][]string, out *T) e
 			key = mf.Name
 		}
 		strs := form[key]
-		if err := mf.FromStrings(mf, strs, out); err != nil {
+		if err := mf.BindStrings(mf, strs, out); err != nil {
 			verrs[mf.Name] = err.Error()
 			continue
 		}
@@ -467,10 +467,10 @@ func DefaultGenFormElement(mf MetaField, value any) templ.Component {
 	}
 }
 
-// DefaultFromStrings parses strs[0] into the field's Go type and writes
+// DefaultBindStrings parses strs[0] into the field's Go type and writes
 // it via reflection. Returns an error if parsing fails or the field is
 // not settable.
-func DefaultFromStrings(mf MetaField, strs []string, instance any) error {
+func DefaultBindStrings(mf MetaField, strs []string, instance any) error {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
@@ -548,8 +548,8 @@ func DefaultFromStrings(mf MetaField, strs []string, instance any) error {
 		// its UTF-8 bytes. This keeps BLOB columns (e.g. an opaque
 		// WebAuthn handle) bindable instead of erroring as "unsupported
 		// kind slice". An empty string yields empty bytes. Non-byte
-		// slices are relations and never reach DefaultFromStrings (they
-		// carry relation-specific FromStrings hooks).
+		// slices are relations and never reach DefaultBindStrings (they
+		// carry relation-specific BindStrings hooks).
 		if field.Type().Elem().Kind() == reflect.Uint8 {
 			field.SetBytes([]byte(s))
 			return nil

@@ -507,9 +507,9 @@ func (c *CRUDTable[T]) handleOptions(w http.ResponseWriter, r *http.Request) tem
 	return templ.Raw(renderOptionsHTML(opts, selected, isSingle))
 }
 
-// relationSingleFromStrings parses the posted FK (uint) and writes it to
+// relationSingleBindStrings parses the posted FK (uint) and writes it to
 // instance.<FKFieldName>. "0" / empty clears the relation.
-func relationSingleFromStrings(mf MetaField, strs []string, instance any) error {
+func relationSingleBindStrings(mf MetaField, strs []string, instance any) error {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
@@ -550,10 +550,10 @@ func relationSingleFromStrings(mf MetaField, strs []string, instance any) error 
 	return nil
 }
 
-// relationMultipleFromStrings parses the posted IDs and writes a slice of
+// relationMultipleBindStrings parses the posted IDs and writes a slice of
 // zero structs (with only ID set) to instance.<Name>. The GORM backend
 // later calls Association().Replace() to persist the join rows.
-func relationMultipleFromStrings(mf MetaField, strs []string, instance any) error {
+func relationMultipleBindStrings(mf MetaField, strs []string, instance any) error {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
@@ -592,9 +592,9 @@ func relationMultipleFromStrings(mf MetaField, strs []string, instance any) erro
 	return nil
 }
 
-// relationHasManyFromStrings is a no-op — has-many is read-only on the
+// relationHasManyBindStrings is a no-op — has-many is read-only on the
 // parent form.
-func relationHasManyFromStrings(mf MetaField, strs []string, instance any) error {
+func relationHasManyBindStrings(mf MetaField, strs []string, instance any) error {
 	return nil
 }
 

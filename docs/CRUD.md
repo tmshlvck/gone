@@ -142,10 +142,11 @@ type Field struct {
     Hidden    bool      // omit entirely (list, detail, form)
     Validate  Validator // -> FieldValidate (per-field server validator)
 
-    // Override the cell renderer / form input for one field, without
-    // dropping to the low-level path. nil keeps the derived hook.
-    DisplayValue   func(mf MetaField, value any) templ.Component
-    GenFormElement func(mf MetaField, value any) templ.Component
+    // The three generic per-field transforms; nil keeps the derived hook.
+    // Compose them for bespoke fields without dropping to the low-level path.
+    DisplayValue   func(mf MetaField, value any) templ.Component         // table/detail cell
+    GenFormElement func(mf MetaField, value any) templ.Component         // whole form <input>
+    BindStrings    func(mf MetaField, strs []string, instance any) error // parse form value(s) → struct
 }
 
 type Fields map[string]Field
@@ -153,6 +154,39 @@ type Fields map[string]Field
 func NewGormTable[T any](db *gorm.DB, cfg Table[T]) CRUDTable[T]
 func NewMapTable[T any](store map[uint]T, mu *sync.RWMutex, cfg Table[T]) CRUDTable[T]
 ```
+
+### Secret / password fields
+
+There are no special "secret" flags — sensitive fields are just compositions
+of the three generic hooks, with ready-made helpers for the common cases:
+
+```go
+func Redact(mf MetaField, value any) templ.Component        // DisplayValue: "-hidden-"/"-empty-"
+func PasswordInput(mf MetaField, value any) templ.Component // GenFormElement: empty password box
+func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) error // BindStrings
+```
+
+- **Show a secret read-only** (a stored hash, a raw TOTP secret, an opaque
+  `[]byte` handle) — redacted in the table, never sent to the form or bound:
+
+  ```go
+  "TOTPSecret": {Label: "TOTP", ReadOnly: true, DisplayValue: crud.Redact},
+  ```
+
+- **A write-only password field** — empty box in the form, redacted in the
+  table; a non-blank entry is re-hashed and stored, a blank entry keeps the
+  current value:
+
+  ```go
+  "PasswordHash": {Label: "Password", InputType: "password",
+      DisplayValue:   crud.Redact,
+      GenFormElement: crud.PasswordInput,
+      BindStrings:    crud.HashWith(auth.HashPassword), // auth.HashPassword = argon2id
+  },
+  ```
+
+`auth.HashPassword` hashes the same way the login path verifies. See
+`examples/auth_gorm` for the User table using all of this.
 
 The constructors **panic at startup** on a programming error — a non-struct
 `T`, or a `Fields` key the type doesn't have (a typo / renamed field). This
@@ -340,7 +374,7 @@ type MetaField struct {
 
     DisplayValue   func(mf MetaField, value any) templ.Component
     GenFormElement func(mf MetaField, value any) templ.Component
-    FromStrings    func(mf MetaField, strs []string, instance any) error
+    BindStrings    func(mf MetaField, strs []string, instance any) error
     FieldValidate  Validator
 }
 ```

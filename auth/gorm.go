@@ -256,10 +256,19 @@ func (a *AuthGORM) UserDel(username string) error {
 	return a.DB.Select("Groups").Delete(&user).Error
 }
 
+// HashPassword hashes a plaintext password with argon2id (DefaultParams),
+// producing the PHC-encoded string stored in UserGORM.PasswordHash. Exported
+// so an app hashing passwords outside the login path — e.g. an admin CRUD
+// table using crud.Field{Hash: auth.HashPassword} — produces hashes the
+// login path verifies. Returns the hash, or an error from the KDF.
+func HashPassword(plaintext string) (string, error) {
+	return argon2id.CreateHash(plaintext, argon2id.DefaultParams)
+}
+
 // Passwd replaces the named user's password (argon2id re-hashed).
 // Returns ErrUserNotFound if absent.
 func (a *AuthGORM) Passwd(username, password string) error {
-	hash, err := argon2id.CreateHash(password, argon2id.DefaultParams)
+	hash, err := HashPassword(password)
 	if err != nil {
 		return err
 	}

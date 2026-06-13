@@ -1,8 +1,12 @@
 package crud
 
 import (
+	"context"
+	"strings"
 	"sync"
 	"testing"
+
+	"github.com/a-h/templ"
 )
 
 type cfgHero struct {
@@ -98,6 +102,100 @@ func TestUnknownFieldPanics(t *testing.T) {
 	_ = NewMapTable(store, mu, Table[cfgHero]{
 		Fields: Fields{"Nmae": {Help: "typo"}}, // misspelled "Name"
 	})
+}
+
+type secretModel struct {
+	ID           uint
+	Name         string
+	PasswordHash string
+	Handle       []byte
+}
+
+func renderHook(t *testing.T, c templ.Component) string {
+	t.Helper()
+	var sb strings.Builder
+	if err := c.Render(context.Background(), &sb); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	return sb.String()
+}
+
+// TestRedactHelper covers crud.Redact as a DisplayValue hook (paired with
+// ReadOnly to make a shown-but-uneditable secret field).
+func TestRedactHelper(t *testing.T) {
+	store := map[uint]secretModel{}
+	tbl := NewMapTable(store, &sync.RWMutex{}, Table[secretModel]{
+		Fields: Fields{
+			"Handle": {ReadOnly: true, DisplayValue: Redact},
+		},
+	})
+	h := tbl.MetaData.MustFindField("Handle")
+	if !h.ReadOnly {
+		t.Error("Handle should be ReadOnly (shown, not bound)")
+	}
+	cases := []struct {
+		val  any
+		want string
+	}{
+		{"argon2$hash", "-hidden-"},
+		{"", "-empty-"},
+		{[]byte{1, 2}, "-hidden-"},
+		{[]byte{}, "-empty-"},
+	}
+	for _, c := range cases {
+		if got := renderHook(t, Redact(*h, c.val)); got != c.want {
+			t.Errorf("Redact(%v) = %q, want %q", c.val, got, c.want)
+		}
+	}
+}
+
+// TestPasswordFieldViaHelpers composes a write-only password field from the
+// generic hooks + Redact / PasswordInput / HashWith — no bespoke Field flag.
+func TestPasswordFieldViaHelpers(t *testing.T) {
+	store := map[uint]secretModel{}
+	tbl := NewMapTable(store, &sync.RWMutex{}, Table[secretModel]{
+		Fields: Fields{
+			"PasswordHash": {
+				Label:          "Password",
+				InputType:      "password",
+				DisplayValue:   Redact,
+				GenFormElement: PasswordInput,
+				BindStrings:    HashWith(func(pw string) (string, error) { return "H(" + pw + ")", nil }),
+			},
+		},
+	})
+	f := tbl.MetaData.MustFindField("PasswordHash")
+
+	// Empty password box — the stored hash never leaks into the form.
+	form := renderHook(t, f.GenFormElement(*f, "argon2$secret"))
+	if !strings.Contains(form, `type="password"`) || !strings.Contains(form, `value=""`) {
+		t.Errorf("password input = %q, want empty type=password box", form)
+	}
+	if strings.Contains(form, "argon2$secret") {
+		t.Error("stored hash leaked into the form input")
+	}
+	// Display redacted.
+	if got := renderHook(t, f.DisplayValue(*f, "argon2$secret")); got != "-hidden-" {
+		t.Errorf("display = %q, want -hidden-", got)
+	}
+	// Non-blank input is hashed into the field.
+	m := secretModel{PasswordHash: "old"}
+	if err := f.BindStrings(*f, []string{"newpw"}, &m); err != nil {
+		t.Fatalf("BindStrings: %v", err)
+	}
+	if m.PasswordHash != "H(newpw)" {
+		t.Errorf("PasswordHash = %q, want H(newpw)", m.PasswordHash)
+	}
+	// Blank / whitespace-only keeps the existing value.
+	keep := secretModel{PasswordHash: "kept"}
+	for _, blank := range []string{"", "   "} {
+		if err := f.BindStrings(*f, []string{blank}, &keep); err != nil {
+			t.Fatalf("BindStrings(%q): %v", blank, err)
+		}
+		if keep.PasswordHash != "kept" {
+			t.Errorf("blank input %q changed PasswordHash to %q", blank, keep.PasswordHash)
+		}
+	}
 }
 
 func TestModelValidateWired(t *testing.T) {

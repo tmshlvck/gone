@@ -2,6 +2,9 @@ package crud
 
 import (
 	"fmt"
+	"html"
+	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/a-h/templ"
@@ -49,12 +52,17 @@ type Field struct {
 	Hidden    bool      // if true, omit entirely (list, detail, form)
 	Validate  Validator // -> MetaField.FieldValidate (per-field server validator)
 
-	// DisplayValue / GenFormElement override the cell renderer / form input
-	// for this field. nil keeps the derived hook. For the rare field that
-	// needs bespoke HTML (a clickable id, a custom widget) without dropping
-	// to the Derive* path.
+	// DisplayValue / GenFormElement / BindStrings override the three generic
+	// per-field transforms; nil keeps the derived hook:
+	//   - DisplayValue   renders the table / detail cell from the value.
+	//   - GenFormElement renders the whole form <input> (markup + value).
+	//   - BindStrings    parses the submitted form value(s) into the struct.
+	// Compose them for bespoke fields without dropping to the Derive* path.
+	// The Redact / PasswordInput / HashWith helpers are ready-made hooks for
+	// the common secret/password cases (see their docs).
 	DisplayValue   func(mf MetaField, value any) templ.Component
 	GenFormElement func(mf MetaField, value any) templ.Component
+	BindStrings    func(mf MetaField, strs []string, instance any) error
 }
 
 // Fields maps Go field name to its override. An entry for a name T doesn't
@@ -137,6 +145,100 @@ func (fc Field) applyTo(f *MetaField) {
 	if fc.GenFormElement != nil {
 		f.GenFormElement = fc.GenFormElement
 	}
+	if fc.BindStrings != nil {
+		f.BindStrings = fc.BindStrings
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Ready-made hooks for the common secret / password fields. Each plugs into
+// one of Field's generic transform hooks; nothing here is special-cased in
+// the recipe.
+// ──────────────────────────────────────────────────────────────────────────
+
+// Redact is a DisplayValue hook for a sensitive or opaque field: it never
+// renders the value, only whether one is present — "-hidden-" when non-empty
+// (handles strings, []byte, etc.), "-empty-" otherwise. Pair with
+// ReadOnly:true so the field shows redacted but is never sent to a form or
+// bound (a round-trip can't corrupt it):
+//
+//	"TOTPSecret": {Label: "TOTP", ReadOnly: true, DisplayValue: crud.Redact},
+func Redact(_ MetaField, value any) templ.Component {
+	if valuePresent(value) {
+		return templ.Raw("-hidden-")
+	}
+	return templ.Raw("-empty-")
+}
+
+// PasswordInput is a GenFormElement hook rendering an empty password box, so
+// a stored value (e.g. a hash) is never echoed to the browser. Pair with
+// HashWith on BindStrings and Redact on DisplayValue for a write-only
+// password field.
+func PasswordInput(mf MetaField, _ any) templ.Component {
+	return templ.Raw(fmt.Sprintf(
+		`<input type="password" name=%q value="" autocomplete="new-password" class="input"/>`,
+		html.EscapeString(mf.Name)))
+}
+
+// HashWith returns a BindStrings hook for a write-only password field: a
+// non-blank submitted value is passed through hash and written to the field;
+// a blank or whitespace-only value leaves the stored value unchanged (so an
+// edit that doesn't touch the box keeps the current password). The field must
+// be a string. hash may also reject weak inputs by returning an error, which
+// surfaces as a field validation error.
+//
+//	"PasswordHash": {Label: "Password", InputType: "password",
+//	    DisplayValue:   crud.Redact,
+//	    GenFormElement: crud.PasswordInput,
+//	    BindStrings:    crud.HashWith(auth.HashPassword),
+//	},
+func HashWith(hash func(plaintext string) (string, error)) func(mf MetaField, strs []string, instance any) error {
+	return func(mf MetaField, strs []string, instance any) error {
+		pw := ""
+		if len(strs) > 0 {
+			pw = strs[0]
+		}
+		if strings.TrimSpace(pw) == "" {
+			return nil // blank → keep the existing value
+		}
+		h, err := hash(pw)
+		if err != nil {
+			return err
+		}
+		return setStringFieldByName(instance, mf.Name, h)
+	}
+}
+
+// valuePresent reports whether v holds a non-empty value (non-empty string /
+// slice / map, non-nil pointer, or non-zero scalar).
+func valuePresent(v any) bool {
+	if v == nil {
+		return false
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.String, reflect.Slice, reflect.Map, reflect.Array:
+		return rv.Len() > 0
+	case reflect.Pointer, reflect.Interface:
+		return !rv.IsNil()
+	default:
+		return !rv.IsZero()
+	}
+}
+
+// setStringFieldByName writes val into the named string field of instance
+// (a pointer to a struct), via reflection.
+func setStringFieldByName(instance any, name, val string) error {
+	rv := reflect.ValueOf(instance)
+	for rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	f := rv.FieldByName(name)
+	if !f.IsValid() || !f.CanSet() || f.Kind() != reflect.String {
+		return fmt.Errorf("crud: HashWith field %q must be a settable string", name)
+	}
+	f.SetString(val)
+	return nil
 }
 
 // applyTo stamps the recipe's table-level settings onto a freshly derived
