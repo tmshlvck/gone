@@ -134,7 +134,7 @@ func main() {
 
 	// ── Routing ─────────────────────────────────────────────────────
 	mux := chi.NewRouter()
-	if _, err := sa.Route(mux, "", pageShell); err != nil {
+	if err := sa.RegisterRoutes(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
 	// The library registers the table's fragment endpoints; the app owns

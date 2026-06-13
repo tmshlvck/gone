@@ -20,24 +20,24 @@ import (
 // "ref" is either the literal string "me" (resolves to the current
 // user) or a numeric ID (resolves the named UserGORM row). Both
 // routes share a single handler that branches on r.Method.
-func (a *AuthGORM) mountAccountRoutes(mux chi.Router, base string, shell PageShellFunc) {
-	mux.Get(base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
+func (a *AuthGORM) mountAccountRoutes(mux chi.Router, shell PageShellFunc) {
+	mux.Get("/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		a.serveAccountForm(w, r, shell, "", "")
 	})
-	mux.Post(base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		a.handleAccountPost(w, r, shell)
 	})
-	a.mountTOTPAccountRoutes(mux, base)
+	a.mountTOTPAccountRoutes(mux)
 	// Passkey enrolment endpoints are mounted only when RP fields
 	// are set (the WebAuthn library refuses to construct without
 	// them). Apps that don't want passkeys skip both UI and routes.
 	if a.RPID != "" {
-		a.mountPasskeyAccountRoutes(mux, base)
+		a.mountPasskeyAccountRoutes(mux)
 	}
 	// SSO unlink route. Available even when no providers are
 	// registered — historical identities may exist on disk and the
 	// user should still be able to clean them up.
-	mux.Post(base+"/account/{ref}/sso/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}/sso/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
 		a.handleSSOIdentityDelete(w, r)
 	})
 }

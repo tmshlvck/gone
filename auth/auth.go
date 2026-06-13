@@ -24,6 +24,20 @@ import (
 // useful for tests and for fragment-only callers.
 type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, content templ.Component)
 
+// Relative auth route patterns. RegisterRoutes registers these on the
+// router the caller hands it, so auth composes under any mount (root, a
+// stripping chi.Route/Mount, or a group) exactly like crud's tables. The
+// absolute form — recorded in the impl's *Path fields and used for links,
+// redirects, LoginURL and IsAuthPath — is mountBase + the pattern.
+const (
+	pathLogin          = "/login"
+	pathLogout         = "/logout"
+	pathTOTPLogin      = "/login/totp"
+	pathPasskeyOptions = "/login/passkey/options"
+	pathPasskeyFinish  = "/login/passkey/finish"
+	pathSSO            = "/login/sso"
+)
+
 // Auth is what every page handler and authz helper interacts with.
 // AuthSimple (v1) and AuthGORM (v2) both implement it. Apps depend on
 // the Auth interface, not the concrete impl — swapping happens by
@@ -36,12 +50,14 @@ type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, co
 // redacted anonymous view. Auth exposes LoginURL(returnTo) so the
 // handler can build the redirect target.
 type Auth interface {
-	// Route mounts the impl's login + logout handlers under baseUrl.
-	// Each impl ships its own templates (simple form vs. multi-method
-	// when AuthGORM lands). Returns the absolute urlBase the routes
-	// were mounted under. shell wraps the login form in the app's
-	// chrome; nil is allowed for tests / fragment-only callers.
-	Route(mux chi.Router, baseUrl string, shell PageShellFunc) (string, error)
+	// RegisterRoutes mounts the impl's login + logout (and, for AuthGORM,
+	// TOTP / passkey / SSO / account) handlers on r, at paths RELATIVE to
+	// r. mountBase is the absolute prefix at which r is served (the caller
+	// knows it; chi can't report it at registration time) — recorded so
+	// LoginURL, redirects, and rendered form actions resolve absolutely,
+	// even behind a stripping mount. shell wraps the login form in the
+	// app's chrome; nil is allowed for tests / fragment-only callers.
+	RegisterRoutes(r chi.Router, mountBase string, shell PageShellFunc) error
 
 	// CurrentUser returns the user the session points to, or nil for
 	// anonymous. Page handlers call this and decide their response.

@@ -25,7 +25,7 @@ func newRoutedAuthGORMWithRP(t *testing.T) (http.Handler, *AuthGORM) {
 	ag.RPID = "localhost"
 	ag.RPOrigins = []string{"http://localhost"}
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	return sm.LoadAndSave(CSRFWrap(sm)(mux)), ag
@@ -66,7 +66,7 @@ func TestAuthGORM_PasskeyRoutesNotMountedWithoutRP(t *testing.T) {
 	// Deliberately don't set RP fields. Route() should succeed but
 	// skip the passkey endpoints.
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
@@ -324,7 +324,7 @@ func TestLoginForm_PasskeyButtonRendersWhenRPSet(t *testing.T) {
 func TestLoginForm_PasskeyButtonAbsentWithoutRP(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))

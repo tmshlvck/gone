@@ -310,12 +310,11 @@ func TestAuthGORMNilConstructorArgs(t *testing.T) {
 func TestAuthGORMRouteRegistersHandlers(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	mux := chi.NewRouter()
-	base, err := ag.Route(mux, "", nil)
-	if err != nil {
-		t.Fatalf("Route: %v", err)
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
+		t.Fatalf("RegisterRoutes: %v", err)
 	}
-	if base != "" {
-		t.Errorf("base = %q, want \"\"", base)
+	if ag.urlBase != "" {
+		t.Errorf("urlBase = %q, want \"\"", ag.urlBase)
 	}
 	// GET /login should render (200) — wrap in LoadAndSave for the
 	// session to populate.
@@ -325,6 +324,40 @@ func TestAuthGORMRouteRegistersHandlers(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("GET /login status = %d, want 200; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestAuthGORMRegisterRoutesUnderPrefix verifies the relative-registration
+// model: mounted under a stripping chi.Route("/auth"), the handlers serve at
+// /auth/login etc., and the absolute helpers (LoginURL / IsAuthPath) reflect
+// the mountBase so links and the page-shell gate stay correct behind a prefix.
+func TestAuthGORMRegisterRoutesUnderPrefix(t *testing.T) {
+	ag, sm := newTestAuthGORM(t)
+	mux := chi.NewRouter()
+	mux.Route("/auth", func(r chi.Router) {
+		if err := ag.RegisterRoutes(r, "/auth", nil); err != nil {
+			t.Fatalf("RegisterRoutes: %v", err)
+		}
+	})
+	if got := ag.LoginURL(""); got != "/auth/login" {
+		t.Errorf("LoginURL() = %q, want /auth/login", got)
+	}
+	if !ag.IsAuthPath("/auth/login") {
+		t.Error("IsAuthPath(/auth/login) = false, want true")
+	}
+	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
+
+	// The prefixed path serves; the unprefixed one 404s.
+	for path, want := range map[string]int{
+		"/auth/login": http.StatusOK,
+		"/login":      http.StatusNotFound,
+	} {
+		req := httptest.NewRequest("GET", path, nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != want {
+			t.Errorf("GET %s status = %d, want %d", path, rr.Code, want)
+		}
 	}
 }
 

@@ -146,16 +146,17 @@ func (a *AuthGORM) ensureWebAuthnHandle(u *UserGORM) error {
 // ──────────────────────────────────────────────────────────────────
 // Enrolment routes.
 
-// mountPasskeyAccountRoutes registers begin / finish / delete under
-// base + "/account/{ref}/passkey/...". Called from mountAccountRoutes.
-func (a *AuthGORM) mountPasskeyAccountRoutes(mux chi.Router, base string) {
-	mux.Post(base+"/account/{ref}/passkey/begin", func(w http.ResponseWriter, r *http.Request) {
+// mountPasskeyAccountRoutes registers begin / finish / delete relative to
+// the account router at "/account/{ref}/passkey/...". Called from
+// mountAccountRoutes.
+func (a *AuthGORM) mountPasskeyAccountRoutes(mux chi.Router) {
+	mux.Post("/account/{ref}/passkey/begin", func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyEnrolBegin(w, r)
 	})
-	mux.Post(base+"/account/{ref}/passkey/finish", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}/passkey/finish", func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyEnrolFinish(w, r)
 	})
-	mux.Post(base+"/account/{ref}/passkey/{pkid}/delete", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}/passkey/{pkid}/delete", func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyDelete(w, r)
 	})
 }
@@ -319,10 +320,10 @@ func (a *AuthGORM) handlePasskeyDelete(w http.ResponseWriter, r *http.Request) {
 // page's JS calls. Mounted directly from Route() (not from the
 // account routes), because login is reachable to anonymous users.
 func (a *AuthGORM) mountPasskeyLoginRoutes(mux chi.Router) {
-	mux.Post(a.passkeyOptionsPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(pathPasskeyOptions, func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyLoginOptions(w, r)
 	})
-	mux.Post(a.passkeyFinishPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(pathPasskeyFinish, func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyLoginFinish(w, r)
 	})
 }

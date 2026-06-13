@@ -99,7 +99,7 @@ func loginPasswordOnly(t *testing.T, handler http.Handler, username, password st
 func TestAuthGORM_IsAuthPath(t *testing.T) {
 	ag, _ := newTestAuthGORM(t)
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	cases := []struct {
@@ -122,7 +122,7 @@ func TestAuthGORM_IsAuthPath(t *testing.T) {
 func TestAuthSimple_IsAuthPath(t *testing.T) {
 	sa, _ := newTestAuth(t)
 	mux := chi.NewRouter()
-	if _, err := sa.Route(mux, "", nil); err != nil {
+	if err := sa.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	if !sa.IsAuthPath("/login") {

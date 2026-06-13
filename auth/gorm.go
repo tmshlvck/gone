@@ -464,19 +464,19 @@ func (a *AuthGORM) Logout(ctx context.Context) error {
 //
 // Stage 2 is skipped entirely for users without a TOTP secret —
 // they go straight to AfterLogin from the password POST.
-func (a *AuthGORM) Route(mux chi.Router, baseUrl string, shell PageShellFunc) (string, error) {
+func (a *AuthGORM) RegisterRoutes(mux chi.Router, mountBase string, shell PageShellFunc) error {
 	if mux == nil {
-		return "", errors.New("auth.AuthGORM.Route: nil mux")
+		return errors.New("auth.AuthGORM.RegisterRoutes: nil router")
 	}
-	base := normalizeAuthPrefix(baseUrl)
+	base := normalizeAuthPrefix(mountBase)
 	a.urlBase = base
-	a.loginPath = base + "/login"
-	a.logoutPath = base + "/logout"
-	a.totpPath = base + "/login/totp"
-	a.passkeyOptionsPath = base + "/login/passkey/options"
-	a.passkeyFinishPath = base + "/login/passkey/finish"
-	a.ssoStartPath = base + "/login/sso"
-	a.ssoCallbackPath = base + "/login/sso"
+	a.loginPath = base + pathLogin
+	a.logoutPath = base + pathLogout
+	a.totpPath = base + pathTOTPLogin
+	a.passkeyOptionsPath = base + pathPasskeyOptions
+	a.passkeyFinishPath = base + pathPasskeyFinish
+	a.ssoStartPath = base + pathSSO
+	a.ssoCallbackPath = base + pathSSO
 	// Passkey paths are wired into the login form only when RP is
 	// configured — gates the "Use passkey" button + conditional UI.
 	var pkOpts, pkFin string
@@ -498,7 +498,7 @@ func (a *AuthGORM) Route(mux chi.Router, baseUrl string, shell PageShellFunc) (s
 		SSOButtons:         a.ssoLoginButtons,
 	})
 	a.mountTOTPLoginRoutes(mux, shell)
-	a.mountAccountRoutes(mux, base, shell)
+	a.mountAccountRoutes(mux, shell)
 	// Passkey login is mounted only when RP fields are set; without
 	// them the WebAuthn handler would panic on first call. Apps that
 	// don't need passkeys leave RPID="" and the endpoints stay
@@ -511,7 +511,7 @@ func (a *AuthGORM) Route(mux chi.Router, baseUrl string, shell PageShellFunc) (s
 	// mount is a no-op and IsAuthPath reports false for the sso
 	// prefix.
 	a.mountSSOLoginRoutes(mux, shell)
-	return a.urlBase, nil
+	return nil
 }
 
 // ──────────────────────────────────────────────────────────────────

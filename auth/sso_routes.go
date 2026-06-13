@@ -78,10 +78,10 @@ func (a *AuthGORM) mountSSOLoginRoutes(mux chi.Router, shell PageShellFunc) {
 	if len(a.ssoProviders) == 0 {
 		return
 	}
-	mux.Get(a.ssoStartPath+"/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(pathSSO+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		a.ssoStartHandler(w, r)
 	})
-	mux.Get(a.ssoCallbackPath+"/{name}/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(pathSSO+"/{name}/callback", func(w http.ResponseWriter, r *http.Request) {
 		a.ssoCallbackHandler(w, r, shell)
 	})
 }

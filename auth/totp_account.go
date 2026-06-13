@@ -17,17 +17,17 @@ const totpSetupSecretKey = "auth:totp_setup_secret"
 // disable endpoints under base/account/{ref}/totp/<action>. Called
 // from mountAccountRoutes after the password-change routes are
 // already up.
-func (a *AuthGORM) mountTOTPAccountRoutes(mux chi.Router, base string) {
-	mux.Post(base+"/account/{ref}/totp/begin", func(w http.ResponseWriter, r *http.Request) {
+func (a *AuthGORM) mountTOTPAccountRoutes(mux chi.Router) {
+	mux.Post("/account/{ref}/totp/begin", func(w http.ResponseWriter, r *http.Request) {
 		a.handleTOTPBegin(w, r)
 	})
-	mux.Post(base+"/account/{ref}/totp/verify", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}/totp/verify", func(w http.ResponseWriter, r *http.Request) {
 		a.handleTOTPVerify(w, r)
 	})
-	mux.Post(base+"/account/{ref}/totp/cancel", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}/totp/cancel", func(w http.ResponseWriter, r *http.Request) {
 		a.handleTOTPCancel(w, r)
 	})
-	mux.Post(base+"/account/{ref}/totp/disable", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post("/account/{ref}/totp/disable", func(w http.ResponseWriter, r *http.Request) {
 		a.handleTOTPDisable(w, r)
 	})
 }

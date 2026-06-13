@@ -139,7 +139,7 @@ func main() {
 
 	// ── Routing ─────────────────────────────────────────────────────
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", pageShell); err != nil {
+	if err := ag.RegisterRoutes(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
 	mux.Route("/admin", func(r chi.Router) {

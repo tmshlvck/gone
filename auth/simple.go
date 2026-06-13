@@ -251,26 +251,26 @@ func (s *AuthSimple) Authenticate(username, password string) (User, error) {
 	return u, nil
 }
 
-// Route mounts GET/POST /login + POST /logout under baseUrl. shell
-// wraps the GET /login form in the app's chrome — when nil, the form
-// renders as a bare fragment (useful for tests).
+// RegisterRoutes mounts GET/POST /login + POST /logout on r, relative to
+// r. mountBase is the absolute prefix at which r is served — recorded so
+// the form action, redirects, and LoginURL resolve absolutely. shell wraps
+// the GET /login form in the app's chrome — when nil, the form renders as a
+// bare fragment (useful for tests).
 //
-// Registered patterns (baseUrl="" / "/"):
+// Registered patterns (relative to r; absolute = mountBase + pattern):
 //
 //	GET    /login   render login form (reads ?next=… for the redirect target)
 //	POST   /login   authenticate + Login + redirect to next or AfterLogin
 //	POST   /logout  Logout + redirect to LoginURL("")
-//
-// Returns the absolute urlBase the routes were mounted under.
-func (s *AuthSimple) Route(mux chi.Router, baseUrl string, shell PageShellFunc) (string, error) {
-	if mux == nil {
-		return "", errors.New("auth.AuthSimple.Route: nil mux")
+func (s *AuthSimple) RegisterRoutes(r chi.Router, mountBase string, shell PageShellFunc) error {
+	if r == nil {
+		return errors.New("auth.AuthSimple.RegisterRoutes: nil router")
 	}
-	base := normalizeAuthPrefix(baseUrl)
+	base := normalizeAuthPrefix(mountBase)
 	s.urlBase = base
-	s.loginPath = base + "/login"
-	s.logoutPath = base + "/logout"
-	mountPasswordLogin(mux, passwordLoginOpts{
+	s.loginPath = base + pathLogin
+	s.logoutPath = base + pathLogout
+	mountPasswordLogin(r, passwordLoginOpts{
 		LoginPath:    s.loginPath,
 		LogoutPath:   s.logoutPath,
 		AfterLogin:   func() string { return s.AfterLogin },
@@ -285,7 +285,7 @@ func (s *AuthSimple) Route(mux chi.Router, baseUrl string, shell PageShellFunc) 
 		// AuthSimple has no passkeys — leaving these empty keeps the
 		// "Use passkey" button out of the login form.
 	})
-	return s.urlBase, nil
+	return nil
 }
 
 // passwordLoginOpts is the data + closures the shared
@@ -327,7 +327,7 @@ type passwordLoginOpts struct {
 }
 
 func mountPasswordLogin(mux chi.Router, o passwordLoginOpts) {
-	mux.Get(o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(pathLogin, func(w http.ResponseWriter, r *http.Request) {
 		next := safeNext(r.URL.Query().Get("next"))
 		body := loginForm(loginFormData{
 			Action:          o.LoginPath,
@@ -341,7 +341,7 @@ func mountPasswordLogin(mux chi.Router, o passwordLoginOpts) {
 		writeShell(w, r, "Sign in", body, o.Shell)
 	})
 
-	mux.Post(o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(pathLogin, func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -382,7 +382,7 @@ func mountPasswordLogin(mux chi.Router, o passwordLoginOpts) {
 		http.Redirect(w, r, dest, http.StatusSeeOther)
 	})
 
-	mux.Post(o.LogoutPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(pathLogout, func(w http.ResponseWriter, r *http.Request) {
 		if err := o.Logout(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

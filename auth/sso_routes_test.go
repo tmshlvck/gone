@@ -46,7 +46,7 @@ func TestLoginForm_RendersOneButtonPerProvider(t *testing.T) {
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
 	registerFakeSSOProvider(ag, "github", ssoIdentity{}, ssoProviderConfig{})
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := ag.Sessions.LoadAndSave(CSRFWrap(ag.Sessions)(mux))
@@ -70,7 +70,7 @@ func TestSSOStart_StashesStateAndRedirects(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
@@ -118,7 +118,7 @@ func TestSSOStart_UnknownProvider404(t *testing.T) {
 	ag, _ := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := ag.Sessions.LoadAndSave(CSRFWrap(ag.Sessions)(mux))
@@ -137,7 +137,7 @@ func TestSSOCallback_StateMismatch400(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{Subject: "s", Email: "x@y"}, ssoProviderConfig{})
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
@@ -161,7 +161,7 @@ func TestSSOCallback_NoCeremonyStarted400(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
@@ -183,7 +183,7 @@ func TestSSOCallback_HappyPath_AutoCreate(t *testing.T) {
 		ssoProviderConfig{},
 	)
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
@@ -283,7 +283,7 @@ func TestPasskeyEnrolBegin_BlockedForSSOOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := chi.NewRouter()
-	if _, err := ag2.Route(mux, "", nil); err != nil {
+	if err := ag2.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	h2 := sm2.LoadAndSave(CSRFWrap(sm2)(mux))

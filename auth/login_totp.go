@@ -58,10 +58,10 @@ func (a *AuthGORM) loginStage1(ctx context.Context, u User, formNext string) (st
 // mountTOTPLoginRoutes registers GET/POST /login/totp. The handler
 // is private to AuthGORM because AuthSimple has no TOTP path.
 func (a *AuthGORM) mountTOTPLoginRoutes(mux chi.Router, shell PageShellFunc) {
-	mux.Get(a.totpPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(pathTOTPLogin, func(w http.ResponseWriter, r *http.Request) {
 		a.serveTOTPLoginForm(w, r, shell, "")
 	})
-	mux.Post(a.totpPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(pathTOTPLogin, func(w http.ResponseWriter, r *http.Request) {
 		a.handleTOTPLoginPost(w, r, shell)
 	})
 }

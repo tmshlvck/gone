@@ -28,7 +28,7 @@ func newRoutedAuthGORM(t *testing.T) (http.Handler, *AuthGORM) {
 		t.Fatalf("Passwd admin: %v", err)
 	}
 	mux := chi.NewRouter()
-	if _, err := ag.Route(mux, "", nil); err != nil {
+	if err := ag.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	return sm.LoadAndSave(CSRFWrap(sm)(mux)), ag

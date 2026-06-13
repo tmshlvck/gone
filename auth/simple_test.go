@@ -225,7 +225,7 @@ func newRoutedAuth(t *testing.T) (*AuthSimple, *scs.SessionManager, http.Handler
 		t.Fatalf("UserAdd: %v", err)
 	}
 	mux := chi.NewRouter()
-	if _, err := sa.Route(mux, "", nil); err != nil {
+	if err := sa.RegisterRoutes(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
 	handler := sm.LoadAndSave(CSRFWrap(sm)(mux))
