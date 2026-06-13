@@ -127,8 +127,9 @@ type Table[T any] struct {
     ReadOnly         bool // disables create + edit + delete in one switch
     HideUnauthorized bool // omit disallowed mutation buttons (vs render disabled)
 
-    Fields   Fields              // per-field overrides, keyed by Go field name
-    Validate func(instance T) error // optional model-level cross-field validator
+    Fields     Fields              // per-field overrides, keyed by Go field name
+    Validate   func(instance T) error // optional model-level cross-field validator
+    ShortValue func(instance T) string // relation label override (see Relations)
 }
 
 // Field overrides one field's derived defaults. The zero value changes
@@ -335,6 +336,30 @@ func WireRelations(tables ...CRUDTableInterface)
 
 A relation left unwired (no matching table) renders a degraded `<select>`
 with no options endpoint — functional, not fatal.
+
+### Relation labels
+
+The text shown for one related row — in a `<select>` option and in a relation
+cell — comes from `DefaultShortValue(instance)`, which tries, in order:
+
+1. a `Name` field (case-insensitive), if a non-empty string;
+2. a `Label` field (case-insensitive);
+3. a `Title` field (case-insensitive);
+4. any string field whose name contains `name` (`Username`, `FullName`, …);
+5. any string field whose name contains `title` (`Subtitle`, `JobTitle`, …);
+6. an identifier — an `id` field, else a `…ID`/`…Id` foreign key — as `#<n>`;
+7. a JSON dump of the row, as a last resort.
+
+Stages 1–5 return the label alone (no `id:` prefix). To override it for a
+model, set `ShortValue` on its recipe — it drives both that table's `<select>`
+options and the model's relation cells on other tables (propagated by
+`WireRelations`):
+
+```go
+crud.Table[Hero]{
+    ShortValue: func(h Hero) string { return h.Name + " — " + h.Realm },
+}
+```
 
 ## Lower-level API
 
