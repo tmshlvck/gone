@@ -37,12 +37,12 @@ you need the archaeology.
   `templ.Raw` is the explicit escape hatch.
 - **Real multi-page navigation; HTMX only where it earns its keep.**
   Page-to-page navigation is ordinary `<a href>` links (Admin's sidebar
-  adds `hx-boost` as a progressive enhancement that degrades to full
-  loads). Only in-component interactions — sort, search, paginate,
-  modal create/edit, delete — use targeted HTMX swaps. Per htmx's own
+  included) — every navigation is a full page load. Only in-component
+  interactions — sort, search, paginate, modal create/edit, delete —
+  use targeted HTMX swaps. We don't use `hx-boost`: per htmx's own
   ["some people don't like
   hx-boost"](https://htmx.org/quirks/#some-people-don-t-like-hx-boost),
-  boosting buys little over a real MPA in modern browsers.
+  it buys little over a real MPA in modern browsers.
 - **Absolute URLs, but composable.** Components render absolute paths
   (`hx-get`, form `action`, …), so a component must know its full
   external URL. Rather than infer it, it is *told*: `RegisterRoutes(r,
@@ -89,14 +89,13 @@ prefix.
   names; `Admin` calls it automatically. This decouples tables (no
   in-process graph), collapsed `CRUDTableInterface` from 11 methods to
   7, and means the HTML and a future JSON API can share one data path.
-- **Sidebar navigation is real, enhanced.** Each Admin sidebar entry is
-  an `<a href>` to `/{base}/{slug}`; the server renders the whole page
-  on each load and marks the active entry from the request path (no JS
-  for the highlight). `hx-boost` is layered on top — targeting
-  `#crud-admin-root` so the swap doesn't clobber surrounding chrome —
-  but it degrades cleanly to a full navigation when JS is off.
-  User-defined sidebar links target the working area
-  (`#crud-admin-main`) so they can host arbitrary content fragments.
+- **Sidebar navigation is plain links.** Each Admin sidebar entry is an
+  `<a href>` to `/{base}/{slug}`; clicking it is a full page load, and
+  the server marks the active entry from the request path (no JS, no
+  swap, for the highlight). User-defined sidebar links are the one
+  exception — they `hx-get` a fragment into the working area
+  (`#crud-admin-main`) so they can host arbitrary app content without a
+  full reload.
 - **`auth.Authz` takes `*http.Request`.** Five methods
   (`Can{List,Read,Create,Update,Delete}`), all `(r) bool`. Taking the
   request keeps the gate router-agnostic; `nil` means AllowAll;

@@ -28,11 +28,10 @@ chrome (head, navbar, theme, footer) and the *page routes* are the app's:
 the library registers only the in-component fragment endpoints, and the app
 embeds `table.Render(r)` in its own shell.
 
-Navigation is multi-page — real `<a href>` links (Admin's sidebar adds
-`hx-boost` as a progressive enhancement that degrades to full page loads with
-JS off). Only in-component interactions (sort, search, paginate, modal forms,
-delete) use targeted HTMX swaps. See [`../REFACTOR-HTMX.md`](../REFACTOR-HTMX.md)
-for the why.
+Navigation is multi-page — real `<a href>` links (Admin's sidebar included),
+each a full page load; no `hx-boost`. Only in-component interactions (sort,
+search, paginate, modal forms, delete) use targeted HTMX swaps. See
+[`../REFACTOR-HTMX.md`](../REFACTOR-HTMX.md) for the why.
 
 ## Quick taste
 
