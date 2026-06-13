@@ -1,6 +1,7 @@
 package crud
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,53 @@ type sampleConfig struct {
 	Ratio    float64
 	Count    uint64
 	Started  time.Time
+}
+
+type blobModel struct {
+	ID     uint
+	Handle []byte // e.g. an opaque WebAuthn handle — a BLOB column
+}
+
+// TestByteSliceBindAndDisplay covers the []byte robustness fix: a byte-slice
+// field must bind (UTF-8 string → bytes, empty → empty) instead of erroring
+// "unsupported kind slice" — which previously blocked creating any row with
+// such a field — and display as its string (HTML-escaped).
+func TestByteSliceBindAndDisplay(t *testing.T) {
+	mm, err := DeriveMetaModel[blobModel]()
+	if err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+	h := mm.MustFindField("Handle")
+	if h.RelationKind != NotRelation {
+		t.Fatalf("Handle should be a scalar field, got relation kind %v", h.RelationKind)
+	}
+
+	// Empty string → empty bytes, no error (the actual create blocker).
+	var empty blobModel
+	if err := h.FromStrings(*h, []string{""}, &empty); err != nil {
+		t.Fatalf("FromStrings empty: %v", err)
+	}
+	if len(empty.Handle) != 0 {
+		t.Errorf("empty Handle len = %d, want 0", len(empty.Handle))
+	}
+
+	// Non-empty string → its UTF-8 bytes.
+	var m blobModel
+	if err := h.FromStrings(*h, []string{"hi"}, &m); err != nil {
+		t.Fatalf("FromStrings: %v", err)
+	}
+	if string(m.Handle) != "hi" {
+		t.Errorf("Handle = %q, want hi", m.Handle)
+	}
+
+	// Display renders the bytes as their string, HTML-escaped.
+	var sb strings.Builder
+	if err := h.DisplayValue(*h, []byte("a<b")).Render(context.Background(), &sb); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if got := sb.String(); got != "a&lt;b" {
+		t.Errorf("DisplayValue = %q, want a&lt;b", got)
+	}
 }
 
 func TestDeriveMetaModel_FieldsAndInputTypes(t *testing.T) {

@@ -543,6 +543,18 @@ func DefaultFromStrings(mf MetaField, strs []string, instance any) error {
 			return err
 		}
 		field.SetFloat(f)
+	case reflect.Slice:
+		// []byte (and any byte-slice type) binds the submitted string as
+		// its UTF-8 bytes. This keeps BLOB columns (e.g. an opaque
+		// WebAuthn handle) bindable instead of erroring as "unsupported
+		// kind slice". An empty string yields empty bytes. Non-byte
+		// slices are relations and never reach DefaultFromStrings (they
+		// carry relation-specific FromStrings hooks).
+		if field.Type().Elem().Kind() == reflect.Uint8 {
+			field.SetBytes([]byte(s))
+			return nil
+		}
+		return fmt.Errorf("unsupported slice element kind %s", field.Type().Elem().Kind())
 	default:
 		return fmt.Errorf("unsupported kind %s", field.Kind())
 	}
@@ -550,7 +562,8 @@ func DefaultFromStrings(mf MetaField, strs []string, instance any) error {
 }
 
 // formatValue stringifies value for display / form pre-fill. time.Time
-// is formatted as the HTML datetime-local-compatible layout.
+// is formatted as the HTML datetime-local-compatible layout; a byte slice
+// is shown as its UTF-8 string (the caller's DisplayValue HTML-escapes it).
 func formatValue(mf MetaField, value any) string {
 	if t, ok := value.(time.Time); ok {
 		if t.IsZero() {
@@ -563,6 +576,9 @@ func formatValue(mf MetaField, value any) string {
 			return "true"
 		}
 		return "false"
+	}
+	if b, ok := value.([]byte); ok {
+		return string(b)
 	}
 	return fmt.Sprintf("%v", value)
 }
