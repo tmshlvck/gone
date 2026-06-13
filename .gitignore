@@ -5,6 +5,17 @@
 *.prof
 coverage.txt
 
+# Example binaries left in the repo root by `go build ./examples/<name>/`
+# (no -o). Each matches its example directory name.
+/admin_gorm
+/auth_gorm
+/auth_simple
+/auth_sso
+/crud_gorm
+/crud_mem
+/form_mem
+/openapi
+
 # Playwright MCP scratch (snapshots, console logs, ad-hoc screenshots)
 .playwright-mcp/
 *.png
