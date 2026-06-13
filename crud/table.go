@@ -75,12 +75,12 @@ type CRUDTable[T any] struct {
 	Update func(ctx context.Context, id uint, data T) (T, error)
 	Delete func(ctx context.Context, id uint) error
 
-	// ShortValue overrides DefaultShortValue for this model — the short label
+	// ShortLabel overrides DefaultShortLabel for this model — the short label
 	// shown for one of its rows in a relation <select> option (this table's
 	// /options endpoint) and in a relation cell on another table (wired by
-	// WireRelations). nil uses DefaultShortValue. Set it via the recipe's
-	// Table.ShortValue.
-	ShortValue func(T) string
+	// WireRelations). nil uses DefaultShortLabel. Set it via the recipe's
+	// Table.ShortLabel.
+	ShortLabel func(T) string
 }
 
 // defaultSlug returns a heuristic plural for a Go type name. Wrong for

@@ -95,11 +95,11 @@ type Table[T any] struct {
 	// Runs after every per-field validator passes.
 	Validate func(instance T) error
 
-	// ShortValue overrides DefaultShortValue for this model — the short label
+	// ShortLabel overrides DefaultShortLabel for this model — the short label
 	// shown for one of its rows wherever it appears as a relation (the
 	// <select> options served by this table, and relation cells on other
-	// tables). nil keeps DefaultShortValue.
-	ShortValue func(instance T) string
+	// tables). nil keeps DefaultShortLabel.
+	ShortLabel func(instance T) string
 }
 
 // metaModel derives the MetaModel for T and applies the recipe's model- and
@@ -260,8 +260,8 @@ func (cfg Table[T]) applyTo(t *CRUDTable[T]) {
 		t.CreateEnabled, t.EditEnabled, t.DeleteEnabled = false, false, false
 	}
 	t.HideUnauthorized = cfg.HideUnauthorized
-	if cfg.ShortValue != nil {
-		t.ShortValue = cfg.ShortValue
+	if cfg.ShortLabel != nil {
+		t.ShortLabel = cfg.ShortLabel
 	}
 }
 

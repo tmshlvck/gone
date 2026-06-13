@@ -53,19 +53,19 @@ type CRUDTableInterface interface {
 	Render(r *http.Request) (templ.Component, error)     // table view + this table's L1 modal
 	RegisterRoutes(r chi.Router, mountBase, slug string) // register the table's fragment endpoints
 
-	// ShortLabel renders one of this model's rows as its short label — the
-	// table's ShortValue override if set, else DefaultShortValue. instance is
+	// InstanceShortLabel renders one of this model's rows as its short label — the
+	// table's ShortLabel override if set, else DefaultShortLabel. instance is
 	// a T (or *T).
-	ShortLabel(instance any) string
+	InstanceShortLabel(instance any) string
 
 	// StampRelations resolves each relation field's RelatedURLBase (and
-	// RelatedShortValue) from byType (Go type name → the related table).
+	// RelatedShortLabel) from byType (Go type name → the related table).
 	// Called after every table has been routed; WireRelations and Admin do
 	// this for you.
 	StampRelations(byType map[string]CRUDTableInterface)
 }
 
-// DefaultShortValue derives a short, human-readable label for one related
+// DefaultShortLabel derives a short, human-readable label for one related
 // instance — the text shown in a relation <select> option and in a relation
 // table cell. It works in stages, returning the first that yields a value:
 //
@@ -80,7 +80,7 @@ type CRUDTableInterface interface {
 //
 // Stages 1–5 return the label alone (no "id:" prefix). A non-struct instance
 // is formatted with fmt.
-func DefaultShortValue(instance any) string {
+func DefaultShortLabel(instance any) string {
 	rv := reflect.ValueOf(instance)
 	for rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
@@ -234,25 +234,25 @@ func (c *CRUDTable[T]) StampRelations(byType map[string]CRUDTableInterface) {
 		}
 		if peer, ok := byType[f.RelatedTypeName]; ok {
 			f.RelatedURLBase = peer.URLBase()
-			f.RelatedShortValue = peer.ShortLabel
+			f.RelatedShortLabel = peer.InstanceShortLabel
 		}
 	}
 }
 
-// ShortLabel renders instance (a row of T) as its short label: the table's
-// ShortValue override if set, else DefaultShortValue. Accepts a T or *T.
-func (c *CRUDTable[T]) ShortLabel(instance any) string {
-	if c.ShortValue != nil {
+// InstanceShortLabel renders instance (a row of T) as its short label: the table's
+// ShortLabel override if set, else DefaultShortLabel. Accepts a T or *T.
+func (c *CRUDTable[T]) InstanceShortLabel(instance any) string {
+	if c.ShortLabel != nil {
 		switch v := instance.(type) {
 		case T:
-			return c.ShortValue(v)
+			return c.ShortLabel(v)
 		case *T:
 			if v != nil {
-				return c.ShortValue(*v)
+				return c.ShortLabel(*v)
 			}
 		}
 	}
-	return DefaultShortValue(instance)
+	return DefaultShortLabel(instance)
 }
 
 // WireRelations links relation fields across a set of already-routed tables.
@@ -278,14 +278,14 @@ func WireRelations(tables ...CRUDTableInterface) {
 	}
 }
 
-// shortValueFor labels a related instance: the related table's stamped label
-// fn (RelatedShortValue, which honors its ShortValue override) if present,
-// else DefaultShortValue.
-func shortValueFor(mf MetaField, value any) string {
-	if mf.RelatedShortValue != nil {
-		return mf.RelatedShortValue(value)
+// shortLabelFor labels a related instance: the related table's stamped label
+// fn (RelatedShortLabel, which honors its ShortLabel override) if present,
+// else DefaultShortLabel.
+func shortLabelFor(mf MetaField, value any) string {
+	if mf.RelatedShortLabel != nil {
+		return mf.RelatedShortLabel(value)
 	}
-	return DefaultShortValue(value)
+	return DefaultShortLabel(value)
 }
 
 // URLBase returns the absolute URL prefix the CRUDTable was routed
@@ -303,7 +303,7 @@ func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUD
 		out[i] = CRUDRelationOption{
 			ID:        r.ID,
 			Instance:  r.Row,
-			ShortName: c.ShortLabel(r.Row),
+			ShortName: c.InstanceShortLabel(r.Row),
 		}
 	}
 	return out, total, nil
@@ -330,7 +330,7 @@ func relationSingleDisplay(mf MetaField, value any) templ.Component {
 	if idOf(value) == 0 {
 		return templ.Raw(`<span class="opacity-50">—</span>`)
 	}
-	return templ.Raw(html.EscapeString(shortValueFor(mf, value)))
+	return templ.Raw(html.EscapeString(shortLabelFor(mf, value)))
 }
 
 // relationMultipleDisplay renders a slice of related instances as a <ul>
@@ -344,7 +344,7 @@ func relationMultipleDisplay(mf MetaField, value any) templ.Component {
 	sb.WriteString(`<ul class="list-disc list-inside">`)
 	for i := 0; i < rv.Len(); i++ {
 		sb.WriteString(`<li>`)
-		sb.WriteString(html.EscapeString(shortValueFor(mf, rv.Index(i).Interface())))
+		sb.WriteString(html.EscapeString(shortLabelFor(mf, rv.Index(i).Interface())))
 		sb.WriteString(`</li>`)
 	}
 	sb.WriteString(`</ul>`)

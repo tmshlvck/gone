@@ -199,7 +199,7 @@ func TestPasswordFieldViaHelpers(t *testing.T) {
 	}
 }
 
-func TestShortValueOverride(t *testing.T) {
+func TestShortLabelOverride(t *testing.T) {
 	type svHero struct {
 		ID    uint
 		Name  string
@@ -212,21 +212,21 @@ func TestShortValueOverride(t *testing.T) {
 		Owner   svHero
 	}
 	htbl := NewMapTable(map[uint]svHero{}, &sync.RWMutex{}, Table[svHero]{
-		ShortValue: func(h svHero) string { return h.Name + " (" + h.Realm + ")" },
+		ShortLabel: func(h svHero) string { return h.Name + " (" + h.Realm + ")" },
 	})
 	wtbl := NewMapTable(map[uint]svWeapon{}, &sync.RWMutex{}, Table[svWeapon]{})
 
 	// The override drives this table's own label (used by its /options).
-	if got := htbl.ShortLabel(svHero{Name: "Aragorn", Realm: "Gondor"}); got != "Aragorn (Gondor)" {
-		t.Errorf("ShortLabel = %q, want Aragorn (Gondor)", got)
+	if got := htbl.InstanceShortLabel(svHero{Name: "Aragorn", Realm: "Gondor"}); got != "Aragorn (Gondor)" {
+		t.Errorf("InstanceShortLabel = %q, want Aragorn (Gondor)", got)
 	}
 	// And WireRelations propagates it to a related table's relation cell.
 	WireRelations(&htbl, &wtbl)
 	owner := wtbl.MetaData.MustFindField("Owner")
-	if owner.RelatedShortValue == nil {
-		t.Fatal("Owner.RelatedShortValue not stamped by WireRelations")
+	if owner.RelatedShortLabel == nil {
+		t.Fatal("Owner.RelatedShortLabel not stamped by WireRelations")
 	}
-	if got := owner.RelatedShortValue(svHero{Name: "Aragorn", Realm: "Gondor"}); got != "Aragorn (Gondor)" {
+	if got := owner.RelatedShortLabel(svHero{Name: "Aragorn", Realm: "Gondor"}); got != "Aragorn (Gondor)" {
 		t.Errorf("relation cell label = %q, want Aragorn (Gondor)", got)
 	}
 }

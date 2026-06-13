@@ -275,7 +275,7 @@ func TestDefaultDisplayValue_BoolBadgeAndUTCTime(t *testing.T) {
 	}
 }
 
-func TestDefaultShortValue_Stages(t *testing.T) {
+func TestDefaultShortLabel_Stages(t *testing.T) {
 	type withName struct {
 		ID   uint
 		Name string
@@ -323,8 +323,8 @@ func TestDefaultShortValue_Stages(t *testing.T) {
 		{"json last resort", nothing{Active: true}, `{"Active":true}`},
 	}
 	for _, c := range cases {
-		if got := DefaultShortValue(c.in); got != c.want {
-			t.Errorf("%s: DefaultShortValue = %q, want %q", c.name, got, c.want)
+		if got := DefaultShortLabel(c.in); got != c.want {
+			t.Errorf("%s: DefaultShortLabel = %q, want %q", c.name, got, c.want)
 		}
 	}
 }

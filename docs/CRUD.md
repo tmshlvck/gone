@@ -129,7 +129,7 @@ type Table[T any] struct {
 
     Fields     Fields              // per-field overrides, keyed by Go field name
     Validate   func(instance T) error // optional model-level cross-field validator
-    ShortValue func(instance T) string // relation label override (see Relations)
+    ShortLabel func(instance T) string // relation label override (see Relations)
 }
 
 // Field overrides one field's derived defaults. The zero value changes
@@ -340,7 +340,7 @@ with no options endpoint — functional, not fatal.
 ### Relation labels
 
 The text shown for one related row — in a `<select>` option and in a relation
-cell — comes from `DefaultShortValue(instance)`, which tries, in order:
+cell — comes from `DefaultShortLabel(instance)`, which tries, in order:
 
 1. a `Name` field (case-insensitive), if a non-empty string;
 2. a `Label` field (case-insensitive);
@@ -351,13 +351,13 @@ cell — comes from `DefaultShortValue(instance)`, which tries, in order:
 7. a JSON dump of the row, as a last resort.
 
 Stages 1–5 return the label alone (no `id:` prefix). To override it for a
-model, set `ShortValue` on its recipe — it drives both that table's `<select>`
+model, set `ShortLabel` on its recipe — it drives both that table's `<select>`
 options and the model's relation cells on other tables (propagated by
 `WireRelations`):
 
 ```go
 crud.Table[Hero]{
-    ShortValue: func(h Hero) string { return h.Name + " — " + h.Realm },
+    ShortLabel: func(h Hero) string { return h.Name + " — " + h.Realm },
 }
 ```
 

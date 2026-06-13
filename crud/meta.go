@@ -58,7 +58,7 @@ type MetaField struct {
 	// URL rather than by an in-process pointer.
 	RelationKind      RelationKind
 	RelatedURLBase    string           // absolute URL of the related table (e.g. "/admin/heroes"); blank until wired
-	RelatedShortValue func(any) string // related table's label fn (its ShortValue or DefaultShortValue); stamped by WireRelations, nil until then
+	RelatedShortLabel func(any) string // related table's label fn (its ShortLabel or DefaultShortLabel); stamped by WireRelations, nil until then
 	RelatedTypeName   string           // Go type name of the related model (e.g. "Hero"); empty for non-relations
 	FKFieldName       string           // RelationSingle only — sibling FK uint, e.g. "OwnerID" for "Owner Hero"
 	FormFieldName     string           // POST form key for the input (defaults to Name; relation single uses FKFieldName)
