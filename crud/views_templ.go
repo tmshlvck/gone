@@ -1485,12 +1485,11 @@ func pageRange(cur, total int) []int {
 
 // ──────────────────────────────────────────────────────────────────────────
 // AdminView — sidebar + working area with the active table inlined.
-// Sidebar links use hx-boost: each click is a fetch + body-swap (no
-// full page reload), the URL updates via hx-push-url automatically,
-// and back-button navigation works through HTMX's history cache.
-// Server-rendered active highlight on the matching entry. The caller
-// embeds AdminView inside its own page shell (which also embeds
-// crud.PageModals for the shared L2 modal — see PRD §8).
+// Sidebar model entries are plain links: each click is an ordinary page
+// navigation, the server re-renders the whole admin page, and the active
+// highlight is server-rendered onto the matching entry from the request
+// path. The caller embeds AdminView inside its own page shell (which also
+// embeds crud.PageModals for the shared L2 modal).
 // ──────────────────────────────────────────────────────────────────────────
 func AdminView(d AdminViewData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -1513,7 +1512,7 @@ func AdminView(d AdminViewData) templ.Component {
 			templ_7745c5c3_Var57 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<div id=\"crud-admin-root\"><div class=\"flex gap-6\"><!-- Each model-entry anchor carries its own hx-boost +\n\t\t\t     target + select + swap, instead of inheriting them\n\t\t\t     from <aside>. Two reasons:\n\t\t\t     1. CRUDTable's edit/delete buttons live INSIDE the\n\t\t\t        working area. With boost on the aside, the inherited\n\t\t\t        hx-select=\"#crud-admin-root\" leaked down — modal\n\t\t\t        Save responses (which are bare form fragments) had\n\t\t\t        no such element, so the swap silently blanked the\n\t\t\t        modal body.\n\t\t\t     2. Custom SidebarLink rows want different target+swap\n\t\t\t        behaviour (fragment into #crud-admin-main, not the\n\t\t\t        whole admin tree). With per-anchor attrs there's\n\t\t\t        nothing to inherit / disinherit; each link is\n\t\t\t        self-contained. --><aside class=\"w-56 shrink-0\"><ul class=\"menu bg-base-200 rounded-box w-full\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<div id=\"crud-admin-root\"><div class=\"flex gap-6\"><aside class=\"w-56 shrink-0\"><ul class=\"menu bg-base-200 rounded-box w-full\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1531,13 +1530,13 @@ func AdminView(d AdminViewData) templ.Component {
 			var templ_7745c5c3_Var58 templ.SafeURL
 			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(e.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 649, Col: 31}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 634, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "\" hx-boost=\"true\" hx-target=\"#crud-admin-root\" hx-select=\"#crud-admin-root\" hx-swap=\"outerHTML\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1554,7 +1553,7 @@ func AdminView(d AdminViewData) templ.Component {
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(e.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 658, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 639, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 			if templ_7745c5c3_Err != nil {
@@ -1638,7 +1637,7 @@ func adminSidebarCustomLink(link SidebarLink) templ.Component {
 			var templ_7745c5c3_Var61 templ.SafeURL
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(link.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 693, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 674, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 			if templ_7745c5c3_Err != nil {
@@ -1651,7 +1650,7 @@ func adminSidebarCustomLink(link SidebarLink) templ.Component {
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue(link.URL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 694, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 675, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 			if templ_7745c5c3_Err != nil {
@@ -1664,7 +1663,7 @@ func adminSidebarCustomLink(link SidebarLink) templ.Component {
 			var templ_7745c5c3_Var63 string
 			templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(link.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 698, Col: 22}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 679, Col: 22}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 			if templ_7745c5c3_Err != nil {

@@ -613,31 +613,16 @@ func pageRange(cur, total int) []int {
 
 // ──────────────────────────────────────────────────────────────────────────
 // AdminView — sidebar + working area with the active table inlined.
-// Sidebar links use hx-boost: each click is a fetch + body-swap (no
-// full page reload), the URL updates via hx-push-url automatically,
-// and back-button navigation works through HTMX's history cache.
-// Server-rendered active highlight on the matching entry. The caller
-// embeds AdminView inside its own page shell (which also embeds
-// crud.PageModals for the shared L2 modal — see PRD §8).
+// Sidebar model entries are plain links: each click is an ordinary page
+// navigation, the server re-renders the whole admin page, and the active
+// highlight is server-rendered onto the matching entry from the request
+// path. The caller embeds AdminView inside its own page shell (which also
+// embeds crud.PageModals for the shared L2 modal).
 // ──────────────────────────────────────────────────────────────────────────
 
 templ AdminView(d AdminViewData) {
 	<div id="crud-admin-root">
 		<div class="flex gap-6">
-			<!-- Each model-entry anchor carries its own hx-boost +
-			     target + select + swap, instead of inheriting them
-			     from <aside>. Two reasons:
-			     1. CRUDTable's edit/delete buttons live INSIDE the
-			        working area. With boost on the aside, the inherited
-			        hx-select="#crud-admin-root" leaked down — modal
-			        Save responses (which are bare form fragments) had
-			        no such element, so the swap silently blanked the
-			        modal body.
-			     2. Custom SidebarLink rows want different target+swap
-			        behaviour (fragment into #crud-admin-main, not the
-			        whole admin tree). With per-anchor attrs there's
-			        nothing to inherit / disinherit; each link is
-			        self-contained. -->
 			<aside class="w-56 shrink-0">
 				<ul class="menu bg-base-200 rounded-box w-full">
 					for _, link := range d.TopLinks {
@@ -647,10 +632,6 @@ templ AdminView(d AdminViewData) {
 						<li>
 							<a
 								href={ templ.URL(e.URL) }
-								hx-boost="true"
-								hx-target="#crud-admin-root"
-								hx-select="#crud-admin-root"
-								hx-swap="outerHTML"
 								if e.Active {
 									class="menu-active"
 									aria-current="page"
