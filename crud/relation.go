@@ -34,29 +34,29 @@ type CRUDRelationOption struct {
 	ShortName string
 }
 
-// CRUDTableInterface is the non-generic surface a relation widget needs to
-// resolve options and to open the related entity's create modal. Modal
-// targeting is handled by the library's fixed L2 body ID (ModalL2BodyID),
-// so the interface only carries URL + option access. *CRUDTable[T]
-// satisfies it; relation fields hold one through MetaField.RelatedCRUD.
+// CRUDTableInterface is the non-generic surface Admin and the relation
+// wiring need to treat tables of differing T uniformly: identity (display
+// name, slug, Go model type), the absolute mount URL, page rendering, route
+// registration, and relation stamping.
+//
+// Cross-table option fetching is deliberately NOT here. A relation <select>
+// loads its <option> list over HTTP from the *related* table's own /options
+// endpoint (see relationSelect) — tables link by URL, not by an in-process
+// pointer — so the interface carries no SearchOptions / data accessors.
+// *CRUDTable[T] satisfies it.
 type CRUDTableInterface interface {
 	DisplayName() string
 	ModelName() string                                   // Go type name (e.g. "Hero")
 	URLSlug() string                                     // local slug, e.g. "heroes"
 	URLBase() string                                     // absolute URL prefix, e.g. "/admin/heroes"
-	HTMXTableURL() string                                // URLBase + "/view"   — bare TableView fragment
-	HTMXCreateURL() string                               // URLBase + "/create" — create-form fragment
 	Render(r *http.Request) (templ.Component, error)     // table view + this table's L1 modal
 	RegisterRoutes(r chi.Router, mountBase, slug string) // register the table's fragment endpoints
 
-	// AutoWireRelations sets MetaField.RelatedCRUD on every relation
-	// field on this table whose RelatedTypeName matches a peer's
-	// ModelName(). Call once after every relevant CRUDTable has been
-	// derived; Admin's DeriveAdminAutoWire does this for you.
-	AutoWireRelations(peers []CRUDTableInterface)
-
-	SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error)
-	GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error)
+	// StampRelations resolves each relation field's RelatedURLBase from
+	// byType (Go type name → absolute table URL). Called after every table
+	// has been routed, so URLBases are known; WireRelations and Admin do
+	// this for you.
+	StampRelations(byType map[string]string)
 }
 
 // DefaultShortValue derives a short human-readable label from an instance.
@@ -172,44 +172,49 @@ func (c *CRUDTable[T]) ModelName() string { return c.MetaData.Name }
 // CRUDTableInterface can read it.
 func (c *CRUDTable[T]) URLSlug() string { return c.Slug }
 
-// AutoWireRelations walks this table's MetaFields and sets
-// RelatedCRUD on each relation field whose RelatedTypeName matches a
-// peer's ModelName(). Peers may include this table itself — self-
-// references are wired the same way (e.g. a self-referential Parent
-// field).
-func (c *CRUDTable[T]) AutoWireRelations(peers []CRUDTableInterface) {
-	if len(peers) == 0 {
-		return
-	}
-	byName := make(map[string]CRUDTableInterface, len(peers))
-	for _, p := range peers {
-		if name := p.ModelName(); name != "" {
-			byName[name] = p
-		}
-	}
+// StampRelations sets RelatedURLBase on each relation field whose
+// RelatedTypeName matches an entry in byType (Go type name → absolute table
+// URL). Unmatched relations are left blank — their <select> renders without
+// an options endpoint (degraded, but functional). Self-references are
+// handled the same way (a table's own type can appear in byType).
+func (c *CRUDTable[T]) StampRelations(byType map[string]string) {
 	for i := range c.MetaData.Fields {
 		f := &c.MetaData.Fields[i]
 		if f.RelationKind == NotRelation || f.RelatedTypeName == "" {
 			continue
 		}
-		if peer, ok := byName[f.RelatedTypeName]; ok {
-			f.RelatedCRUD = peer
+		if base, ok := byType[f.RelatedTypeName]; ok {
+			f.RelatedURLBase = base
 		}
+	}
+}
+
+// WireRelations links relation fields across a set of already-routed tables.
+// It builds a Go-type-name → URLBase map from the tables, then stamps each
+// table's relation fields from it. Call once, AFTER every table's
+// RegisterRoutes (URLBases must be set):
+//
+//	heroTable.RegisterRoutes(r, "", "heroes")
+//	weaponTable.RegisterRoutes(r, "", "weapons")
+//	crud.WireRelations(&heroTable, &weaponTable)
+//
+// Admin.RegisterRoutes calls this for the tables it manages, so Admin
+// callers don't invoke it directly.
+func WireRelations(tables ...CRUDTableInterface) {
+	byType := make(map[string]string, len(tables))
+	for _, t := range tables {
+		if n := t.ModelName(); n != "" {
+			byType[n] = t.URLBase()
+		}
+	}
+	for _, t := range tables {
+		t.StampRelations(byType)
 	}
 }
 
 // URLBase returns the absolute URL prefix the CRUDTable was routed
 // under (e.g. "/admin/heroes"). Set by Route; empty until then.
 func (c *CRUDTable[T]) URLBase() string { return c.urlBase }
-
-// HTMXTableURL returns the URL that yields the bare TableView fragment.
-// Used by Admin's sidebar links to HTMX-swap a table into the working
-// pane.
-func (c *CRUDTable[T]) HTMXTableURL() string { return c.urlBase + "/view" }
-
-// HTMXCreateURL returns the URL that yields the create-form fragment.
-// Used by relation widgets' "+ create new" button to open L2.
-func (c *CRUDTable[T]) HTMXCreateURL() string { return c.urlBase + "/create" }
 
 // SearchOptions returns up to relationOptionLimit options matching search.
 func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error) {
@@ -226,26 +231,6 @@ func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUD
 		}
 	}
 	return out, total, nil
-}
-
-// GetOptionsByID resolves IDs to options (skipping any unknown).
-func (c *CRUDTable[T]) GetOptionsByID(ctx context.Context, ids []uint) ([]CRUDRelationOption, error) {
-	out := make([]CRUDRelationOption, 0, len(ids))
-	for _, id := range ids {
-		v, err := c.Get(ctx, id)
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, CRUDRelationOption{
-			ID:        id,
-			Instance:  v,
-			ShortName: DefaultShortValue(v),
-		})
-	}
-	return out, nil
 }
 
 // relationOptionLimit caps the dropdown to a reasonable number of rows;
@@ -337,24 +322,24 @@ func relationSelectedIDs(value any) []uint {
 //   - single: name=<FKFieldName>, e.g. "OwnerID"
 //   - multiple: name=<RelationName>, e.g. "Skills"
 //
-// The "+ new" button hx-gets the related create URL into the L2 modal
-// body. The <select> itself carries hx-* attributes so it re-fetches
-// its own <option> list when a "refresh-relation" event fires (e.g.
-// after an L2 save adds a new option). Only the option list swaps —
-// the wrapper, name, multiple, size, and the "+" button all survive —
-// so the L1 form's other field values are untouched.
+// The <select> links to the related table purely by URL (mf.RelatedURLBase,
+// stamped by WireRelations / Admin) — no in-process pointer. It renders with
+// lightweight placeholder <option>s for the current selection (id-only, no
+// label, since the related rows aren't loaded here) and an hx-get that fires
+// on `load` to fetch the real, labelled option list from the related table's
+// /options endpoint, then again on every `refresh-relation` event (e.g.
+// after an L2 "+ new" save adds a row). hx-vals re-sends the current
+// selection each time so it survives the swap; only the option list swaps,
+// so the wrapper, name, and "+" button persist and the L1 form's other
+// values are untouched.
+//
+// The "+ new" button hx-gets {RelatedURLBase}/create into the L2 modal body.
 func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ.Component {
 	name := mf.FormFieldName
 	if name == "" {
 		name = mf.Name
 	}
-	options := []CRUDRelationOption{}
-	if mf.RelatedCRUD != nil {
-		opts, _, err := mf.RelatedCRUD.SearchOptions(context.Background(), "")
-		if err == nil {
-			options = opts
-		}
-	}
+	relBase := mf.RelatedURLBase
 
 	selSet := map[uint]struct{}{}
 	if isMulti {
@@ -365,18 +350,15 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 		selSet[single] = struct{}{}
 	}
 
-	// Build the hx-* attributes that refresh just the <option> list on
-	// a "refresh-relation" event broadcast from the body. The endpoint
-	// is on the related CRUD (it owns the options); ?single=1 tells it
-	// to include the "— none —" placeholder for belongs-to fields.
-	//
-	// hx-vals uses single-quoted attribute delimiters so the JSON-y
-	// body's double quotes don't need escaping. The leading "js:"
-	// makes HTMX evaluate the expression in the browser; "this" is
-	// the <select> element at trigger time.
-	refreshAttrs := ""
-	if mf.RelatedCRUD != nil {
-		optsURL := mf.RelatedCRUD.URLBase() + "/options"
+	// hx-* attributes that fetch the option list on load and re-fetch on a
+	// "refresh-relation" event broadcast from the body. The endpoint lives
+	// on the related table (it owns the options); ?single=1 tells it to
+	// include the "— none —" placeholder for belongs-to fields. hx-vals
+	// (evaluated in the browser via the "js:" prefix; "this" is the
+	// <select>) re-sends the current selection so a refresh keeps it.
+	hxAttrs := ""
+	if relBase != "" {
+		optsURL := relBase + "/options"
 		var hxVals string
 		if isMulti {
 			hxVals = `js:{"selected": [...this.selectedOptions].map(o => o.value)}`
@@ -384,8 +366,8 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 			optsURL += "?single=1"
 			hxVals = `js:{"selected": this.value}`
 		}
-		refreshAttrs = fmt.Sprintf(
-			` hx-trigger="refresh-relation from:body" hx-get=%q`+
+		hxAttrs = fmt.Sprintf(
+			` hx-trigger="load, refresh-relation from:body" hx-get=%q`+
 				` hx-vals='%s' hx-target="this" hx-swap="innerHTML"`,
 			html.EscapeString(optsURL),
 			hxVals)
@@ -398,36 +380,60 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 	if isMulti {
 		sb.WriteString(fmt.Sprintf(
 			`<select name=%q multiple size="5" class="select join-item w-full"%s>`,
-			html.EscapeString(name), refreshAttrs))
+			html.EscapeString(name), hxAttrs))
 	} else {
 		sb.WriteString(fmt.Sprintf(
 			`<select name=%q class="select join-item w-full"%s>`,
-			html.EscapeString(name), refreshAttrs))
+			html.EscapeString(name), hxAttrs))
 	}
-	sb.WriteString(renderOptionsHTML(options, selSet, !isMulti))
+	sb.WriteString(renderPlaceholderOptions(selSet, !isMulti))
 	sb.WriteString(`</select>`)
 
-	// "+ new" button — only when we have a RelatedCRUD to point at.
-	// Always targets the L2 modal body so the L1 form's state survives
-	// the nested create. The crud-relation-add-btn class is matched by
-	// a `display: none` rule in PageModals so the button is hidden
-	// when this same form renders inside L2 (no L3 modal exists for a
-	// nested-nested create).
-	if mf.RelatedCRUD != nil {
-		url := mf.RelatedCRUD.HTMXCreateURL()
-		if url != "" {
-			sb.WriteString(fmt.Sprintf(
-				`<button type="button" class="btn btn-outline join-item crud-relation-add-btn"`+
-					` hx-get=%q hx-target="#%s" hx-swap="innerHTML"`+
-					` title="Create new %s">+</button>`,
-				html.EscapeString(url),
-				ModalL2BodyID,
-				html.EscapeString(mf.RelatedCRUD.DisplayName())))
+	// "+ new" button — only when the relation is wired to a related table.
+	// Always targets the L2 modal body so the L1 form's state survives the
+	// nested create. The crud-relation-add-btn class is matched by a
+	// `display: none` rule in PageModals so the button is hidden when this
+	// same form renders inside L2 (no L3 modal for a nested-nested create).
+	if relBase != "" {
+		label := mf.RelatedTypeName
+		if label == "" {
+			label = "item"
 		}
+		sb.WriteString(fmt.Sprintf(
+			`<button type="button" class="btn btn-outline join-item crud-relation-add-btn"`+
+				` hx-get=%q hx-target="#%s" hx-swap="innerHTML"`+
+				` title="Create new %s">+</button>`,
+			html.EscapeString(relBase+"/create"),
+			ModalL2BodyID,
+			html.EscapeString(label)))
 	}
 
 	sb.WriteString(`</div>`)
 	return templ.Raw(sb.String())
+}
+
+// renderPlaceholderOptions writes the <option>s a relation <select> shows
+// before its hx-get(load) replaces them with the real, labelled list. They
+// carry only the selected ids (id-only labels — the related rows aren't
+// loaded here) so the select's value/selectedOptions are correct when the
+// load fires and hx-vals re-sends them. includeNone prepends "— none —"
+// (value=0) for belongs-to fields.
+func renderPlaceholderOptions(selected map[uint]struct{}, includeNone bool) string {
+	var sb strings.Builder
+	if includeNone {
+		sel := ""
+		if _, ok := selected[0]; ok {
+			sel = " selected"
+		}
+		sb.WriteString(fmt.Sprintf(`<option value="0"%s>— none —</option>`, sel))
+	}
+	for id := range selected {
+		if id == 0 {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf(`<option value="%d" selected>#%d</option>`, id, id))
+	}
+	return sb.String()
 }
 
 // renderOptionsHTML writes the <option> children of a relation <select>.

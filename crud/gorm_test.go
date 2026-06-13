@@ -72,16 +72,11 @@ func newGormServer(t *testing.T) (chi.Router, *CRUDTable[gormHero], *CRUDTable[g
 	htbl.Slug = "heroes"
 	stbl.Slug = "skills"
 
-	// Wire the m2m relation to Skill.
-	for i := range htbl.MetaData.Fields {
-		if htbl.MetaData.Fields[i].Name == "Skills" {
-			htbl.MetaData.Fields[i].RelatedCRUD = &stbl
-		}
-	}
-
 	mux := chi.NewRouter()
 	htbl.RegisterRoutes(mux, "", "")
 	stbl.RegisterRoutes(mux, "", "")
+	// Link the m2m relation to Skill now that both tables are routed.
+	WireRelations(&htbl, &stbl)
 	mux.Get(htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := htbl.Render(r)
 		if err != nil {

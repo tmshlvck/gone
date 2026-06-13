@@ -32,11 +32,11 @@ var ErrNotFound = errors.New("not found")
 
 // CRUDTable wraps a MetaModel with the data-plane closures every backend
 // must supply. DeriveMapCRUDTable / DeriveGormCRUDTable populate the
-// closures; the renderer and Route handlers treat all backends uniformly.
+// closures; the renderer and route handlers treat all backends uniformly.
 //
-// urlBase is set by Route(mux, prefix) to prefix + "/" + Slug — read it
-// via HTMXTableURL / HTMXCreateURL. Slug defaults to a lowercased plural
-// of MetaData.Name; override before Route for irregular plurals.
+// urlBase is set by RegisterRoutes to mountBase + "/" + Slug — read it via
+// URLBase(). Slug defaults to a lowercased plural of MetaData.Name; override
+// it before RegisterRoutes for irregular plurals.
 type CRUDTable[T any] struct {
 	MetaData      MetaModel[T]
 	Authz         auth.Authz // nil = AuthzAllowAll
@@ -59,14 +59,9 @@ type CRUDTable[T any] struct {
 	// is false OR Authz permits the action).
 	HideUnauthorized bool
 
-	// PageTitle is passed as the title argument to Route's shell. If
-	// empty, MetaData.DisplayName is used. Only relevant when Route is
-	// called with a non-nil PageShellFunc.
-	PageTitle string
-
-	// urlBase becomes prefix + "/" + Slug once Route is called. Private
-	// because external readers always go through HTMXTableURL /
-	// HTMXCreateURL — the field name shouldn't be a stable API.
+	// urlBase becomes mountBase + "/" + Slug once RegisterRoutes is called.
+	// Private because external readers go through URLBase() — the field name
+	// shouldn't be a stable API.
 	urlBase string
 
 	// ListID wraps the table + footer; HTMX swap target for list

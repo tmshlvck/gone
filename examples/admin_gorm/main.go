@@ -1,8 +1,8 @@
 // Example: Admin over three GORM-backed CRUDTables — Hero, Weapon,
 // Skill — with zero per-field tweaking. Every MetaModel and CRUDTable
-// uses the library defaults, and DeriveAdminAutoWire fills in the
-// cross-table RelatedCRUD pointers by matching field types against
-// peer ModelName().
+// uses the library defaults, and Admin links the cross-table relations
+// automatically at RegisterRoutes time (matching each relation field's
+// type against the managed tables' URLs).
 //
 // The sidebar HTMX-swaps each table into the working pane on click;
 // the URL updates via hx-push-url so bookmarking the active model
@@ -156,12 +156,12 @@ func main() {
 
 	mux := chi.NewRouter()
 
-	// DeriveAdminAutoWire walks every table's relation fields and
-	// matches the related type name (Hero / Weapon / Skill) against
-	// each peer's ModelName(), setting RelatedCRUD in place. Without
-	// this step the relation pickers would render with no options.
+	// Admin links every table's relation fields automatically when it
+	// registers their routes — matching the related type name (Hero /
+	// Weapon / Skill) against each managed table's URL, so the relation
+	// pickers load their options from the right sibling.
 	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
-	admin := crud.DeriveAdminAutoWire(tables, nil)
+	admin := crud.DeriveAdmin(tables, nil)
 
 	// Demonstrate Admin's custom sidebar links. Each link swaps the
 	// response into the admin working area (#crud-admin-main); the

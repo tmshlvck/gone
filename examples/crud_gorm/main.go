@@ -11,8 +11,9 @@
 //
 // The wiring is three functions: migrate, seed, buildTables. main()
 // chains them together and starts the server. All per-MetaField
-// customization (FormHelp, FieldValidate, ReadOnly, RelatedCRUD) lives
-// in buildTables and goes through MetaModel.FindField.
+// customization (FormHelp, FieldValidate, ReadOnly) lives in buildTables
+// and goes through MetaModel.FindField; cross-table relation links are
+// wired in main() via crud.WireRelations after the tables are routed.
 package main
 
 import (
@@ -142,10 +143,11 @@ func pickN[T any](rng *rand.Rand, src []T, n int) []T {
 	return out
 }
 
-// buildTables derives the three CRUDTables, configures every MetaField
+// buildTables derives the three CRUDTables and configures every MetaField
 // in one place (no per-model helpers — every customization is reachable
-// from this function), and wires the cross-table RelatedCRUD pointers
-// so relation pickers know which CRUD to pull options from.
+// from this function). Cross-table relation links are established later, in
+// main(), by crud.WireRelations once the tables have been routed (a relation
+// picker loads its options from the related table's URL).
 //
 // MustFindField panics on a typo / renamed field, so the program
 // fails fast at startup rather than at form-render time.
@@ -219,8 +221,6 @@ func buildTables(db *gorm.DB) (
 	// shows in the dump but is skipped in the Skill form.
 	skillMM.MustFindField("Heroes").ReadOnly = true
 
-	// Now build the CRUDTables. RelatedCRUD must be set AFTER this step
-	// because we need the CRUDTable pointers to satisfy the interface.
 	heroTable = crud.DeriveGormCRUDTable[Hero](heroMM, nil, db)
 	weaponTable = crud.DeriveGormCRUDTable[Weapon](weaponMM, nil, db)
 	skillTable = crud.DeriveGormCRUDTable[Skill](skillMM, nil, db)
@@ -231,10 +231,9 @@ func buildTables(db *gorm.DB) (
 	weaponTable.PageSize = 10
 	skillTable.PageSize = 8
 
-	heroTable.MetaData.MustFindField("Weapons").RelatedCRUD = &weaponTable
-	heroTable.MetaData.MustFindField("Skills").RelatedCRUD = &skillTable
-	weaponTable.MetaData.MustFindField("Owner").RelatedCRUD = &heroTable
-	skillTable.MetaData.MustFindField("Heroes").RelatedCRUD = &heroTable
+	// Cross-table relation links are wired by crud.WireRelations in main(),
+	// after the tables are routed (it matches each relation field's type
+	// against the routed tables' URLs — see below).
 	return
 }
 
@@ -259,6 +258,9 @@ func main() {
 	mountPage(mux, &heroTable, "Heroes")
 	mountPage(mux, &weaponTable, "Weapons")
 	mountPage(mux, &skillTable, "Skills")
+	// Link the relation pickers now that every table has its URL: the
+	// Owner select on /weapons loads options from /heroes, etc.
+	crud.WireRelations(&heroTable, &weaponTable, &skillTable)
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, heroTable.URLBase(), http.StatusSeeOther)
 	})

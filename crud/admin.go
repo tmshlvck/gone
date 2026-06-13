@@ -12,23 +12,16 @@ import (
 )
 
 // Admin aggregates a set of CRUDTables under a single URL prefix with a
-// sidebar that hx-boosts the active table into a working pane. Each
-// sidebar click triggers a full-page swap (via HTMX hx-boost) — server
-// re-renders the admin with the active highlight server-side, the
-// browser updates the URL via hx-push-url, and back-button navigation
-// works through HTMX's history cache.
+// sidebar. Navigation between tables is plain page navigation (each sidebar
+// entry is a real link to /{mountBase}/{slug}); the server renders the whole
+// page on each load and marks the active entry from the request path, so no
+// JS or active-state coordination is needed.
 //
-// Whole-page swap (instead of "just the working area") keeps Admin
-// minimal: no JS for the active highlight, no coordination with the
-// child CRUDTables' own URL state (?page=, ?sort=, etc. live under
-// /admin/{slug} and don't conflict with admin's navigation).
-//
-// Admin does NOT register the child tables' CRUD endpoints — the
-// caller does that explicitly via each table's Route. Admin.Route only
-// registers a redirect at GET prefix that lands the visitor on the
-// first table. The per-slug page handler that wraps Admin.Render in
-// the caller's page-shell is the caller's responsibility (the library
-// has no <html> chrome).
+// Admin.RegisterRoutes registers, on the router it is handed: every child
+// table's fragment endpoints, a per-slug page handler that wraps the active
+// table in the app's shell, and a GET-index redirect to the first table. It
+// also links the children's relation fields (see WireRelations). The app
+// supplies the page shell; the library has no <html> chrome.
 type Admin struct {
 	// Tables is the ordered list of CRUDTables the sidebar exposes,
 	// top to bottom. The first one is the default landing on /admin.
@@ -81,10 +74,12 @@ type SidebarLink struct {
 // Tables can be derived from any backend (Map, GORM, future) — Admin
 // works against the non-generic CRUDTableInterface.
 //
-// Relation wiring (MetaField.RelatedCRUD) is the caller's job in this
-// variant — set it manually on each MetaField before passing the
-// tables in. Use DeriveAdminAutoWire for the "auto-derive everything"
-// shortcut.
+// Cross-table relation links are wired automatically at RegisterRoutes time
+// (Admin calls WireRelations once every child has its URLBase) by matching
+// each relation field's RelatedTypeName against the managed tables' Go type
+// names — no manual wiring. The matching is name-based; two tables of the
+// same Go type would be ambiguous (last write wins), which doesn't happen
+// for distinct types in one package.
 func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
 	return Admin{
 		Tables: tables,
@@ -93,53 +88,23 @@ func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
 	}
 }
 
-// DeriveAdminAutoWire is like DeriveAdmin but additionally auto-wires
-// every relation field's RelatedCRUD by matching the field's
-// RelatedTypeName (the Go type name of the related struct) against
-// each peer table's ModelName().
+// RegisterRoutes mounts Admin on r, registering everything relative to r.
+// mountBase is the absolute path at which r is served (recorded so rendered
+// links resolve absolutely — see CRUDTable.RegisterRoutes). The caller mounts
+// r at mountBase, typically via a stripping chi.Route:
 //
-// The matching is purely name-based — passing two tables named "Hero"
-// would produce ambiguous output (last write wins). In practice that
-// doesn't happen because Go type names within one package are unique.
-func DeriveAdminAutoWire(tables []CRUDTableInterface, az auth.Authz) Admin {
-	for _, t := range tables {
-		t.AutoWireRelations(tables)
-	}
-	return DeriveAdmin(tables, az)
-}
-
-// Route mounts Admin at baseUrl + "/" + Slug (same convention as
-// CRUDTable.Route). baseUrl is the parent prefix; Admin appends its
-// own Slug (default "admin"). Admin owns everything under its urlBase:
+//	r.Route("/admin", func(r chi.Router) { admin.RegisterRoutes(r, "/admin", shell) })
 //
-//   - Children: delegates each table's Route(mux, urlBase, nil) —
-//     each child appends its own Slug to urlBase, so children land at
-//     urlBase/{slug}/... Children's per-slug page handlers are NOT
-//     registered (shell=nil) — Admin owns the page rendering.
-//   - GET urlBase → 303 redirect to urlBase/{first.Slug}.
-//   - GET urlBase/{slug} → shell(w, r, title, body) where body is
-//     Admin's sidebar + working-area-with-active-table, and title is
-//     the active table's DisplayName.
+// Registers, for mountBase="/admin", tables ["heros","weapons","skills"]:
 //
-// shell == nil → no per-slug page handler is registered. Caller can
-// hand-roll one if they want, or compose Admin into a larger page.
+//	GET  /admin                       → 303 to /admin/heros (index redirect)
+//	GET  /admin/heros                 → page (shell wrapping sidebar + heros table)
+//	GET  /admin/weapons | /skills     → page (active table)
+//	GET  /admin/heros/view, /create…  → each child table's fragment endpoints
 //
-// Registered patterns, for baseUrl="/", Slug="admin" (default),
-// tables ["heros", "weapons", "skills"], shell != nil:
-//
-//	GET  /admin                       → 303 to /admin/heros
-//	GET  /admin/heros                 → page (sidebar + heros table)
-//	GET  /admin/weapons               → page (sidebar + weapons table)
-//	GET  /admin/skills                → page (sidebar + skills table)
-//	GET  /admin/heros/view, …         → routed by heros table (HTMX endpoints)
-//	GET  /admin/weapons/view, …       → routed by weapons table
-//	GET  /admin/skills/view, …        → routed by skills table
-//
-// To mount Admin at the root (no /admin segment), set Admin.Slug = ""
-// before Route — urlBase becomes baseUrl itself.
-//
-// Returns the absolute urlBase Admin was mounted at — useful for the
-// caller's "/ → admin" redirect.
+// shell == nil → no per-slug page handler is registered (the index redirect
+// and child fragments still are). Child relation fields are linked via
+// WireRelations once all children are routed.
 func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error {
 	a.urlBase = normalizePrefix(mountBase)
 	if len(a.Tables) == 0 {
@@ -153,6 +118,10 @@ func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell)
 		}
 		t.RegisterRoutes(r, a.urlBase, t.URLSlug())
 	}
+	// Every child now has its URLBase set — link relation fields across
+	// them (Go type name → URLBase) so relation pickers fetch options from
+	// the right sibling table.
+	WireRelations(a.Tables...)
 	az := auth.AuthzOrAllow(a.Authz)
 	firstSlug := a.Tables[0].URLSlug()
 	// Index redirect: GET {mountBase} → first table. Registered relative

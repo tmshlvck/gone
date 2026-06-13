@@ -93,10 +93,9 @@ func main() {
 	groupTable := crud.DeriveGormCRUDTable[auth.GroupGORM](groupMM, gate, db)
 	groupTable.Slug = "groups"
 
-	// DeriveAdminAutoWire walks each table's relation fields and
-	// matches their type name against peer ModelName() — wires up
-	// the Groups picker on the User form, and the Users picker on
-	// the Group form.
+	// Admin links each table's relation fields automatically at
+	// RegisterRoutes time — the Groups picker on the User form, and the
+	// Users picker on the Group form, load options from the sibling table.
 	//
 	// Admin itself takes nil Authz: the index handler at /admin
 	// just 303-redirects to the first child slug, and we want
@@ -105,7 +104,7 @@ func main() {
 	// at Admin's index, anonymous users would see 403 instead.
 	// The child CRUDTables keep their gates via `gate`.
 	tables := []crud.CRUDTableInterface{&userTable, &groupTable}
-	admin := crud.DeriveAdminAutoWire(tables, nil)
+	admin := crud.DeriveAdmin(tables, nil)
 
 	// ── Page shell ──────────────────────────────────────────────────
 	// One PageShellFunc serves /login, /login/totp, and /admin.

@@ -14,7 +14,7 @@ import (
 // custom headers, or "anonymous → /login" responses from inside the
 // shell.
 //
-// title is supplied by the component (CRUDTable's PageTitle, Admin's
+// title is supplied by the caller (the app's page route, Admin's
 // active-table DisplayName, AuthSimple's "Sign in") and is typically
 // what the shell writes into <title> and any heading.
 //

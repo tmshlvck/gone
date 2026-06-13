@@ -116,7 +116,7 @@ func main() {
 	groupTable.Slug = "groups"
 
 	tables := []crud.CRUDTableInterface{&userTable, &groupTable}
-	admin := crud.DeriveAdminAutoWire(tables, nil)
+	admin := crud.DeriveAdmin(tables, nil)
 
 	// ── Page shell ──────────────────────────────────────────────────
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
