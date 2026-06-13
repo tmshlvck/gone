@@ -3,29 +3,35 @@
 This document is the user-facing reference for `github.com/tmshlvck/gone/crud`.
 For the design rationale — why the package is shaped this way, plus the
 decision log — see [`DESIGN.md`](DESIGN.md). For the auth/CSRF/authz
-reference see [`docs/AUTH.md`](AUTH.md).
+reference see [`AUTH.md`](AUTH.md).
 
 ## What it does
 
-You describe a Go struct once. The library gives you:
+You describe a Go struct once, in a declarative recipe. The library gives you:
 
 - **A list page** (search + sort + pagination + per-row edit / delete).
 - **A create form** and **an edit form** with per-field validators, a
-  cross-field hook, and HTMX modal flow.
+  cross-field hook, and an HTMX modal flow.
 - **A display fragment** for a single row.
-- **Relation pickers** that auto-wire across `CRUDTable`s by Go type
-  name — including a nested "+ create new" modal that doesn't clobber
-  the parent form.
-- **An Admin** that bundles many `CRUDTable`s under one URL prefix with
-  an HTMX-boosted sidebar.
+- **Relation pickers** that link across `CRUDTable`s by URL (auto-resolved
+  by Go type name) — including a nested "+ create new" modal that doesn't
+  clobber the parent form.
+- **An Admin** that bundles many `CRUDTable`s under one URL prefix with a
+  sidebar.
 
-Backends today: in-memory map (`DeriveMapCRUDTable`), GORM
-(`DeriveGormCRUDTable`). New backends drop in by writing a constructor.
+Backends today: in-memory map (`NewMapTable`), GORM (`NewGormTable`). A new
+backend is a new constructor over the same `Accessor` closures.
 
-The library emits **HTML fragments** — no `<html>/<body>/<style>` —
-plus the JS bridge that wires HTMX modal events to DaisyUI dialogs.
-Page chrome (head, navbar, theme, auth-aware footer) is supplied by
-the caller via a `PageShellFunc`.
+The library emits **HTML fragments** — no `<html>/<body>/<style>` — plus a
+small JS bridge that wires HTMX modal events to DaisyUI dialogs. The page
+chrome (head, navbar, theme, footer) and the *page routes* are the app's:
+the library registers only the in-component fragment endpoints, and the app
+embeds `table.Render(r)` in its own shell.
+
+Navigation is plain multi-page (real `<a href>` links, no `hx-boost`); only
+in-component interactions (sort, search, paginate, modal forms, delete) use
+targeted HTMX swaps. See [`../REFACTOR-HTMX.md`](../REFACTOR-HTMX.md) for the
+why.
 
 ## Quick taste
 
@@ -38,21 +44,34 @@ type Hero struct {
 
 func main() {
     store := map[uint]Hero{1: {1, "Aragorn", 90}}
-    mm, _ := crud.DeriveMetaModel[Hero]()
-    mm.MustFindField("Name").FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(30))
-    mm.MustFindField("Power").FieldValidate = crud.IntRange(0, 100)
+    var mu sync.RWMutex
 
-    table := crud.DeriveMapCRUDTable[Hero](mm, nil, store, &sync.RWMutex{})
-    table.Slug = "heroes"
-
-    mux := http.NewServeMux()
-    url, err := table.Route(mux, "/", pageShell)
-    if err != nil { log.Fatal(err) }
-    mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-        http.Redirect(w, r, url, http.StatusSeeOther)
+    // Describe the whole table once.
+    table := crud.NewMapTable(store, &mu, crud.Table[Hero]{
+        Slug:  "heroes",
+        Title: "Heroes",
+        Fields: crud.Fields{
+            "ID":    {ReadOnly: true},
+            "Name":  {Validate: crud.All(crud.NotEmpty, crud.MaxLen(30))},
+            "Power": {Help: "0–100", Validate: crud.IntRange(0, 100)},
+        },
     })
 
-    log.Fatal(http.ListenAndServe(":8080", mux))
+    r := chi.NewRouter()
+    table.RegisterRoutes(r, "", table.Slug) // fragment endpoints under /heroes/…
+    r.Get("/"+table.Slug, func(w http.ResponseWriter, req *http.Request) {
+        content, err := table.Render(req) // the app owns the page route
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        pageShell(w, req, "Heroes", content)
+    })
+    r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+        http.Redirect(w, req, table.URLBase(), http.StatusSeeOther)
+    })
+
+    log.Fatal(http.ListenAndServe(":8080", r))
 }
 
 func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
@@ -61,47 +80,263 @@ func pageShell(w http.ResponseWriter, r *http.Request, title string, content tem
 }
 ```
 
-`appLayout` is a templ component the caller writes — DaisyUI + Tailwind
-+ HTMX loaded in its `<head>`; `content` rendered in `<main>`.
+`appLayout` is a templ component the caller writes — DaisyUI + Tailwind +
+HTMX loaded in its `<head>`; `content` rendered in `<main>`.
 
 ## Stack assumed
 
-| Concern        | Choice                                                       |
-|----------------|--------------------------------------------------------------|
-| Language       | Go 1.24+ (generics + 1.22 `ServeMux`)                        |
-| Templating     | [templ](https://github.com/a-h/templ)                        |
-| ORM            | GORM v2 (`gorm.io/gorm`) for the GORM backend                |
-| Router         | stdlib `net/http`; `chi` works (use `chi.Group` for middleware) |
-| Styling        | [DaisyUI v5](https://daisyui.com) + Tailwind v4 in the caller's page shell |
-| HTMX           | `htmx.org@2` in the caller's page shell                      |
+| Concern    | Choice                                                                     |
+|------------|----------------------------------------------------------------------------|
+| Language   | Go 1.24+ (generics)                                                        |
+| Templating | [templ](https://github.com/a-h/templ)                                      |
+| ORM        | GORM v2 (`gorm.io/gorm`) for the GORM backend                              |
+| Router     | [chi v5](https://github.com/go-chi/chi) (`chi.Router`) — required          |
+| Styling    | [DaisyUI v5](https://daisyui.com) + Tailwind v4 in the caller's page shell |
+| HTMX       | `htmx.org@2` in the caller's page shell                                    |
 
-The library bundles no CSS / JS / static assets. Examples load
-DaisyUI + Tailwind + HTMX from jsDelivr/unpkg.
+The library bundles no CSS / JS / static assets. Examples load DaisyUI +
+Tailwind + HTMX from jsDelivr/unpkg.
 
-## Core types
+## Packages
 
-### `MetaField`
+- **`gone/crud`** — the recipe, the table/admin components, the metadata
+  model, validators. What this document covers.
+- **`gone/site`** — page-composition helpers shared with the app: the
+  `Shell` function shape (the app's page chrome), a `Fragment` writer, and a
+  `Respond` helper for a single URL that serves both a fragment and a full
+  page. Depends on templ.
+- **`gone/htmx`** — the HTMX wire protocol typed: request classification
+  (`IsRequest`, `Target`, `CurrentURL`) and a fluent response-directive
+  builder (`Reply().Retarget(…).Reswap(…).Trigger(…).Apply(w)`) with
+  backend-driven modal control (`OpenModal`/`CloseModal`). Dependency-free.
+  Apps reach for it in their own handlers; `crud` uses it internally.
 
-One field of a model. Describes how to render, bind, validate.
+## The recipe — `Table[T]`, `Field`, `Fields`
+
+A model is described once, declaratively, and handed to a constructor. The
+constructor reflects `T`, merges the overrides over the reflected defaults,
+and returns a ready `CRUDTable[T]`.
+
+```go
+type Table[T any] struct {
+    Slug     string     // URL slug (plural); empty = lowercase(TypeName)+"s"
+    Title    string     // display name; empty = the Go type name
+    PageSize int        // rows per page; 0 = library default (20)
+    Authz    auth.Authz // nil = allow all
+
+    ReadOnly         bool // disables create + edit + delete in one switch
+    HideUnauthorized bool // omit disallowed mutation buttons (vs render disabled)
+
+    Fields   Fields              // per-field overrides, keyed by Go field name
+    Validate func(instance T) error // optional model-level cross-field validator
+}
+
+// Field overrides one field's derived defaults. The zero value changes
+// nothing — set only what you want. ReadOnly/Hidden are additive (true turns
+// the flag on); every other field overrides when non-empty / non-nil.
+type Field struct {
+    Label     string    // -> DisplayName  (empty = keep derived = Go field name)
+    Help      string    // -> FormHelp     (hint under the input)
+    InputType string    // -> FormInputType ("email", "password", "date", …)
+    ReadOnly  bool      // show in detail/list, omit from the form
+    Hidden    bool      // omit entirely (list, detail, form)
+    Validate  Validator // -> FieldValidate (per-field server validator)
+
+    // Override the cell renderer / form input for one field, without
+    // dropping to the low-level path. nil keeps the derived hook.
+    DisplayValue   func(mf MetaField, value any) templ.Component
+    GenFormElement func(mf MetaField, value any) templ.Component
+}
+
+type Fields map[string]Field
+
+func NewGormTable[T any](db *gorm.DB, cfg Table[T]) CRUDTable[T]
+func NewMapTable[T any](store map[uint]T, mu *sync.RWMutex, cfg Table[T]) CRUDTable[T]
+```
+
+The constructors **panic at startup** on a programming error — a non-struct
+`T`, or a `Fields` key the type doesn't have (a typo / renamed field). This
+is the `regexp.MustCompile` idiom: fail loudly at boot, not silently at first
+render.
+
+```go
+heroes := crud.NewGormTable(db, crud.Table[Hero]{
+    Slug: "heroes", Title: "Heroes", PageSize: 10,
+    Fields: crud.Fields{
+        "ID":      {ReadOnly: true},
+        "Name":    {Help: "2–40 chars.", Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+        "Weapons": {Label: "Weapons (read-only)", Help: "Edit via /weapons."},
+    },
+})
+```
+
+The returned `CRUDTable[T]` is a plain struct with public fields, so anything
+the recipe doesn't cover — granular `CreateEnabled`, a one-off MetaField
+hook — is still settable afterward. The low-level `DeriveMetaModel` +
+`DeriveGormCRUDTable` + `MustFindField` path (see [Lower-level
+API](#lower-level-api)) remains available for callers that need a custom
+backend or hook.
+
+## Routing surface
+
+A table registers its in-component (fragment) endpoints **relative to the
+router it is handed**, and renders absolute links from a base it is *told*:
+
+```go
+func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, mountBase, slug string)
+func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error)
+func (c *CRUDTable[T]) URLBase() string // absolute base, e.g. "/admin/heroes"
+```
+
+- **`slug`** is where the table sits relative to `r` (e.g. `"heroes"`). Empty
+  falls back to the table's `Slug`, then a derived plural.
+- **`mountBase`** is the absolute path at which `r` itself is served. The
+  caller knows this; chi can't report it at registration time. The table's
+  absolute base, used for every rendered `hx-get` / form action, is
+  `mountBase + "/" + slug`.
+
+The **app owns the page route** (`GET /{slug}`): it calls `Render(r)` and
+wraps the result in its own shell. `RegisterRoutes` registers only the
+fragments. For `slug="heroes"`, `mountBase="/admin"`:
+
+| Method | Path                         | Returns                                   |
+|--------|------------------------------|-------------------------------------------|
+| GET    | `/admin/heroes/view`         | table fragment for sort/search/paginate   |
+| GET    | `/admin/heroes/create`       | create form fragment                      |
+| POST   | `/admin/heroes/create`       | create submit                             |
+| GET    | `/admin/heroes/{id}/edit`    | edit form fragment                        |
+| POST   | `/admin/heroes/{id}/edit`    | edit submit                               |
+| POST   | `/admin/heroes/{id}/delete`  | delete (HTMX → rows fragment; else 303)   |
+| GET    | `/admin/heroes/{id}/display` | per-row dump fragment                     |
+| GET    | `/admin/heroes/options`      | relation-picker option list               |
+
+Every handler gates on the table's `Authz` (nil = allow all).
+
+### Mounting — the composition contract
+
+One rule: **`mountBase` must equal the absolute prefix at which the passed
+router is served.** Because routes register relative to `r`, the table
+composes under stripping mounts (`chi.Route` / `chi.Mount`) and groups alike:
+
+| caller wiring                         | call                                       | served at            |
+|---------------------------------------|--------------------------------------------|----------------------|
+| root                                  | `RegisterRoutes(root, "", "heroes")`       | `/heroes/…`          |
+| `r.Route("/admin", …)` (strips)       | `RegisterRoutes(r, "/admin", "heroes")`    | `/admin/heroes/…`    |
+| `r.Mount("/admin", sub)` (strips)     | `RegisterRoutes(sub, "/admin", "heroes")`  | `/admin/heroes/…`    |
+| `r.Group(…)` at root (no strip)       | `RegisterRoutes(g, "", "admin/heroes")`    | `/admin/heroes/…`    |
+
+Stripping mounts are first-class — the rendered HTML carries the right
+absolute URLs because they're built from `mountBase`, never reverse-engineered
+from the request.
+
+## `Admin`
+
+Bundles tables behind a sidebar. Navigation between tables is plain page
+navigation (each sidebar entry is a real link to `/{mountBase}/{slug}`); the
+server renders the whole page on each load and marks the active entry from
+the request path — no JS for the active highlight.
+
+```go
+type Admin struct {
+    Tables []CRUDTableInterface
+    Authz  auth.Authz
+    Slug   string // default "admin" (informational; mounting is the caller's)
+}
+
+func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin
+
+func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error
+func (a *Admin) Render(r *http.Request) (templ.Component, error)
+```
+
+`Admin.RegisterRoutes` registers, on the router it is handed: every child
+table's fragment endpoints, a `GET /{slug}` page handler that wraps the
+active table in `shell`, a `GET` index redirect to the first table, and it
+links the children's relation fields (see [Relations](#relations)). The
+caller mounts it once, typically via a stripping `chi.Route`:
+
+```go
+r.Route("/admin", func(r chi.Router) {
+    admin.RegisterRoutes(r, "/admin", pageShell)
+})
+```
+
+Registered for `mountBase="/admin"`, tables `["heros","weapons","skills"]`:
+
+| Method | Path                              | Returns                                  |
+|--------|-----------------------------------|------------------------------------------|
+| GET    | `/admin`                          | 303 redirect to `/admin/heros`           |
+| GET    | `/admin/{slug}`                   | full page (sidebar + active table)       |
+| GET    | `/admin/heros/view`, `/create`, … | each child table's fragment endpoints    |
+
+`shell == nil` registers the index redirect and child fragments but no
+per-slug page handler.
+
+## Relations
+
+Relation fields (`Owner Hero`, `Weapons []Weapon`, `Skills []Skill`) are
+detected by reflection + gorm tags during derivation. Tables **link by URL,
+not by an in-process pointer**: a relation `<select>` loads its `<option>`
+list over HTTP from the *related* table's own `/options` endpoint, fired on
+`load` (and again on `refresh-relation`, e.g. after a nested create). The
+related table generates the `id → label` pairs — it already has the data.
+
+The link is established by stamping each relation field's `RelatedURLBase`
+from a Go-type-name → URL map, **after** the tables are routed:
+
+```go
+func WireRelations(tables ...CRUDTableInterface)
+```
+
+- **Admin** calls `WireRelations` for its managed tables automatically inside
+  `RegisterRoutes` — Admin apps don't call it.
+- **Standalone** tables call it themselves, once, after every
+  `RegisterRoutes` (so the URLBases are set):
+
+  ```go
+  heroTable.RegisterRoutes(r, "", "heroes")
+  weaponTable.RegisterRoutes(r, "", "weapons")
+  crud.WireRelations(&heroTable, &weaponTable) // Owner select on /weapons → /heroes/options
+  ```
+
+A relation left unwired (no matching table) renders a degraded `<select>`
+with no options endpoint — functional, not fatal.
+
+## Lower-level API
+
+The recipe is sugar over these primitives. Reach for them to back a custom
+storage type, to render a one-off form outside a table (see
+`examples/form_mem`), or to install a bespoke MetaField hook.
+
+### `MetaModel[T]` and `MetaField`
+
+`MetaModel[T]` is pure metadata + render/bind helpers — no routing, no data,
+no authz. `MetaField` describes one field.
+
+```go
+func DeriveMetaModel[T any]() (MetaModel[T], error) // reflect T → defaults
+func (mm *MetaModel[T]) FindField(name string) (*MetaField, error)
+func (mm *MetaModel[T]) MustFindField(name string) *MetaField // panics on miss
+
+func (mm *MetaModel[T]) RenderDisplay(instance T) templ.Component
+func (mm *MetaModel[T]) RenderForm(instance T, opts FormOpts) templ.Component
+func (mm *MetaModel[T]) TryBindForm(r *http.Request, out *T) error // parse + bind + validate
+```
+
+`MetaField`'s relation metadata is filled by derivation; `RelatedURLBase`
+(the related table's absolute URL) is left blank and filled later by
+`WireRelations` / `Admin`:
 
 ```go
 type MetaField struct {
-    Name          string
-    DivID         string
-    DisplayName   string
-    FormInputType string   // "text" | "number" | "checkbox" | "datetime-local" | "email" | …
-    FormHelp      string
-    Hidden        bool     // hide everywhere
-    ReadOnly      bool     // visible but not in the form
-    Multiple      bool
-    Sortable      bool     // column header is a sort link
-    Searchable    bool     // included in case-insensitive search
+    Name, DisplayName, FormInputType, FormHelp string
+    Hidden, ReadOnly, Multiple, Sortable, Searchable bool
 
-    RelationKind    RelationKind   // NotRelation | RelationSingle | RelationMany2Many | RelationHasMany
-    RelatedCRUD     CRUDTableInterface
-    RelatedTypeName string         // Go type name; used by AutoWireRelations
-    FKFieldName     string         // for RelationSingle: sibling FK uint
-    FormFieldName   string         // POST key (defaults to Name; relation single uses FKFieldName)
+    RelationKind    RelationKind // NotRelation | RelationSingle | RelationMany2Many | RelationHasMany
+    RelatedURLBase  string       // related table URL; blank until wired
+    RelatedTypeName string       // Go type name of the related model
+    FKFieldName     string       // RelationSingle: sibling FK uint
+    FormFieldName   string       // POST key (defaults to Name)
 
     DisplayValue   func(mf MetaField, value any) templ.Component
     GenFormElement func(mf MetaField, value any) templ.Component
@@ -110,162 +345,35 @@ type MetaField struct {
 }
 ```
 
-Defaults are installed by `DeriveMetaModel` — caller post-mutates fields
-to override.
-
-### `MetaModel[T any]`
-
-Pure metadata + render / bind helpers. No routing state, no data
-accessors, no authz.
-
-```go
-type MetaModel[T any] struct {
-    Fields      []MetaField
-    Name        string
-    Slug        string                              // url-safe singular; default lowercase Name
-    DisplayName string
-    Validate    func(instance T) error              // cross-field validator (optional)
-}
-
-func DeriveMetaModel[T any]() (MetaModel[T], error)
-func (mm *MetaModel[T]) FindField(name string) (*MetaField, error)
-func (mm *MetaModel[T]) MustFindField(name string) *MetaField
-
-func (mm *MetaModel[T]) RenderDisplay(instance T) templ.Component
-func (mm *MetaModel[T]) RenderForm(instance T, opts FormOpts) templ.Component
-
-// Parse the request form and bind it into out. Returns ValidationErrors
-// (which implements error) on validation failure.
-func (mm *MetaModel[T]) TryBindForm(r *http.Request, out *T) error
-```
-
 `FormOpts` for `RenderForm`:
 
 ```go
 type FormOpts struct {
     ActionURL   string
-    HXTarget    string             // CSS selector for hx-target; empty = browser-only
-    SubmitLabel string             // "Save", "Create"
-    Title       string             // optional <h3> above the form
-    Errors      ValidationErrors   // raw error from TryBindForm — template splits it
-    SuccessMsg  string             // optional green alert
+    HXTarget    string           // CSS selector for hx-target; empty = browser-only
+    SubmitLabel string           // "Save", "Create"
+    Title       string           // optional <h3> above the form
+    Errors      ValidationErrors // raw error from TryBindForm — template splits it
+    SuccessMsg  string           // optional green alert
 }
 ```
 
-### `CRUDTable[T any]`
+### Backend constructors
 
-Wraps a MetaModel with backend closures + authz + routing.
+The recipe constructors wrap these:
 
 ```go
-type CRUDTable[T any] struct {
-    MetaData      MetaModel[T]
-    Authz         AuthzInterface       // nil = AllowAll
-    Slug          string               // url-safe plural; default lowercase(Name)+"s"
-    PageSize      int                  // 0 = library default (20)
-    CreateEnabled, EditEnabled, DeleteEnabled bool
-    PageTitle     string               // shell title; default MetaData.DisplayName
-    // Internal: urlBase, ListID, Get/List/Create/Update/Delete closures
-}
-
-// Backends.
-func DeriveMapCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, store map[uint]T, mu *sync.RWMutex) CRUDTable[T]
-func DeriveGormCRUDTable[T any](mm MetaModel[T], authz AuthzInterface, db *gorm.DB) CRUDTable[T]
-
-func (c *CRUDTable[T]) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
-func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error)
-
-func (c *CRUDTable[T]) URLBase() string         // absolute path; set by Route
-func (c *CRUDTable[T]) HTMXTableURL() string    // URLBase + "/view"
-func (c *CRUDTable[T]) HTMXCreateURL() string   // URLBase + "/create"
+func DeriveMapCRUDTable[T any](mm MetaModel[T], az auth.Authz, store map[uint]T, mu *sync.RWMutex) CRUDTable[T]
+func DeriveGormCRUDTable[T any](mm MetaModel[T], az auth.Authz, db *gorm.DB) CRUDTable[T]
 ```
 
-Routes registered, for `baseUrl="/admin"` and `Slug="heroes"`:
+`NewMapTable(store, mu, cfg)` ≡ `DeriveMapCRUDTable(cfg→MetaModel, cfg.Authz,
+store, mu)` + the table-level field assignments; same for GORM.
 
-| Method | Path                              | Returns                                          |
-|--------|-----------------------------------|--------------------------------------------------|
-| GET    | `/admin/heroes`                   | main page (only when `shell != nil`)             |
-| GET    | `/admin/heroes/view`              | table fragment for HTMX swap                     |
-| GET    | `/admin/heroes/create`            | create form fragment                             |
-| POST   | `/admin/heroes/create`            | create submit                                    |
-| GET    | `/admin/heroes/{id}/edit`         | edit form fragment                               |
-| POST   | `/admin/heroes/{id}/edit`         | edit submit                                      |
-| POST   | `/admin/heroes/{id}/delete`       | delete (HTMX → rows fragment; else 303)          |
-| GET    | `/admin/heroes/{id}/display`      | per-row dump fragment                            |
-| GET    | `/admin/heroes/options`           | relation-picker option list                      |
-
-Every handler gates on `c.Authz`.
-
-### `Admin`
-
-Bundles tables behind a sidebar.
+### Authz
 
 ```go
-type Admin struct {
-    Tables []CRUDTableInterface
-    Authz  AuthzInterface
-    Slug   string  // default "admin"
-}
-
-func DeriveAdmin(tables []CRUDTableInterface, authz AuthzInterface) Admin
-func DeriveAdminAutoWire(tables []CRUDTableInterface, authz AuthzInterface) Admin
-
-func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
-func (a *Admin) Render(r *http.Request) (templ.Component, error)
-```
-
-`Admin.Route(mux, "/", shell)` mounts Admin at `baseUrl + "/" + Slug`
-(default `/admin`) and **auto-routes every child table** under it.
-The caller doesn't call `table.Route()` separately.
-
-Registered for `Admin.Slug = "admin"` and tables `["heros", "weapons", "skills"]`:
-
-| Method | Path                                  | Returns                                              |
-|--------|---------------------------------------|------------------------------------------------------|
-| GET    | `/admin`                              | 303 redirect to `/admin/heros`                       |
-| GET    | `/admin/{slug}`                       | full page (sidebar + active table) via `shell`       |
-| GET    | `/admin/heros/view`, `/create`, …     | child table's HTMX endpoints                         |
-| GET    | `/admin/weapons/view`, …              | child table's HTMX endpoints                         |
-| GET    | `/admin/skills/view`, …               | child table's HTMX endpoints                         |
-
-`DeriveAdminAutoWire` additionally calls each table's
-`AutoWireRelations` so `RelatedCRUD` pointers between tables fill
-themselves in by matching Go type names — no manual wiring needed.
-
-To mount Admin at the URL root, set `Admin.Slug = ""` before `Route`.
-
-### `PageShellFunc`
-
-The only chrome boundary between library and app.
-
-```go
-type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, content templ.Component)
-```
-
-- Receives the HTTP writer and request directly — can redirect on auth
-  failure, set headers, etc.
-- `title` is supplied by the component (table's `PageTitle`, or the
-  active table's `DisplayName` for Admin per-slug pages).
-- `content` is the fragment to embed in the page chrome.
-- `nil` on Route → library doesn't register the main page handler.
-
-Typical implementation:
-
-```go
-func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
-    user, _ := r.Context().Value(userKey{}).(*User)
-    if user == nil {
-        http.Redirect(w, r, "/login", http.StatusSeeOther)
-        return
-    }
-    w.Header().Set("Content-Type", "text/html; charset=utf-8")
-    appLayout(title, user, content).Render(r.Context(), w)
-}
-```
-
-### `AuthzInterface`
-
-```go
-type AuthzInterface interface {
+type Authz interface { // gone/auth
     CanList(r *http.Request) bool
     CanRead(r *http.Request) bool
     CanCreate(r *http.Request) bool
@@ -274,27 +382,14 @@ type AuthzInterface interface {
 }
 ```
 
-`nil = AllowAll`. `crud.AllowAll{}` is also available as a named no-op.
-
-### `Mux`
-
-```go
-type Mux interface {
-    HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
-}
-```
-
-`*http.ServeMux` and `chi.Router` both satisfy it. The library only
-needs `HandleFunc`.
-
-For middleware layering with chi: use `chi.Group` (preserves prefix).
-**Don't** use `chi.Mount` / `chi.Route` — they prefix-strip, which
-breaks the absolute URLs the library renders in HTML.
+`nil` = allow all; `auth.AuthzAllowAll{}` is the explicit no-op.
+`auth.AuthzLoggedInReadAdminWrite{Auth: …}` is the stock "logged-in reads,
+admin group writes" gate. See [`AUTH.md`](AUTH.md).
 
 ## Validation
 
-Per-field validators run after `FromStrings` populates the field;
-model-level `Validate` runs only when every field passed.
+Per-field validators run after the field is parsed; the model-level
+`Validate` runs only once every field passed.
 
 ```go
 type Validator = func(value any) error
@@ -309,120 +404,91 @@ func Email(value any) error
 func Pattern(re *regexp.Regexp, reason string) Validator
 func IPv4Addr(value any) error
 func IPv6Addr(value any) error
-func IPv4Net(value any) error           // CIDR
-func IPv6Net(value any) error           // CIDR
+func IPv4Net(value any) error // CIDR
+func IPv6Net(value any) error // CIDR
 
 // Combinators:
-func All(vs ...Validator) Validator     // AND, first failure wins
-func Any(vs ...Validator) Validator     // OR, joins failures with " or "
+func All(vs ...Validator) Validator // AND, first failure wins
+func Any(vs ...Validator) Validator // OR, joins failures with " or "
 ```
 
-Errors come back as a `ValidationErrors` map (field name → message;
-`""` for model-level). Feed it directly into `FormOpts.Errors` — the
-template splits it for the banner + per-field display.
+Errors come back as a `ValidationErrors` map (field name → message; `""` for
+model-level). Feed it straight into `FormOpts.Errors`; the template splits it
+into the banner + per-field messages.
 
 ```go
 type ValidationErrors map[string]string
-
-const ModelLevelKey = ""   // empty key for cross-field
-
+const ModelLevelKey = "" // empty key for cross-field
 func (e ValidationErrors) Error() string
-
-// Wraps any error into a ValidationErrors map; non-validation errors
-// land under ModelLevelKey.
-func ValidationErrorsFromError(err error) ValidationErrors
+func ValidationErrorsFromError(err error) ValidationErrors // non-validation errors → ModelLevelKey
 ```
 
 ## HTMX modals
 
-Create / edit forms open in two stacked DaisyUI dialogs.
+Create / edit forms open in two stacked DaisyUI dialogs:
 
-- **L1 — per-table** — `#{slug}-modal-l1` — emitted by each
-  `CRUDTable.Render()`.
-- **L2 — shared singleton** — `#crud-modal-l2` — for nested "+ create
-  new" opened by a relation picker. Auto-embedded inside `CRUDTable.Render`
-  so callers don't need a separate include.
+- **L1 — per-table** — `#{slug}-modal-l1` — emitted by each `Render()`.
+- **L2 — shared singleton** — `#crud-modal-l2` — for the nested "+ create
+  new" a relation picker opens. Auto-embedded by `Render`.
 
-Each dialog has an X close button + backdrop click.
+The flow is **backend-driven**: the form's HTMX attributes are static
+(`hx-post=<action> hx-target=#…-body`); the server decides the outcome with
+response directives, built via `gone/htmx`:
 
-**Signaling outcomes.** The form's HTMX attributes are static:
-`hx-post=<action> hx-target=#{slug}-modal-l*-body`. The server uses
-response headers to decide what happens:
+| Outcome          | Directives (`htmx.Reply()…Apply(w)`)                                   |
+|------------------|------------------------------------------------------------------------|
+| Validation error | `Retarget("#<body>").Reswap("innerHTML")`, body = form with errors     |
+| L1 save success  | `CloseModal(<id>).Retarget("#<wrapper>").Reswap("innerHTML")`, body = refreshed table |
+| L2 save success  | `CloseModal(<id>).Trigger("refresh-relation", true).Reswap("none")`    |
 
-| Outcome              | Response                                                                      |
-|----------------------|-------------------------------------------------------------------------------|
-| Validation error     | `HX-Retarget: #<bodyID>`, `HX-Reswap: innerHTML`, body = form with errors      |
-| L1 save success      | `HX-Retarget: #<wrapper>`, body = refreshed table fragment + `HX-Trigger: closeModal:<modalID>` |
-| L2 save success      | `HX-Reswap: none`, `HX-Trigger: {closeModal:<id>, refresh-relation: true}`     |
+A small JS bridge (auto-embedded by the library) maps the `openModal` /
+`closeModal` events to `dialog.showModal()` / `.close()`, and
+`refresh-relation` makes every relation `<select>` re-fetch its options so a
+freshly-created row appears — without disturbing any other field.
 
-The page-shell JS bridge (auto-embedded by the library) listens for
-`closeModal` / `refresh-relation` events on the body and acts accordingly.
-
-**Relation widget refresh.** After an L2 save, every relation `<select>`
-on the page re-fetches its options via `GET {relatedBase}/options` so
-the freshly-created row appears in the dropdown — without disturbing
-any other form field.
-
-**Modal open timing.** Click → fetch → response → swap → open. On slow
-networks the page sits still until the form arrives. Acceptable
-MPA-feel; a "spinner-then-swap" upgrade is small if needed later.
+With JS off, mutation POSTs fall back to a `303` redirect to the list, so the
+app still works as a plain MPA.
 
 ## Pagination
 
-`CRUDTable.PageSize` (default 20) controls rows per page. `?page=N`
-selects the page (1-indexed). The renderer emits a DaisyUI `join`
-button group with prev/next + clickable numbers. All page links are
-HTMX with `hx-push-url`, so bookmarking / back-button work. Search and
-sort changes reset to page 1.
+`PageSize` (default 20) controls rows per page; `?page=N` selects it
+(1-indexed). The renderer emits a DaisyUI `join` button group with prev/next
++ numbers. Page / sort / search links are HTMX with `hx-push-url`, so the
+state is a real, shareable URL — a reload re-renders the full page in that
+state. Search and sort reset to page 1.
 
-## Composition trade-off
+## Composition trade-offs
 
-CRUDTable bookmarkable state (via `hx-push-url`) lives in the table's
-own URL. Multiple CRUDTables on one page can't all push their state
-to the URL bar — pick **at most one** stateful table per page. Admin
-handles this naturally by showing one table at a time in the working
-area; for "two tables side by side", treat that as a future extension
-that disables URL state on the secondary table.
-
-## Slug uniqueness
-
-Two CRUDTables on the same page (or inside the same Admin) **MUST**
-have distinct `Slug` values — per-slug L1 modal IDs would otherwise
-collide. Default `lowercase(Name) + "s"` heuristic avoids accidental
-collisions for distinct Go types; deliberately sharing a slug is a
-configuration bug.
-
-## chi sub-router caveat
-
-The library renders absolute URLs. Mounting it under a prefix-stripping
-sub-router (`http.StripPrefix`, `chi.Mount`, `chi.Route`) breaks the
-emitted URLs because the prefix is invisible to the handlers.
-
-For middleware layering with chi, use `chi.Group` (preserves prefix)
-and pass the full external URL to `Route`.
+- **One stateful table per page.** Bookmarkable state (`hx-push-url`) lives in
+  the table's own URL; multiple tables can't all own the address bar. Admin
+  shows one table at a time, which sidesteps this.
+- **Distinct slugs.** Two tables on one page (or in one Admin) MUST have
+  distinct `Slug`s — the per-slug L1 modal IDs would otherwise collide. The
+  default `lowercase(Name)+"s"` keeps distinct Go types apart; sharing a slug
+  deliberately is a configuration bug.
 
 ## Testing
 
-Primary lever is **HTTP end-to-end tests** via `net/http/httptest`. The
-package's exported behavior is the routes registered by `Route`; most
-of what's worth verifying is observable through them — rows render,
-search filters, POST persists, HX-Request flips the delete response
-from 303 to fragment, …
+The primary lever is **HTTP end-to-end tests** via `net/http/httptest`
+against a `chi.Router`: rows render, search filters, POST persists,
+`HX-Request` flips the delete response from 303 to a fragment, the relation
+`<select>` carries the right `/options` URL, …
 
-Unit tests cover the reflection-heavy primitives that aren't naturally
-observable through HTTP: `DeriveMetaModel`, `DefaultBindForm`, the
-built-in validators (incl. the IPv4/IPv6 ones), `FindField` /
-`MustFindField`, the normalize-prefix helper.
+Unit tests cover the reflection-heavy and config primitives that aren't
+naturally observable through HTTP: `DeriveMetaModel`, `DefaultBindForm`, the
+built-in validators (incl. IPv4/IPv6), `FindField` / `MustFindField`, and the
+recipe (`NewMapTable` override application, unknown-field panic).
 
 `go test ./...` — no external deps; SQLite is in-memory.
 
 ## Examples
 
-| Path                          | Shows                                                        |
-|-------------------------------|--------------------------------------------------------------|
-| `examples/form_mem`           | Single struct + manual handlers using `RenderForm` / `TryBindForm`. IPv4-or-IPv6 validator via `Any(IPv4Addr, IPv6Addr)`. |
-| `examples/crud_mem`           | One `CRUDTable`, in-memory map backend.                       |
-| `examples/crud_gorm`          | Three `CRUDTable`s (Hero, Weapon, Skill) with 1:N and N:M relations. GORM backend. MPA-style with tab nav. |
-| `examples/admin_gorm`         | Same schema as `crud_gorm`, but wrapped in `Admin` with `DeriveAdminAutoWire`. Zero per-field tweaking — defaults all the way. |
+| Path                  | Shows                                                                                          |
+|-----------------------|------------------------------------------------------------------------------------------------|
+| `examples/form_mem`   | Single struct + manual handlers using `RenderForm` / `TryBindForm`. IPv4-or-IPv6 via `Any(IPv4Addr, IPv6Addr)`. |
+| `examples/crud_mem`   | One table via `NewMapTable`, in-memory map backend.                                            |
+| `examples/crud_gorm`  | Three tables (Hero, Weapon, Skill) with 1:N and N:M relations via `NewGormTable` + `WireRelations`. GORM backend, MPA tab nav. |
+| `examples/admin_gorm` | Same schema wrapped in `Admin` — zero per-field config (empty recipes, default slugs), relations auto-wired. |
+| `examples/auth_gorm`  | `AuthGORM` + `Admin` over User/Group, with `Authz` and a `DisplayValue` override in the recipe. |
 
 `go run ./examples/<name>` — each starts on `:8080`.
