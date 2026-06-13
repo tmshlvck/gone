@@ -10,29 +10,47 @@ you need the archaeology.
 ## Philosophy (shared by both packages)
 
 - **Library, not framework.** Every component returns a
-  `templ.Component` and registers on whatever router the caller
-  already has, as long as it satisfies the small `crud.Mux`
-  interface (a subset of `*http.ServeMux`). We never own `main`, the
-  router, or the middleware stack.
-- **Fragments, not pages.** The library emits HTML fragments — no
-  `<html>`/`<body>`/`<style>` chrome. The caller supplies a
-  `PageShellFunc` that wraps fragments in the page shell (head,
-  theme, scripts, nav). This is what lets one set of components serve
-  full-page loads and HTMX swaps from the same handler.
-- **Describe once, derive, then override.** A model is described one
-  time (`MetaModel[T]`); reflection + struct tags fill in sensible
-  defaults; the caller post-mutates the derived model to override any
-  specific field. No code generation, no annotations beyond the gorm
-  tags already present.
+  `templ.Component` and registers its routes on the caller's
+  `chi.Router`. We never own `main`, the router, or the middleware
+  stack. (chi is a hard dependency: the components use its method
+  routing, route groups for authz, and relative mounting. The earlier
+  "any `*http.ServeMux`" promise was theatre — the only composition
+  trick the two routers differ on is exactly the one we rely on.)
+- **Fragments, not pages — the app owns the page.** The library emits
+  HTML fragments — no `<html>`/`<body>`/`<style>` chrome — for its
+  in-component interactions. The application owns the page *routes*: it
+  renders a component's `Render(r)` output inside its own page shell
+  (head, theme, scripts, nav). The shared shape for that chrome is
+  `gone/site.Shell`; the wire-level HTMX plumbing (request
+  classification, HX-\* response directives, modal control) lives in
+  `gone/htmx`. Splitting these out keeps an app free to reuse them on
+  its own non-CRUD pages.
+- **Describe once in a recipe, derive, merge.** A model is described
+  one time as a declarative recipe (`crud.Table[T]{Fields: …}`);
+  reflection + gorm tags fill in sensible defaults; the constructor
+  (`NewGormTable` / `NewMapTable`) merges the recipe's overrides over
+  those defaults and validates field names at construction (a typo
+  panics at startup). No code generation, no annotations beyond the
+  gorm tags. The low-level `DeriveMetaModel` + post-mutation path stays
+  as the escape hatch for custom hooks.
 - **Safe HTML by default.** templ escapes every interpolated value;
   `templ.Raw` is the explicit escape hatch.
-- **Absolute URLs in rendered HTML.** Components render absolute
-  paths (`hx-get`, form `action`, …). A component must therefore
-  know its full external URL — there's no prefix-stripping layer.
-  Consequence: don't mount behind `http.StripPrefix` / `chi.Mount` /
-  `chi.Route` (they hide the prefix from handlers, so rendered URLs
-  would omit it). For middleware layering on chi, use `chi.Group`,
-  which preserves the absolute path.
+- **Real multi-page navigation; HTMX only where it earns its keep.**
+  Page-to-page navigation is ordinary `<a href>` links (Admin's sidebar
+  adds `hx-boost` as a progressive enhancement that degrades to full
+  loads). Only in-component interactions — sort, search, paginate,
+  modal create/edit, delete — use targeted HTMX swaps. Per htmx's own
+  ["some people don't like
+  hx-boost"](https://htmx.org/quirks/#some-people-don-t-like-hx-boost),
+  boosting buys little over a real MPA in modern browsers.
+- **Absolute URLs, but composable.** Components render absolute paths
+  (`hx-get`, form `action`, …), so a component must know its full
+  external URL. Rather than infer it, it is *told*: `RegisterRoutes(r,
+  mountBase, slug)` registers routes relative to `r` and records
+  `mountBase` (the absolute prefix where `r` is served) for link
+  generation. This makes stripping mounts (`chi.Route` / `chi.Mount`)
+  first-class — the prefix the router hides from handlers is supplied
+  explicitly instead.
 
 ## gone/crud
 
@@ -49,28 +67,43 @@ prefix.
   gorm tags infer belongs-to / has-many / many-to-many.
 - **Closures are the data plane.** `CRUDTable` holds
   `Get`/`List`/`Create`/`Update`/`Delete` closures, populated by a
-  backend-specific `Derive*CRUDTable` constructor. GORM and an
-  in-memory map are first-class; a new backend is just a new
-  constructor — the rendering/validation/routing code is backend-
-  blind.
-- **Admin owns its children.** `Admin.Route` calls each child table's
-  `Route(mux, urlBase, nil)` internally (shell `nil`, so children
-  don't register their own page handler). The caller lists tables and
-  calls `Admin.Route` once — it never calls `table.Route` separately.
-  `DeriveAdminAutoWire` additionally fills cross-table relation
-  pointers by matching Go type names, so relation pickers populate
-  with no manual wiring.
-- **Sidebar swaps are scoped.** Admin's sidebar uses `hx-boost`
-  targeting `#crud-admin-root` (the admin subtree), so Admin can be
-  embedded inside a larger layout without the swap clobbering
-  surrounding chrome. User-defined sidebar links instead target the
-  working area (`#crud-admin-main`) so they can host arbitrary content
-  fragments.
-- **`AuthzInterface` takes `*http.Request`.** Five methods
+  backend-specific `Derive*CRUDTable` constructor (which `NewGormTable`
+  / `NewMapTable` wrap). GORM and an in-memory map are first-class; a
+  new backend is just a new constructor — the rendering/validation/
+  routing code is backend-blind.
+- **Admin registers its children; the app owns pages.** A `CRUDTable`'s
+  `RegisterRoutes` mounts only its fragment endpoints; the app writes
+  the `GET /{slug}` page route and embeds `Render(r)` in its shell.
+  `Admin.RegisterRoutes` does both for the tables it bundles — child
+  fragments, a per-slug page handler wrapping the active table in the
+  app's `site.Shell`, and an index redirect — so an Admin app stays a
+  few lines. The caller lists tables once; it never calls a child's
+  `RegisterRoutes` separately.
+- **Relations link by URL, not by a pointer.** A relation `<select>`
+  loads its options over HTTP from the *related* table's own `/options`
+  endpoint (fired on `load`, refreshed on `refresh-relation`); the
+  related table generates the id→label pairs because it already owns
+  the data. So a `MetaField` carries the related table's URL
+  (`RelatedURLBase`, a string), not a `CRUDTableInterface` pointer.
+  `WireRelations` stamps those URLs after routing by matching Go type
+  names; `Admin` calls it automatically. This decouples tables (no
+  in-process graph), collapsed `CRUDTableInterface` from 11 methods to
+  7, and means the HTML and a future JSON API can share one data path.
+- **Sidebar navigation is real, enhanced.** Each Admin sidebar entry is
+  an `<a href>` to `/{base}/{slug}`; the server renders the whole page
+  on each load and marks the active entry from the request path (no JS
+  for the highlight). `hx-boost` is layered on top — targeting
+  `#crud-admin-root` so the swap doesn't clobber surrounding chrome —
+  but it degrades cleanly to a full navigation when JS is off.
+  User-defined sidebar links target the working area
+  (`#crud-admin-main`) so they can host arbitrary content fragments.
+- **`auth.Authz` takes `*http.Request`.** Five methods
   (`Can{List,Read,Create,Update,Delete}`), all `(r) bool`. Taking the
-  request keeps the gate router-agnostic; `nil` means AllowAll. This
-  is the same shape `gone/auth` implements, so the two packages
-  compose without an adapter.
+  request keeps the gate router-agnostic; `nil` means AllowAll;
+  `auth.AuthzAllowAll{}` is the explicit no-op. It's the same interface
+  `gone/auth` implements, so the two packages compose without an
+  adapter — each `crud` fragment handler gates on the table's `Authz`
+  (per the action it serves) before running.
 
 **Out of scope for crud (lives in auth or TODO):** authentication,
 CSRF, RBAC beyond the Authz gate, JSON API, audit logging, GraphQL,
