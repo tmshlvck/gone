@@ -2,6 +2,7 @@ package auth
 
 import (
 	"encoding/json"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,7 +24,7 @@ func newRoutedAuthGORMWithRP(t *testing.T) (http.Handler, *AuthGORM) {
 	ag.RPDisplayName = "test"
 	ag.RPID = "localhost"
 	ag.RPOrigins = []string{"http://localhost"}
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
@@ -50,7 +51,7 @@ func TestAuthGORM_IsAuthPath_PasskeyEndpoints(t *testing.T) {
 	}{
 		{"/login/passkey/options", true},
 		{"/login/passkey/finish", true},
-		{"/login/passkey/begin", false},   // not a real endpoint
+		{"/login/passkey/begin", false},     // not a real endpoint
 		{"/account/1/passkey/begin", false}, // account-side: gated by handlers, not shell
 		{"/admin/users", false},
 	} {
@@ -64,7 +65,7 @@ func TestAuthGORM_PasskeyRoutesNotMountedWithoutRP(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	// Deliberately don't set RP fields. Route() should succeed but
 	// skip the passkey endpoints.
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
@@ -322,7 +323,7 @@ func TestLoginForm_PasskeyButtonRendersWhenRPSet(t *testing.T) {
 
 func TestLoginForm_PasskeyButtonAbsentWithoutRP(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}

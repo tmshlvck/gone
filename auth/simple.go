@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/url"
 	"strings"
@@ -261,7 +262,7 @@ func (s *AuthSimple) Authenticate(username, password string) (User, error) {
 //	POST   /logout  Logout + redirect to LoginURL("")
 //
 // Returns the absolute urlBase the routes were mounted under.
-func (s *AuthSimple) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
+func (s *AuthSimple) Route(mux chi.Router, baseUrl string, shell PageShellFunc) (string, error) {
 	if mux == nil {
 		return "", errors.New("auth.AuthSimple.Route: nil mux")
 	}
@@ -325,8 +326,8 @@ type passwordLoginOpts struct {
 	SSOButtons func(next string) []ssoButtonInfo
 }
 
-func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
-	mux.HandleFunc("GET "+o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
+func mountPasswordLogin(mux chi.Router, o passwordLoginOpts) {
+	mux.Get(o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
 		next := safeNext(r.URL.Query().Get("next"))
 		body := loginForm(loginFormData{
 			Action:          o.LoginPath,
@@ -340,7 +341,7 @@ func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 		writeShell(w, r, "Sign in", body, o.Shell)
 	})
 
-	mux.HandleFunc("POST "+o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(o.LoginPath, func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -381,7 +382,7 @@ func mountPasswordLogin(mux Mux, o passwordLoginOpts) {
 		http.Redirect(w, r, dest, http.StatusSeeOther)
 	})
 
-	mux.HandleFunc("POST "+o.LogoutPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(o.LogoutPath, func(w http.ResponseWriter, r *http.Request) {
 		if err := o.Logout(r.Context()); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

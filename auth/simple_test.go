@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -126,10 +127,10 @@ func TestSafeNext(t *testing.T) {
 		{"", ""},
 		{"/foo", "/foo"},
 		{"/foo?x=1", "/foo?x=1"},
-		{"//evil.example/path", ""},         // protocol-relative
-		{"https://evil.example/path", ""},    // absolute
-		{"javascript:alert(1)", ""},         // not "/"
-		{"x", ""},                            // not "/"
+		{"//evil.example/path", ""},       // protocol-relative
+		{"https://evil.example/path", ""}, // absolute
+		{"javascript:alert(1)", ""},       // not "/"
+		{"x", ""},                         // not "/"
 	} {
 		if got := safeNext(tc.in); got != tc.want {
 			t.Errorf("safeNext(%q) = %q, want %q", tc.in, got, tc.want)
@@ -223,7 +224,7 @@ func newRoutedAuth(t *testing.T) (*AuthSimple, *scs.SessionManager, http.Handler
 	if err := sa.UserAdd("admin", "admin@local", "secret"); err != nil {
 		t.Fatalf("UserAdd: %v", err)
 	}
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := sa.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}

@@ -5,22 +5,8 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+	"github.com/go-chi/chi/v5"
 )
-
-// Mux is the small surface a route-registering component (CRUDTable,
-// Admin, AuthSimple, AuthGORM) needs to register HTTP handlers. Both
-// *http.ServeMux and chi.Router satisfy it; the library never asks
-// for the concrete type, so callers wire whichever router they
-// already use.
-//
-// Defined here (rather than in gone/crud/) so AuthSimple.Route and
-// CRUDTable.Route share a single interface, breaking what would
-// otherwise be an import cycle (crud → auth for Authz, auth → crud
-// for Mux). gone/crud re-exports it as crud.Mux = auth.Mux for
-// callers that learned the type by its old name.
-type Mux interface {
-	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
-}
 
 // PageShellFunc wraps a library component's output in the app's page
 // chrome. It receives the HTTP writer and request directly — not a
@@ -55,7 +41,7 @@ type Auth interface {
 	// when AuthGORM lands). Returns the absolute urlBase the routes
 	// were mounted under. shell wraps the login form in the app's
 	// chrome; nil is allowed for tests / fragment-only callers.
-	Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
+	Route(mux chi.Router, baseUrl string, shell PageShellFunc) (string, error)
 
 	// CurrentUser returns the user the session points to, or nil for
 	// anonymous. Page handlers call this and decide their response.

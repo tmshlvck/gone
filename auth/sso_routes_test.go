@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,7 +45,7 @@ func TestLoginForm_RendersOneButtonPerProvider(t *testing.T) {
 	ag, _ := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
 	registerFakeSSOProvider(ag, "github", ssoIdentity{}, ssoProviderConfig{})
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestLoginForm_RendersOneButtonPerProvider(t *testing.T) {
 func TestSSOStart_StashesStateAndRedirects(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +117,7 @@ func TestSSOStart_StashesStateAndRedirects(t *testing.T) {
 func TestSSOStart_UnknownProvider404(t *testing.T) {
 	ag, _ := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +136,7 @@ func TestSSOStart_UnknownProvider404(t *testing.T) {
 func TestSSOCallback_StateMismatch400(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{Subject: "s", Email: "x@y"}, ssoProviderConfig{})
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func TestSSOCallback_StateMismatch400(t *testing.T) {
 func TestSSOCallback_NoCeremonyStarted400(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	registerFakeSSOProvider(ag, "google", ssoIdentity{}, ssoProviderConfig{})
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestSSOCallback_HappyPath_AutoCreate(t *testing.T) {
 		ssoIdentity{Subject: "sub-1", Email: "bob@example.com", DisplayName: "Bob"},
 		ssoProviderConfig{},
 	)
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +282,7 @@ func TestPasskeyEnrolBegin_BlockedForSSOOnly(t *testing.T) {
 	if err := ag2.DB.Model(&UserGORM{}).Where("username = ?", "bob").Update("sso_only", true).Error; err != nil {
 		t.Fatal(err)
 	}
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag2.Route(mux, "", nil); err != nil {
 		t.Fatal(err)
 	}

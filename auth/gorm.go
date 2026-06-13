@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/url"
 	"strings"
@@ -463,7 +464,7 @@ func (a *AuthGORM) Logout(ctx context.Context) error {
 //
 // Stage 2 is skipped entirely for users without a TOTP secret —
 // they go straight to AfterLogin from the password POST.
-func (a *AuthGORM) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
+func (a *AuthGORM) Route(mux chi.Router, baseUrl string, shell PageShellFunc) (string, error) {
 	if mux == nil {
 		return "", errors.New("auth.AuthGORM.Route: nil mux")
 	}

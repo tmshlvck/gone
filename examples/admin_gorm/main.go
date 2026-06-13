@@ -17,6 +17,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
 )
@@ -153,7 +154,7 @@ func main() {
 	weaponTable := crud.DeriveGormCRUDTable[Weapon](weaponMM, nil, db)
 	skillTable := crud.DeriveGormCRUDTable[Skill](skillMM, nil, db)
 
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 
 	// DeriveAdminAutoWire walks every table's relation fields and
 	// matches the related type name (Hero / Weapon / Skill) against
@@ -171,26 +172,25 @@ func main() {
 		{DisplayName: "Hello", URL: "/testlink"},
 	}
 
-	// admin.Route mounts Admin at baseUrl + "/" + Admin.Slug — here
-	// "/" + "admin" = "/admin". The library auto-routes:
+	// The app mounts Admin under /admin (a stripping chi.Route); Admin
+	// registers, relative to that router:
 	//   - GET /admin → 303 to /admin/{first.Slug}
 	//   - GET /admin/{slug} → wraps admin.Render(r) in pageShell
-	//   - each child's HTMX endpoints at /admin/{slug}/view, /create, …
-	// Default child slugs are "heros" / "weapons" / "skills"
-	// (lowercase+"s"); irregular plural Hero→heroes is left as-is.
-	adminURL, err := admin.Route(mux, "/", pageShell)
-	if err != nil {
-		log.Fatalf("admin route: %v", err)
-	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, adminURL, http.StatusSeeOther)
+	//   - each child's fragment endpoints at /admin/{slug}/view, /create, …
+	mux.Route("/admin", func(r chi.Router) {
+		if err := admin.RegisterRoutes(r, "/admin", pageShell); err != nil {
+			log.Fatalf("admin route: %v", err)
+		}
+	})
+	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
 
 	// /testlink — the target of the custom sidebar link. HTMX
 	// requests get the bare fragment swapped into the admin's main
 	// pane; direct browser hits get the full page wrapped in the
 	// shell.
-	mux.HandleFunc("GET /testlink", func(w http.ResponseWriter, r *http.Request) {
+	mux.Get("/testlink", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := helloFragment().Render(r.Context(), w); err != nil {

@@ -2,6 +2,7 @@ package crud
 
 import (
 	"context"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,7 @@ type gormSkill struct {
 // newGormServer spins up an in-memory SQLite-backed CRUDTable for gormHero
 // with a seeded skill list and three heroes. Returns the mux, the table,
 // and the underlying db for direct assertions.
-func newGormServer(t *testing.T) (*http.ServeMux, *CRUDTable[gormHero], *CRUDTable[gormSkill], *gorm.DB) {
+func newGormServer(t *testing.T) (chi.Router, *CRUDTable[gormHero], *CRUDTable[gormSkill], *gorm.DB) {
 	t.Helper()
 	// Per-test database — share by giving each test its own file id so
 	// parallel tests don't collide. shared cache lets every conn see it.
@@ -78,14 +79,10 @@ func newGormServer(t *testing.T) (*http.ServeMux, *CRUDTable[gormHero], *CRUDTab
 		}
 	}
 
-	mux := http.NewServeMux()
-	if _, err := htbl.Route(mux, "", nil); err != nil {
-		t.Fatalf("route hero: %v", err)
-	}
-	if _, err := stbl.Route(mux, "", nil); err != nil {
-		t.Fatalf("route skill: %v", err)
-	}
-	mux.HandleFunc("GET "+htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
+	mux := chi.NewRouter()
+	htbl.RegisterRoutes(mux, "", "")
+	stbl.RegisterRoutes(mux, "", "")
+	mux.Get(htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := htbl.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

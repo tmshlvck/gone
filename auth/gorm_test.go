@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -308,7 +309,7 @@ func TestAuthGORMNilConstructorArgs(t *testing.T) {
 
 func TestAuthGORMRouteRegistersHandlers(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	base, err := ag.Route(mux, "", nil)
 	if err != nil {
 		t.Fatalf("Route: %v", err)

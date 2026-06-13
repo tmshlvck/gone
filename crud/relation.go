@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/go-chi/chi/v5"
 )
 
 // RelationKind classifies a relation field detected during reflection.
@@ -40,13 +41,13 @@ type CRUDRelationOption struct {
 // satisfies it; relation fields hold one through MetaField.RelatedCRUD.
 type CRUDTableInterface interface {
 	DisplayName() string
-	ModelName() string                                                                     // Go type name (e.g. "Hero")
-	URLSlug() string                                                                       // local slug, e.g. "heroes"
-	URLBase() string                                                                       // absolute URL prefix, e.g. "/admin/heroes"
-	HTMXTableURL() string                                                                  // URLBase + "/view"   — bare TableView fragment
-	HTMXCreateURL() string                                                                 // URLBase + "/create" — create-form fragment
-	Render(r *http.Request) (templ.Component, error)                                       // table view + this table's L1 modal
-	Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)                    // register all CRUD endpoints + (if shell != nil) main page handler
+	ModelName() string                                   // Go type name (e.g. "Hero")
+	URLSlug() string                                     // local slug, e.g. "heroes"
+	URLBase() string                                     // absolute URL prefix, e.g. "/admin/heroes"
+	HTMXTableURL() string                                // URLBase + "/view"   — bare TableView fragment
+	HTMXCreateURL() string                               // URLBase + "/create" — create-form fragment
+	Render(r *http.Request) (templ.Component, error)     // table view + this table's L1 modal
+	RegisterRoutes(r chi.Router, mountBase, slug string) // register the table's fragment endpoints
 
 	// AutoWireRelations sets MetaField.RelatedCRUD on every relation
 	// field on this table whose RelatedTypeName matches a peer's
@@ -67,10 +68,10 @@ type CRUDTableInterface interface {
 // for a name like "Name", "Title", "Username", "DisplayName", or any
 // field whose name contains "name" (case-insensitive). The order of
 // preference is:
-//   1. Name
-//   2. Title
-//   3. Username / DisplayName
-//   4. any other field containing "name" (e.g. FullName, FirstName, Nickname)
+//  1. Name
+//  2. Title
+//  3. Username / DisplayName
+//  4. any other field containing "name" (e.g. FullName, FirstName, Nickname)
 //
 // This keeps the common "ID + Name" case fast while letting models with
 // non-Name identifiers (AuthGORM's UserGORM.Username, blog posts' Title)

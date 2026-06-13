@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/a-h/templ"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/crud"
 )
 
@@ -108,20 +109,24 @@ func main() {
 	table.Slug = "heroes"
 	table.PageSize = 10
 
-	mux := http.NewServeMux()
-	// table.Route registers all HTMX endpoints AND (because shell is
-	// non-nil) the main page handler at /heroes. shell receives w/r
-	// directly so it can redirect on auth failure or write headers.
-	url, err := table.Route(mux, "", pageShell)
-	if err != nil {
-		log.Fatalf("route: %v", err)
-	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, url, http.StatusSeeOther)
+	mux := chi.NewRouter()
+	// The library registers only the table's fragment endpoints; the app
+	// owns the page route, embedding table.Render(r) in its own chrome.
+	table.RegisterRoutes(mux, "", table.Slug)
+	mux.Get("/"+table.Slug, func(w http.ResponseWriter, r *http.Request) {
+		content, err := table.Render(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		pageShell(w, r, "Heroes", content)
+	})
+	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, table.URLBase(), http.StatusSeeOther)
 	})
 
 	addr := ":8080"
-	log.Printf("crud_mem listening on %s — open %s", addr, url)
+	log.Printf("crud_mem listening on %s — open %s", addr, table.URLBase())
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
@@ -134,4 +139,3 @@ func pageShell(w http.ResponseWriter, r *http.Request, title string, content tem
 		log.Printf("render: %v", err)
 	}
 }
-

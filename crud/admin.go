@@ -1,13 +1,14 @@
 package crud
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/auth"
+	"github.com/tmshlvck/gone/site"
 )
 
 // Admin aggregates a set of CRUDTables under a single URL prefix with a
@@ -139,51 +140,40 @@ func DeriveAdminAutoWire(tables []CRUDTableInterface, az auth.Authz) Admin {
 //
 // Returns the absolute urlBase Admin was mounted at — useful for the
 // caller's "/ → admin" redirect.
-func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
-	if mux == nil {
-		return "", errors.New("nil mux")
-	}
-	a.urlBase = normalizePrefix(baseUrl)
-	if a.Slug != "" {
-		a.urlBase = a.urlBase + "/" + strings.TrimPrefix(a.Slug, "/")
-	}
+func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error {
+	a.urlBase = normalizePrefix(mountBase)
 	if len(a.Tables) == 0 {
-		return a.urlBase, nil
+		return nil
 	}
-	// Delegate HTMX endpoints to every child. Children's page handlers
-	// are not registered — Admin owns those.
+	// Delegate each child table's fragment endpoints. Children's page
+	// handlers are not registered — Admin owns the page route.
 	for _, t := range a.Tables {
 		if t.URLSlug() == "" {
-			return "", fmt.Errorf("Admin: table %q has empty URLSlug", t.DisplayName())
+			return fmt.Errorf("Admin: table %q has empty URLSlug", t.DisplayName())
 		}
-		if _, err := t.Route(mux, a.urlBase, nil); err != nil {
-			return "", fmt.Errorf("Admin: routing %q: %w", t.DisplayName(), err)
-		}
+		t.RegisterRoutes(r, a.urlBase, t.URLSlug())
 	}
-	// Index redirect.
-	firstSlug := a.Tables[0].URLSlug()
 	az := auth.AuthzOrAllow(a.Authz)
-	indexPattern := a.urlBase
-	if indexPattern == "" {
-		indexPattern = "/"
-	}
-	mux.HandleFunc("GET "+indexPattern, func(w http.ResponseWriter, r *http.Request) {
-		if !az.CanList(r) {
+	firstSlug := a.Tables[0].URLSlug()
+	// Index redirect: GET {mountBase} → first table. Registered relative
+	// to r (which the caller mounted at mountBase).
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+		if !az.CanList(req) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		http.Redirect(w, r, a.urlBase+"/"+firstSlug, http.StatusSeeOther)
+		http.Redirect(w, req, a.urlBase+"/"+firstSlug, http.StatusSeeOther)
 	})
-	// Per-slug page handler — registered only when the caller supplied
-	// a shell. Wraps Admin.Render in the shell with the active
-	// table's DisplayName as the page title.
+	// Per-slug page handler — registered only when the caller supplied a
+	// shell. Wraps Admin.Render in the shell with the active table's
+	// DisplayName as the page title.
 	if shell != nil {
-		mux.HandleFunc("GET "+a.urlBase+"/{slug}", func(w http.ResponseWriter, r *http.Request) {
-			if !az.CanList(r) {
+		r.Get("/{slug}", func(w http.ResponseWriter, req *http.Request) {
+			if !az.CanList(req) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			activeSlug := a.activeSlug(r)
+			activeSlug := chi.URLParam(req, "slug")
 			title := "Admin"
 			for _, t := range a.Tables {
 				if t.URLSlug() == activeSlug {
@@ -191,14 +181,14 @@ func (a *Admin) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, err
 					break
 				}
 			}
-			body, err := a.Render(r)
+			body, err := a.Render(req)
 			if failInternal(w, err) {
 				return
 			}
-			shell(w, r, title, body)
+			shell(w, req, title, body)
 		})
 	}
-	return a.urlBase, nil
+	return nil
 }
 
 // Render returns the Admin layout for the request URL. The active

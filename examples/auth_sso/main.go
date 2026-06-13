@@ -31,6 +31,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/alexedwards/scs/v2"
 	"github.com/glebarez/sqlite"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/auth"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
@@ -137,16 +138,17 @@ func main() {
 	}
 
 	// ── Routing ─────────────────────────────────────────────────────
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	adminURL, err := admin.Route(mux, "/", pageShell)
-	if err != nil {
-		log.Fatalf("admin route: %v", err)
-	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, adminURL, http.StatusSeeOther)
+	mux.Route("/admin", func(r chi.Router) {
+		if err := admin.RegisterRoutes(r, "/admin", pageShell); err != nil {
+			log.Fatalf("admin route: %v", err)
+		}
+	})
+	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
 
 	// ── Middleware ──────────────────────────────────────────────────
@@ -155,7 +157,7 @@ func main() {
 	// ── Run ─────────────────────────────────────────────────────────
 	addr := ":8080"
 	log.Printf("auth_sso listening on %s — login admin / admin, or via SSO if configured", addr)
-	log.Printf("admin URL: %s", adminURL)
+	log.Printf("admin URL: /admin")
 	log.Fatal(http.ListenAndServe(addr, handler))
 }
 

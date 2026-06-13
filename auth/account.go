@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5"
 	"log"
 	"net/http"
 	"strconv"
@@ -19,11 +20,11 @@ import (
 // "ref" is either the literal string "me" (resolves to the current
 // user) or a numeric ID (resolves the named UserGORM row). Both
 // routes share a single handler that branches on r.Method.
-func (a *AuthGORM) mountAccountRoutes(mux Mux, base string, shell PageShellFunc) {
-	mux.HandleFunc("GET "+base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
+func (a *AuthGORM) mountAccountRoutes(mux chi.Router, base string, shell PageShellFunc) {
+	mux.Get(base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		a.serveAccountForm(w, r, shell, "", "")
 	})
-	mux.HandleFunc("POST "+base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(base+"/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		a.handleAccountPost(w, r, shell)
 	})
 	a.mountTOTPAccountRoutes(mux, base)
@@ -36,7 +37,7 @@ func (a *AuthGORM) mountAccountRoutes(mux Mux, base string, shell PageShellFunc)
 	// SSO unlink route. Available even when no providers are
 	// registered — historical identities may exist on disk and the
 	// user should still be able to clean them up.
-	mux.HandleFunc("POST "+base+"/account/{ref}/sso/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(base+"/account/{ref}/sso/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
 		a.handleSSOIdentityDelete(w, r)
 	})
 }
@@ -226,7 +227,7 @@ func (a *AuthGORM) handleAccountPost(w http.ResponseWriter, r *http.Request, she
 // "me" → the current user; a numeric ID → the matching row. Returns
 // false when ref is malformed or the user doesn't exist.
 func (a *AuthGORM) resolveAccountRef(r *http.Request, current User) (*UserGORM, bool) {
-	ref := r.PathValue("ref")
+	ref := chi.URLParam(r, "ref")
 	if ref == "" {
 		return nil, false
 	}
@@ -306,7 +307,7 @@ func (a *AuthGORM) handleSSOIdentityDelete(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	idStr := r.PathValue("id")
+	idStr := chi.URLParam(r, "id")
 	identityID, err := strconv.ParseUint(idStr, 10, 64)
 	if err != nil {
 		http.NotFound(w, r)

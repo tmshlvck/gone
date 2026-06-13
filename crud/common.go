@@ -8,17 +8,8 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
-	"github.com/tmshlvck/gone/auth"
+	"github.com/go-chi/chi/v5"
 )
-
-// Mux is re-exported from gone/auth so CRUDTable/Admin and AuthSimple
-// share a single registration interface. See auth.Mux for the
-// definition. Callers can write either crud.Mux or auth.Mux —
-// they're the same type.
-type Mux = auth.Mux
-
-// PageShellFunc is re-exported from gone/auth — see auth.PageShellFunc.
-type PageShellFunc = auth.PageShellFunc
 
 // ──────────────────────────────────────────────────────────────────────────
 // HTTP / HTMX helpers shared by single.go and table.go.
@@ -72,7 +63,7 @@ func modalIDsFromHeader(r *http.Request) (modalID, bodyID string, isL2 bool) {
 // Returns (0, false) on any parse failure — handler converts that to
 // HTTP 400.
 func parseID(r *http.Request) (uint, bool) {
-	n, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	n, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		return 0, false
 	}

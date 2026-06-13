@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -97,7 +98,7 @@ func loginPasswordOnly(t *testing.T, handler http.Handler, username, password st
 
 func TestAuthGORM_IsAuthPath(t *testing.T) {
 	ag, _ := newTestAuthGORM(t)
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestAuthGORM_IsAuthPath(t *testing.T) {
 
 func TestAuthSimple_IsAuthPath(t *testing.T) {
 	sa, _ := newTestAuth(t)
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := sa.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}

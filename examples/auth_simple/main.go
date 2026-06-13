@@ -11,6 +11,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/alexedwards/scs/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/auth"
 	"github.com/tmshlvck/gone/crud"
 )
@@ -132,16 +133,23 @@ func main() {
 	}
 
 	// ── Routing ─────────────────────────────────────────────────────
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := sa.Route(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	heroesURL, err := table.Route(mux, "", pageShell)
-	if err != nil {
-		log.Fatalf("table route: %v", err)
-	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, heroesURL, http.StatusSeeOther)
+	// The library registers the table's fragment endpoints; the app owns
+	// the page route, embedding table.Render(r) in pageShell.
+	table.RegisterRoutes(mux, "", table.Slug)
+	mux.Get("/"+table.Slug, func(w http.ResponseWriter, r *http.Request) {
+		content, err := table.Render(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		pageShell(w, r, "Heroes", content)
+	})
+	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, table.URLBase(), http.StatusSeeOther)
 	})
 
 	// ── Middleware ──────────────────────────────────────────────────

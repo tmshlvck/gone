@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,9 @@ import (
 )
 
 // newRoutedAuthGORM builds an AuthGORM with two users:
-//   admin / adminpass — member of "admin" group
-//   bob   / bobpass   — non-admin
+//
+//	admin / adminpass — member of "admin" group
+//	bob   / bobpass   — non-admin
 //
 // Returns the wired http.Handler (LoadAndSave → CSRFWrap → mux) and
 // the AuthGORM so tests can inspect the DB directly when needed.
@@ -25,7 +27,7 @@ func newRoutedAuthGORM(t *testing.T) (http.Handler, *AuthGORM) {
 	if err := ag.Passwd("admin", "adminpass"); err != nil {
 		t.Fatalf("Passwd admin: %v", err)
 	}
-	mux := http.NewServeMux()
+	mux := chi.NewRouter()
 	if _, err := ag.Route(mux, "", nil); err != nil {
 		t.Fatalf("Route: %v", err)
 	}

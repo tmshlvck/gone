@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 
 	"gorm.io/gorm"
@@ -56,11 +57,11 @@ func (a *AuthGORM) loginStage1(ctx context.Context, u User, formNext string) (st
 
 // mountTOTPLoginRoutes registers GET/POST /login/totp. The handler
 // is private to AuthGORM because AuthSimple has no TOTP path.
-func (a *AuthGORM) mountTOTPLoginRoutes(mux Mux, shell PageShellFunc) {
-	mux.HandleFunc("GET "+a.totpPath, func(w http.ResponseWriter, r *http.Request) {
+func (a *AuthGORM) mountTOTPLoginRoutes(mux chi.Router, shell PageShellFunc) {
+	mux.Get(a.totpPath, func(w http.ResponseWriter, r *http.Request) {
 		a.serveTOTPLoginForm(w, r, shell, "")
 	})
-	mux.HandleFunc("POST "+a.totpPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(a.totpPath, func(w http.ResponseWriter, r *http.Request) {
 		a.handleTOTPLoginPost(w, r, shell)
 	})
 }

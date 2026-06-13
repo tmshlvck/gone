@@ -2,6 +2,7 @@ package crud
 
 import (
 	"context"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +17,7 @@ type item struct {
 	Power int
 }
 
-func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
+func newTestServer(t *testing.T) (chi.Router, *CRUDTable[item]) {
 	t.Helper()
 	store := map[uint]item{
 		1: {ID: 1, Name: "Aragorn", Realm: "Gondor", Power: 90},
@@ -31,15 +32,13 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	}
 	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
 	tbl.Slug = "items"
-	mux := http.NewServeMux()
-	if _, err := tbl.Route(mux, "", nil); err != nil {
-		t.Fatalf("Route: %v", err)
-	}
+	mux := chi.NewRouter()
+	tbl.RegisterRoutes(mux, "", "")
 	// CRUDTable.Route registers only partial endpoints. The "main" page
 	// route is the app's job — for tests we register a thin handler
 	// that just renders Render as a bare fragment (no page
 	// shell, since the tests only inspect HTML structure, not chrome).
-	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, err := tbl.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -51,7 +50,7 @@ func newTestServer(t *testing.T) (*http.ServeMux, *CRUDTable[item]) {
 	return mux, &tbl
 }
 
-func get(t *testing.T, mux *http.ServeMux, path string) (int, string) {
+func get(t *testing.T, mux chi.Router, path string) (int, string) {
 	t.Helper()
 	req := httptest.NewRequest("GET", path, nil)
 	rec := httptest.NewRecorder()
@@ -59,7 +58,7 @@ func get(t *testing.T, mux *http.ServeMux, path string) (int, string) {
 	return rec.Code, rec.Body.String()
 }
 
-func postForm(t *testing.T, mux *http.ServeMux, path, body string) *httptest.ResponseRecorder {
+func postForm(t *testing.T, mux chi.Router, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("POST", path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -313,7 +312,7 @@ func (readOnly) CanCreate(*http.Request) bool { return false }
 func (readOnly) CanUpdate(*http.Request) bool { return false }
 func (readOnly) CanDelete(*http.Request) bool { return false }
 
-func newTestServerWithAuthz(t *testing.T, az authzFunc, hideUnauthorized bool) *http.ServeMux {
+func newTestServerWithAuthz(t *testing.T, az authzFunc, hideUnauthorized bool) chi.Router {
 	t.Helper()
 	store := map[uint]item{
 		1: {ID: 1, Name: "Aragorn", Realm: "Gondor", Power: 90},
@@ -326,9 +325,9 @@ func newTestServerWithAuthz(t *testing.T, az authzFunc, hideUnauthorized bool) *
 	tbl := DeriveMapCRUDTable[item](mm, az, store, mu)
 	tbl.Slug = "items"
 	tbl.HideUnauthorized = hideUnauthorized
-	mux := http.NewServeMux()
-	_, _ = tbl.Route(mux, "", nil)
-	mux.HandleFunc("GET "+tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
+	mux := chi.NewRouter()
+	tbl.RegisterRoutes(mux, "", "")
+	mux.Get(tbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {
 		comp, _ := tbl.Render(r)
 		_ = comp.Render(r.Context(), w)
 	})
@@ -422,8 +421,8 @@ func TestMutationRetainsPage(t *testing.T) {
 	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
 	tbl.Slug = "items"
 	tbl.PageSize = 2
-	mux = http.NewServeMux()
-	_, _ = tbl.Route(mux, "", nil)
+	mux = chi.NewRouter()
+	tbl.RegisterRoutes(mux, "", "")
 
 	// Sanity: page=2 lists rows 3-4.
 	code, body := get(t, mux, "/items/view?page=2")
@@ -472,8 +471,8 @@ func TestMutationClampsBeyondLastPage(t *testing.T) {
 	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
 	tbl.Slug = "items"
 	tbl.PageSize = 2
-	mux := http.NewServeMux()
-	_, _ = tbl.Route(mux, "", nil)
+	mux := chi.NewRouter()
+	tbl.RegisterRoutes(mux, "", "")
 
 	req := httptest.NewRequest("POST", "/items/3/delete", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

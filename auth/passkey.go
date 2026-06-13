@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"strings"
 	"time"
@@ -147,14 +148,14 @@ func (a *AuthGORM) ensureWebAuthnHandle(u *UserGORM) error {
 
 // mountPasskeyAccountRoutes registers begin / finish / delete under
 // base + "/account/{ref}/passkey/...". Called from mountAccountRoutes.
-func (a *AuthGORM) mountPasskeyAccountRoutes(mux Mux, base string) {
-	mux.HandleFunc("POST "+base+"/account/{ref}/passkey/begin", func(w http.ResponseWriter, r *http.Request) {
+func (a *AuthGORM) mountPasskeyAccountRoutes(mux chi.Router, base string) {
+	mux.Post(base+"/account/{ref}/passkey/begin", func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyEnrolBegin(w, r)
 	})
-	mux.HandleFunc("POST "+base+"/account/{ref}/passkey/finish", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(base+"/account/{ref}/passkey/finish", func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyEnrolFinish(w, r)
 	})
-	mux.HandleFunc("POST "+base+"/account/{ref}/passkey/{pkid}/delete", func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(base+"/account/{ref}/passkey/{pkid}/delete", func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyDelete(w, r)
 	})
 }
@@ -296,7 +297,7 @@ func (a *AuthGORM) handlePasskeyDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pkid := r.PathValue("pkid")
+	pkid := chi.URLParam(r, "pkid")
 	res := a.DB.Where("id = ? AND user_id = ?", pkid, target.ID).Delete(&PasskeyGORM{})
 	if res.Error != nil {
 		http.Error(w, res.Error.Error(), http.StatusInternalServerError)
@@ -317,11 +318,11 @@ func (a *AuthGORM) handlePasskeyDelete(w http.ResponseWriter, r *http.Request) {
 // mountPasskeyLoginRoutes registers the two endpoints the login
 // page's JS calls. Mounted directly from Route() (not from the
 // account routes), because login is reachable to anonymous users.
-func (a *AuthGORM) mountPasskeyLoginRoutes(mux Mux) {
-	mux.HandleFunc("POST "+a.passkeyOptionsPath, func(w http.ResponseWriter, r *http.Request) {
+func (a *AuthGORM) mountPasskeyLoginRoutes(mux chi.Router) {
+	mux.Post(a.passkeyOptionsPath, func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyLoginOptions(w, r)
 	})
-	mux.HandleFunc("POST "+a.passkeyFinishPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.Post(a.passkeyFinishPath, func(w http.ResponseWriter, r *http.Request) {
 		a.handlePasskeyLoginFinish(w, r)
 	})
 }

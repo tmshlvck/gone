@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/go-chi/chi/v5"
 	"log"
 	"net/http"
 	"net/url"
@@ -73,14 +74,14 @@ const (
 // The {name} segment is matched against registered providers; an
 // unknown name returns 404 (deliberate — no leakage of which
 // providers exist).
-func (a *AuthGORM) mountSSOLoginRoutes(mux Mux, shell PageShellFunc) {
+func (a *AuthGORM) mountSSOLoginRoutes(mux chi.Router, shell PageShellFunc) {
 	if len(a.ssoProviders) == 0 {
 		return
 	}
-	mux.HandleFunc("GET "+a.ssoStartPath+"/{name}", func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(a.ssoStartPath+"/{name}", func(w http.ResponseWriter, r *http.Request) {
 		a.ssoStartHandler(w, r)
 	})
-	mux.HandleFunc("GET "+a.ssoCallbackPath+"/{name}/callback", func(w http.ResponseWriter, r *http.Request) {
+	mux.Get(a.ssoCallbackPath+"/{name}/callback", func(w http.ResponseWriter, r *http.Request) {
 		a.ssoCallbackHandler(w, r, shell)
 	})
 }
@@ -93,7 +94,7 @@ func (a *AuthGORM) mountSSOLoginRoutes(mux Mux, shell PageShellFunc) {
 // anonymous user tries to reach a gated path) survives the round-
 // trip via the ssoNextKey session value.
 func (a *AuthGORM) ssoStartHandler(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+	name := chi.URLParam(r, "name")
 	p := a.findSSOProvider(name)
 	if p == nil {
 		http.NotFound(w, r)
@@ -121,7 +122,7 @@ func (a *AuthGORM) ssoStartHandler(w http.ResponseWriter, r *http.Request) {
 // errors via http.Error (callers don't get to choose an error page
 // for now; SSO failures are rare and the messages are diagnostic).
 func (a *AuthGORM) ssoCallbackHandler(w http.ResponseWriter, r *http.Request, shell PageShellFunc) {
-	name := r.PathValue("name")
+	name := chi.URLParam(r, "name")
 	p := a.findSSOProvider(name)
 	if p == nil {
 		http.NotFound(w, r)

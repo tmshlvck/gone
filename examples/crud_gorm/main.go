@@ -22,6 +22,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
 )
@@ -252,27 +253,41 @@ func main() {
 	}
 	heroTable, weaponTable, skillTable := buildTables(db)
 
-	mux := http.NewServeMux()
-	// Each table routes its HTMX endpoints AND its main page handler
-	// (because shell is non-nil). The shim that used to bridge
-	// table.URLBase() to pageShell is now baked in.
-	heroURL, err := heroTable.Route(mux, "", pageShell)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if _, err := weaponTable.Route(mux, "", pageShell); err != nil {
-		log.Fatal(err)
-	}
-	if _, err := skillTable.Route(mux, "", pageShell); err != nil {
-		log.Fatal(err)
-	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, heroURL, http.StatusSeeOther)
+	mux := chi.NewRouter()
+	// The library registers each table's fragment endpoints; the app owns
+	// the page route (GET /{slug}) that embeds table.Render(r) in chrome.
+	mountPage(mux, &heroTable, "Heroes")
+	mountPage(mux, &weaponTable, "Weapons")
+	mountPage(mux, &skillTable, "Skills")
+	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, heroTable.URLBase(), http.StatusSeeOther)
 	})
 
 	addr := ":8080"
-	log.Printf("crud_gorm listening on %s — open /heros, /weapons, /skills", addr)
+	log.Printf("crud_gorm listening on %s — open /heroes, /weapons, /skills", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+// pageComponent is the slice of a CRUDTable the app needs to mount a page.
+type pageComponent interface {
+	RegisterRoutes(r chi.Router, mountBase, slug string)
+	Render(r *http.Request) (templ.Component, error)
+	URLSlug() string
+	URLBase() string
+}
+
+// mountPage registers a table's fragment endpoints plus the app-owned page
+// route that wraps its Render output in pageShell.
+func mountPage(mux chi.Router, t pageComponent, title string) {
+	t.RegisterRoutes(mux, "", t.URLSlug())
+	mux.Get("/"+t.URLSlug(), func(w http.ResponseWriter, r *http.Request) {
+		content, err := t.Render(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		pageShell(w, r, title, content)
+	})
 }
 
 // pageShell wraps the library's component output in the app's chrome

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/go-chi/chi/v5"
 	"github.com/tmshlvck/gone/auth"
 )
 
@@ -39,8 +40,8 @@ var ErrNotFound = errors.New("not found")
 type CRUDTable[T any] struct {
 	MetaData      MetaModel[T]
 	Authz         auth.Authz // nil = AuthzAllowAll
-	Slug          string         // url-safe plural; default = lowercase(Name) + "s"
-	PageSize      int            // rows per page; 0 = library default (20)
+	Slug          string     // url-safe plural; default = lowercase(Name) + "s"
+	PageSize      int        // rows per page; 0 = library default (20)
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
@@ -320,28 +321,23 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 	return TableView(d), nil
 }
 
-// Route registers the CRUD partial endpoints on mux at
-// baseUrl + "/" + Slug, plus (when shell is non-nil) the main page
-// handler at the same urlBase. Returns the absolute urlBase the table
-// was mounted at — handy for the caller's "/ → first thing" redirect
-// or for cross-linking.
+// RegisterRoutes mounts the table's in-component (fragment) endpoints on r.
+// It does NOT register a whole-page handler — the application owns the page
+// route (GET {mountBase}/{slug}) and embeds Render(r) in its own chrome.
 //
-// baseUrl is the path the table's PARENT lives at (root → "" or "/";
-// Admin → admin's own urlBase). The table auto-appends its Slug.
+// Two strings place the table (see REFACTOR-HTMX.md §2):
 //
-// shell, when non-nil, wraps Render(r) in app chrome. The library
-// registers GET urlBase → shell(w, r, title, content) where title is
-// PageTitle (or MetaData.DisplayName if empty). shell may redirect
-// or write headers directly — see PageShellFunc.
+//   - mountBase is the ABSOLUTE path at which r itself is served (the caller
+//     knows it; chi can't report it at registration time).
+//   - slug is where this table sits RELATIVE to r (e.g. "heroes" or
+//     "/heroes"). Empty falls back to the table's Slug field, then to a
+//     derived plural. The table's absolute base, used for every rendered
+//     hx-get / form action, is normalizePrefix(mountBase) + "/" + slug.
 //
-// shell == nil → no page handler registered. HTMX endpoints below
-// still register either way. Used by tests and by callers nesting
-// the table inside an Admin (Admin registers its own page handler).
+// Routes are registered relative to r, so the table composes under stripping
+// mounts (chi.Route/Mount) and groups alike. For Slug="heroes" and
+// mountBase="/admin":
 //
-// Routes registered (Go 1.22 method+pattern), for Slug="heroes" and
-// baseUrl="/admin":
-//
-//	GET    /admin/heroes               main page (only if shell != nil)
 //	GET    /admin/heroes/view          table fragment for HTMX swaps into #ListID
 //	GET    /admin/heroes/create        create form fragment (target: modal body)
 //	POST   /admin/heroes/create        submit create
@@ -353,55 +349,33 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 //
 // Every handler gates on c.Authz (CanList / CanRead / CanCreate /
 // CanUpdate / CanDelete); nil = AllowAll.
-//
-// For chi-based callers wanting middleware layering: use chi.Group
-// (preserves prefix). chi.Mount / chi.Route prefix-strip and would
-// break the absolute paths in the rendered HTML.
-func (c *CRUDTable[T]) Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error) {
-	if mux == nil {
-		return "", errors.New("nil mux")
+func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, mountBase, slug string) {
+	if slug == "" {
+		slug = c.Slug
 	}
-	if c.Slug == "" {
-		c.Slug = defaultSlug(c.MetaData.Name)
+	if slug == "" {
+		slug = defaultSlug(c.MetaData.Name)
 	}
-	c.urlBase = normalizePrefix(baseUrl) + "/" + strings.TrimPrefix(c.Slug, "/")
-	base := c.urlBase
+	c.Slug = strings.Trim(slug, "/")
+	rel := "/" + c.Slug
+	c.urlBase = normalizePrefix(mountBase) + rel
 
-	mux.HandleFunc("GET "+base+"/view", c.makeFragmentHandler(c.handleListRows, "list"))
+	r.Get(rel+"/view", c.makeFragmentHandler(c.handleListRows, "list"))
 	if c.CreateEnabled {
-		mux.HandleFunc("GET "+base+"/create", c.makeFragmentHandler(c.handleCreateForm, "create"))
-		mux.HandleFunc("POST "+base+"/create", c.makeFragmentHandler(c.handleCreatePost, "create"))
+		r.Get(rel+"/create", c.makeFragmentHandler(c.handleCreateForm, "create"))
+		r.Post(rel+"/create", c.makeFragmentHandler(c.handleCreatePost, "create"))
 	}
 	if c.EditEnabled {
-		mux.HandleFunc("GET "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditForm, "read"))
-		mux.HandleFunc("POST "+base+"/{id}/edit", c.makeFragmentHandler(c.handleEditPost, "update"))
+		r.Get(rel+"/{id}/edit", c.makeFragmentHandler(c.handleEditForm, "read"))
+		r.Post(rel+"/{id}/edit", c.makeFragmentHandler(c.handleEditPost, "update"))
 	}
 	if c.DeleteEnabled {
-		mux.HandleFunc("POST "+base+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost, "delete"))
+		r.Post(rel+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost, "delete"))
 	}
-	mux.HandleFunc("GET "+base+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay, "read"))
+	r.Get(rel+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay, "read"))
 	// Relation picker option fetch — used by another CRUD's relation
 	// widget when its <select> needs to refresh after an L2 save.
-	mux.HandleFunc("GET "+base+"/options", c.makeFragmentHandler(c.handleOptions, "list"))
-
-	// Main page handler (only when shell is supplied). When shell is
-	// nil, the caller writes their own GET urlBase handler — or skips
-	// the page entirely (e.g. when this table is being managed by an
-	// Admin that owns its own page handler).
-	if shell != nil {
-		title := c.PageTitle
-		if title == "" {
-			title = c.MetaData.DisplayName
-		}
-		mux.HandleFunc("GET "+base, func(w http.ResponseWriter, r *http.Request) {
-			comp, err := c.Render(r)
-			if failInternal(w, err) {
-				return
-			}
-			shell(w, r, title, comp)
-		})
-	}
-	return base, nil
+	r.Get(rel+"/options", c.makeFragmentHandler(c.handleOptions, "list"))
 }
 
 // handleRowDisplay renders the barebone dump fragment for one row. No
@@ -427,7 +401,6 @@ func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) 
 // handlerFunc returns the fragment to write, or nil to signal the
 // handler already sent the response itself (redirect / error / etc).
 type handlerFunc func(w http.ResponseWriter, r *http.Request) templ.Component
-
 
 // authzGate returns true (and lets the handler run) when the requesting
 // user is allowed to perform the named action. Denials send 403 and
@@ -780,4 +753,3 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return nil
 }
-
