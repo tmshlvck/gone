@@ -53,11 +53,16 @@ type CRUDTableInterface interface {
 	Render(r *http.Request) (templ.Component, error)     // table view + this table's L1 modal
 	RegisterRoutes(r chi.Router, mountBase, slug string) // register the table's fragment endpoints
 
-	// StampRelations resolves each relation field's RelatedURLBase from
-	// byType (Go type name → absolute table URL). Called after every table
-	// has been routed, so URLBases are known; WireRelations and Admin do
+	// ShortLabel renders one of this model's rows as its short label — the
+	// table's ShortValue override if set, else DefaultShortValue. instance is
+	// a T (or *T).
+	ShortLabel(instance any) string
+
+	// StampRelations resolves each relation field's RelatedURLBase (and
+	// RelatedShortValue) from byType (Go type name → the related table).
+	// Called after every table has been routed; WireRelations and Admin do
 	// this for you.
-	StampRelations(byType map[string]string)
+	StampRelations(byType map[string]CRUDTableInterface)
 }
 
 // DefaultShortValue derives a short, human-readable label for one related
@@ -221,16 +226,33 @@ func (c *CRUDTable[T]) URLSlug() string { return c.Slug }
 // URL). Unmatched relations are left blank — their <select> renders without
 // an options endpoint (degraded, but functional). Self-references are
 // handled the same way (a table's own type can appear in byType).
-func (c *CRUDTable[T]) StampRelations(byType map[string]string) {
+func (c *CRUDTable[T]) StampRelations(byType map[string]CRUDTableInterface) {
 	for i := range c.MetaData.Fields {
 		f := &c.MetaData.Fields[i]
 		if f.RelationKind == NotRelation || f.RelatedTypeName == "" {
 			continue
 		}
-		if base, ok := byType[f.RelatedTypeName]; ok {
-			f.RelatedURLBase = base
+		if peer, ok := byType[f.RelatedTypeName]; ok {
+			f.RelatedURLBase = peer.URLBase()
+			f.RelatedShortValue = peer.ShortLabel
 		}
 	}
+}
+
+// ShortLabel renders instance (a row of T) as its short label: the table's
+// ShortValue override if set, else DefaultShortValue. Accepts a T or *T.
+func (c *CRUDTable[T]) ShortLabel(instance any) string {
+	if c.ShortValue != nil {
+		switch v := instance.(type) {
+		case T:
+			return c.ShortValue(v)
+		case *T:
+			if v != nil {
+				return c.ShortValue(*v)
+			}
+		}
+	}
+	return DefaultShortValue(instance)
 }
 
 // WireRelations links relation fields across a set of already-routed tables.
@@ -245,15 +267,25 @@ func (c *CRUDTable[T]) StampRelations(byType map[string]string) {
 // Admin.RegisterRoutes calls this for the tables it manages, so Admin
 // callers don't invoke it directly.
 func WireRelations(tables ...CRUDTableInterface) {
-	byType := make(map[string]string, len(tables))
+	byType := make(map[string]CRUDTableInterface, len(tables))
 	for _, t := range tables {
 		if n := t.ModelName(); n != "" {
-			byType[n] = t.URLBase()
+			byType[n] = t
 		}
 	}
 	for _, t := range tables {
 		t.StampRelations(byType)
 	}
+}
+
+// shortValueFor labels a related instance: the related table's stamped label
+// fn (RelatedShortValue, which honors its ShortValue override) if present,
+// else DefaultShortValue.
+func shortValueFor(mf MetaField, value any) string {
+	if mf.RelatedShortValue != nil {
+		return mf.RelatedShortValue(value)
+	}
+	return DefaultShortValue(value)
 }
 
 // URLBase returns the absolute URL prefix the CRUDTable was routed
@@ -271,7 +303,7 @@ func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUD
 		out[i] = CRUDRelationOption{
 			ID:        r.ID,
 			Instance:  r.Row,
-			ShortName: DefaultShortValue(r.Row),
+			ShortName: c.ShortLabel(r.Row),
 		}
 	}
 	return out, total, nil
@@ -298,7 +330,7 @@ func relationSingleDisplay(mf MetaField, value any) templ.Component {
 	if idOf(value) == 0 {
 		return templ.Raw(`<span class="opacity-50">—</span>`)
 	}
-	return templ.Raw(html.EscapeString(DefaultShortValue(value)))
+	return templ.Raw(html.EscapeString(shortValueFor(mf, value)))
 }
 
 // relationMultipleDisplay renders a slice of related instances as a <ul>
@@ -312,7 +344,7 @@ func relationMultipleDisplay(mf MetaField, value any) templ.Component {
 	sb.WriteString(`<ul class="list-disc list-inside">`)
 	for i := 0; i < rv.Len(); i++ {
 		sb.WriteString(`<li>`)
-		sb.WriteString(html.EscapeString(DefaultShortValue(rv.Index(i).Interface())))
+		sb.WriteString(html.EscapeString(shortValueFor(mf, rv.Index(i).Interface())))
 		sb.WriteString(`</li>`)
 	}
 	sb.WriteString(`</ul>`)

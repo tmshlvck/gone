@@ -144,10 +144,17 @@ func main() {
 		log.Fatalf("seed: %v", err)
 	}
 
-	// Zero-config tables: an empty recipe yields all reflected defaults
-	// (default slugs heros / weapons / skills, no per-field tweaks). Admin
+	// Near-zero-config tables (default slugs heros / weapons / skills). Admin
 	// links their relations automatically when it registers their routes.
-	heroTable := crud.NewGormTable(db, crud.Table[Hero]{})
+	//
+	// Hero overrides ShortValue to control how a hero is labelled wherever it
+	// appears as a relation — both the Owner <select> options on the weapons
+	// form and the Owner cell in the weapons list now read "Name — Realm"
+	// instead of the default (the Name alone). Drop the override to get the
+	// default back.
+	heroTable := crud.NewGormTable(db, crud.Table[Hero]{
+		ShortValue: func(h Hero) string { return h.Name + " — " + h.Realm },
+	})
 	weaponTable := crud.NewGormTable(db, crud.Table[Weapon]{})
 	skillTable := crud.NewGormTable(db, crud.Table[Skill]{})
 
