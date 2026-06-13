@@ -69,29 +69,21 @@ func main() {
 	// users via the UI.
 	gate := auth.AuthzLoggedInReadAdminWrite{Auth: ag}
 
-	userMM, err := crud.DeriveMetaModel[auth.UserGORM]()
-	if err != nil {
-		log.Fatalf("derive UserGORM: %v", err)
-	}
-	userMM.DisplayName = "Users"
-	// Make the ID column clickable: instead of plain text, render an
-	// HTMX button that GETs /account/{id} into the per-table modal.
-	// Admin clicks a user's ID → password-change modal opens for that
-	// user. AuthGORM's handler gates self-or-admin.
-	userMM.MustFindField("ID").DisplayValue = func(mf crud.MetaField, value any) templ.Component {
-		return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
-	}
-
-	groupMM, err := crud.DeriveMetaModel[auth.GroupGORM]()
-	if err != nil {
-		log.Fatalf("derive GroupGORM: %v", err)
-	}
-	groupMM.DisplayName = "Groups"
-
-	userTable := crud.DeriveGormCRUDTable[auth.UserGORM](userMM, gate, db)
-	userTable.Slug = "users"
-	groupTable := crud.DeriveGormCRUDTable[auth.GroupGORM](groupMM, gate, db)
-	groupTable.Slug = "groups"
+	userTable := crud.NewGormTable(db, crud.Table[auth.UserGORM]{
+		Slug: "users", Title: "Users", Authz: gate,
+		Fields: crud.Fields{
+			// Make the ID column clickable: instead of plain text, render an
+			// HTMX button that GETs /account/{id} into the per-table modal.
+			// Admin clicks a user's ID → password-change modal opens for that
+			// user. AuthGORM's handler gates self-or-admin.
+			"ID": {DisplayValue: func(mf crud.MetaField, value any) templ.Component {
+				return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
+			}},
+		},
+	})
+	groupTable := crud.NewGormTable(db, crud.Table[auth.GroupGORM]{
+		Slug: "groups", Title: "Groups", Authz: gate,
+	})
 
 	// Admin links each table's relation fields automatically at
 	// RegisterRoutes time — the Groups picker on the User form, and the

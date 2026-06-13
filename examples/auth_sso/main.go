@@ -85,35 +85,27 @@ func main() {
 	// ── CRUD tables for User + Group ────────────────────────────────
 	gate := auth.AuthzLoggedInReadAdminWrite{Auth: ag}
 
-	userMM, err := crud.DeriveMetaModel[auth.UserGORM]()
-	if err != nil {
-		log.Fatalf("derive UserGORM: %v", err)
-	}
-	userMM.DisplayName = "Users"
-	// SSO-Only flag rendered with helpful copy in the admin form.
-	if f, err := userMM.FindField("SSOOnly"); err == nil {
-		f.DisplayName = "SSO-Only"
-		f.FormHelp = "When checked, this user can sign in only via a linked SSO identity (and optional TOTP). Password change and passkey enrolment are disabled. Cleared automatically when an admin un-checks this box."
-	}
-	if f, err := userMM.FindField("SSOIdentities"); err == nil {
-		f.DisplayName = "Linked SSO identities"
-		f.FormHelp = "Read-only. Users unlink their own identities from their account page; admins delete the user wholesale to remove all links at once."
-		f.ReadOnly = true
-	}
-	userMM.MustFindField("ID").DisplayValue = func(mf crud.MetaField, value any) templ.Component {
-		return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
-	}
-
-	groupMM, err := crud.DeriveMetaModel[auth.GroupGORM]()
-	if err != nil {
-		log.Fatalf("derive GroupGORM: %v", err)
-	}
-	groupMM.DisplayName = "Groups"
-
-	userTable := crud.DeriveGormCRUDTable[auth.UserGORM](userMM, gate, db)
-	userTable.Slug = "users"
-	groupTable := crud.DeriveGormCRUDTable[auth.GroupGORM](groupMM, gate, db)
-	groupTable.Slug = "groups"
+	userTable := crud.NewGormTable(db, crud.Table[auth.UserGORM]{
+		Slug: "users", Title: "Users", Authz: gate,
+		Fields: crud.Fields{
+			"ID": {DisplayValue: func(mf crud.MetaField, value any) templ.Component {
+				return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
+			}},
+			// SSO-Only flag + linked identities, with helpful admin copy.
+			"SSOOnly": {
+				Label: "SSO-Only",
+				Help:  "When checked, this user can sign in only via a linked SSO identity (and optional TOTP). Password change and passkey enrolment are disabled. Cleared automatically when an admin un-checks this box.",
+			},
+			"SSOIdentities": {
+				Label:    "Linked SSO identities",
+				Help:     "Read-only. Users unlink their own identities from their account page; admins delete the user wholesale to remove all links at once.",
+				ReadOnly: true,
+			},
+		},
+	})
+	groupTable := crud.NewGormTable(db, crud.Table[auth.GroupGORM]{
+		Slug: "groups", Title: "Groups", Authz: gate,
+	})
 
 	tables := []crud.CRUDTableInterface{&userTable, &groupTable}
 	admin := crud.DeriveAdmin(tables, nil)

@@ -143,97 +143,52 @@ func pickN[T any](rng *rand.Rand, src []T, n int) []T {
 	return out
 }
 
-// buildTables derives the three CRUDTables and configures every MetaField
-// in one place (no per-model helpers — every customization is reachable
-// from this function). Cross-table relation links are established later, in
+// buildTables describes the three CRUDTables declaratively — identity,
+// paging, and per-field tweaks in one literal each. NewGormTable reflects
+// the model, merges the overrides over the reflected defaults, and panics at
+// startup on a typo'd field name (so a renamed model fails fast, not at
+// form-render time). Cross-table relation links are established later, in
 // main(), by crud.WireRelations once the tables have been routed (a relation
 // picker loads its options from the related table's URL).
-//
-// MustFindField panics on a typo / renamed field, so the program
-// fails fast at startup rather than at form-render time.
 func buildTables(db *gorm.DB) (
 	heroTable crud.CRUDTable[Hero],
 	weaponTable crud.CRUDTable[Weapon],
 	skillTable crud.CRUDTable[Skill],
 ) {
-	heroMM, err := crud.DeriveMetaModel[Hero]()
-	if err != nil {
-		log.Fatal(err)
-	}
-	weaponMM, err := crud.DeriveMetaModel[Weapon]()
-	if err != nil {
-		log.Fatal(err)
-	}
-	skillMM, err := crud.DeriveMetaModel[Skill]()
-	if err != nil {
-		log.Fatal(err)
-	}
-	heroMM.DisplayName = "Heroes"
-	weaponMM.DisplayName = "Weapons"
-	skillMM.DisplayName = "Skills"
-
-	// Hero MetaFields.
-	heroMM.MustFindField("ID").ReadOnly = true
-	{
-		f := heroMM.MustFindField("Name")
-		f.FormHelp = "Display name, 2–40 characters."
-		f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(40))
-	}
-	{
-		f := heroMM.MustFindField("Realm")
-		f.FormHelp = "Origin (e.g. Gondor, Mirkwood)."
-		f.FieldValidate = crud.MaxLen(40)
-	}
-	{
-		f := heroMM.MustFindField("Power")
-		f.FormHelp = "Power level, 0–100."
-		f.FieldValidate = crud.IntRange(0, 100)
-	}
-	{
-		f := heroMM.MustFindField("Weapons")
-		f.DisplayName = "Weapons (read-only)"
-		f.FormHelp = "Edit weapons individually via /weapons."
-	}
-	heroMM.MustFindField("Skills").FormHelp = "Hold Ctrl/Cmd to pick multiple."
-
-	// Weapon MetaFields.
-	weaponMM.MustFindField("ID").ReadOnly = true
-	weaponMM.MustFindField("Name").FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(50))
-	weaponMM.MustFindField("Kind").FormHelp = "Weapon type (sword, axe, …)."
-	{
-		f := weaponMM.MustFindField("Damage")
-		f.FormHelp = "Damage rating, 1–100."
-		f.FieldValidate = crud.IntRange(0, 100)
-	}
-	weaponMM.MustFindField("Owner").FormHelp = "Wielder. Pick one or use + to create a new hero."
-
-	// Skill MetaFields.
-	skillMM.MustFindField("ID").ReadOnly = true
-	skillMM.MustFindField("Name").FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
-	skillMM.MustFindField("School").FormHelp = "Combat / Magic / Roguery / ..."
-	{
-		f := skillMM.MustFindField("Level")
-		f.FormHelp = "Mastery, 1–10."
-		f.FieldValidate = crud.IntRange(0, 10)
-	}
-	// Skill ↔ Hero is m2m editable in principle, but the app flow
-	// assigns skills via the Hero form — keep Heroes ReadOnly so it
-	// shows in the dump but is skipped in the Skill form.
-	skillMM.MustFindField("Heroes").ReadOnly = true
-
-	heroTable = crud.DeriveGormCRUDTable[Hero](heroMM, nil, db)
-	weaponTable = crud.DeriveGormCRUDTable[Weapon](weaponMM, nil, db)
-	skillTable = crud.DeriveGormCRUDTable[Skill](skillMM, nil, db)
-	heroTable.Slug = "heroes"
-	weaponTable.Slug = "weapons"
-	skillTable.Slug = "skills"
-	heroTable.PageSize = 10
-	weaponTable.PageSize = 10
-	skillTable.PageSize = 8
-
-	// Cross-table relation links are wired by crud.WireRelations in main(),
-	// after the tables are routed (it matches each relation field's type
-	// against the routed tables' URLs — see below).
+	heroTable = crud.NewGormTable(db, crud.Table[Hero]{
+		Slug: "heroes", Title: "Heroes", PageSize: 10,
+		Fields: crud.Fields{
+			"ID":      {ReadOnly: true},
+			"Name":    {Help: "Display name, 2–40 characters.", Validate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(40))},
+			"Realm":   {Help: "Origin (e.g. Gondor, Mirkwood).", Validate: crud.MaxLen(40)},
+			"Power":   {Help: "Power level, 0–100.", Validate: crud.IntRange(0, 100)},
+			"Weapons": {Label: "Weapons (read-only)", Help: "Edit weapons individually via /weapons."},
+			"Skills":  {Help: "Hold Ctrl/Cmd to pick multiple."},
+		},
+	})
+	weaponTable = crud.NewGormTable(db, crud.Table[Weapon]{
+		Slug: "weapons", Title: "Weapons", PageSize: 10,
+		Fields: crud.Fields{
+			"ID":     {ReadOnly: true},
+			"Name":   {Validate: crud.All(crud.NotEmpty, crud.MaxLen(50))},
+			"Kind":   {Help: "Weapon type (sword, axe, …)."},
+			"Damage": {Help: "Damage rating, 1–100.", Validate: crud.IntRange(0, 100)},
+			"Owner":  {Help: "Wielder. Pick one or use + to create a new hero."},
+		},
+	})
+	skillTable = crud.NewGormTable(db, crud.Table[Skill]{
+		Slug: "skills", Title: "Skills", PageSize: 8,
+		Fields: crud.Fields{
+			"ID":     {ReadOnly: true},
+			"Name":   {Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+			"School": {Help: "Combat / Magic / Roguery / ..."},
+			"Level":  {Help: "Mastery, 1–10.", Validate: crud.IntRange(0, 10)},
+			// Skill ↔ Hero is m2m editable in principle, but the app flow
+			// assigns skills via the Hero form — ReadOnly keeps Heroes in the
+			// dump but skips it in the Skill form.
+			"Heroes": {ReadOnly: true},
+		},
+	})
 	return
 }
 

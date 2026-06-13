@@ -51,37 +51,17 @@ func seedHeroes() map[uint]Hero {
 	return store
 }
 
-// deriveHeroesTable builds the configured CRUDTable[Hero].
+// deriveHeroesTable builds the configured CRUDTable[Hero] from one recipe.
 func deriveHeroesTable(store map[uint]Hero, mu *sync.RWMutex, az auth.Authz) crud.CRUDTable[Hero] {
-	mm, err := crud.DeriveMetaModel[Hero]()
-	if err != nil {
-		log.Fatalf("derive: %v", err)
-	}
-	mm.DisplayName = "Heroes"
-	{
-		f := mm.MustFindField("ID")
-		f.ReadOnly = true
-		f.Sortable = true
-	}
-	{
-		f := mm.MustFindField("Name")
-		f.FormHelp = "Display name, 2–30 characters."
-		f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))
-	}
-	{
-		f := mm.MustFindField("Realm")
-		f.FormHelp = "Origin (e.g. Gondor, Mirkwood)."
-		f.FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
-	}
-	{
-		f := mm.MustFindField("Power")
-		f.FormHelp = "Power level, 0–100."
-		f.FieldValidate = crud.IntRange(0, 100)
-	}
-	table := crud.DeriveMapCRUDTable[Hero](mm, az, store, mu)
-	table.Slug = "heroes"
-	table.PageSize = 10
-	return table
+	return crud.NewMapTable(store, mu, crud.Table[Hero]{
+		Slug: "heroes", Title: "Heroes", PageSize: 10, Authz: az,
+		Fields: crud.Fields{
+			"ID":    {ReadOnly: true},
+			"Name":  {Help: "Display name, 2–30 characters.", Validate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))},
+			"Realm": {Help: "Origin (e.g. Gondor, Mirkwood).", Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+			"Power": {Help: "Power level, 0–100.", Validate: crud.IntRange(0, 100)},
+		},
+	})
 }
 
 func main() {

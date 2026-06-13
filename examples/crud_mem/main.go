@@ -75,39 +75,21 @@ func main() {
 	store := seedHeroes()
 	var mu sync.RWMutex
 
-	mm, err := crud.DeriveMetaModel[Hero]()
-	if err != nil {
-		log.Fatalf("derive: %v", err)
-	}
-	mm.DisplayName = "Heroes"
-
-	// Per-field tweaks reach each MetaField via MustFindField, which
-	// panics on a typo so a renamed model surfaces immediately (stdlib
-	// regexp.MustCompile precedent — same idiom).
-	{
-		f := mm.MustFindField("ID")
-		f.ReadOnly = true
-		f.Sortable = true
-	}
-	{
-		f := mm.MustFindField("Name")
-		f.FormHelp = "Display name, 2–30 characters."
-		f.FieldValidate = crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))
-	}
-	{
-		f := mm.MustFindField("Realm")
-		f.FormHelp = "Origin (e.g. Gondor, Mirkwood)."
-		f.FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
-	}
-	{
-		f := mm.MustFindField("Power")
-		f.FormHelp = "Power level, 0–100."
-		f.FieldValidate = crud.IntRange(0, 100)
-	}
-
-	table := crud.DeriveMapCRUDTable[Hero](mm, nil, store, &mu)
-	table.Slug = "heroes"
-	table.PageSize = 10
+	// The whole table — identity, paging, and per-field tweaks — is
+	// described once, declaratively. NewMapTable reflects Hero, merges these
+	// overrides over the reflected defaults, and panics at startup on a
+	// typo'd field name (regexp.MustCompile idiom).
+	table := crud.NewMapTable(store, &mu, crud.Table[Hero]{
+		Slug:     "heroes",
+		Title:    "Heroes",
+		PageSize: 10,
+		Fields: crud.Fields{
+			"ID":    {ReadOnly: true},
+			"Name":  {Help: "Display name, 2–30 characters.", Validate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))},
+			"Realm": {Help: "Origin (e.g. Gondor, Mirkwood).", Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+			"Power": {Help: "Power level, 0–100.", Validate: crud.IntRange(0, 100)},
+		},
+	})
 
 	mux := chi.NewRouter()
 	// The library registers only the table's fragment endpoints; the app

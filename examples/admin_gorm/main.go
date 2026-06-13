@@ -144,15 +144,12 @@ func main() {
 		log.Fatalf("seed: %v", err)
 	}
 
-	// Every model goes through plain Derive*: no FormHelp, no
-	// FieldValidate, no manual RelatedCRUD wiring. Just defaults.
-	heroMM, _ := crud.DeriveMetaModel[Hero]()
-	weaponMM, _ := crud.DeriveMetaModel[Weapon]()
-	skillMM, _ := crud.DeriveMetaModel[Skill]()
-
-	heroTable := crud.DeriveGormCRUDTable[Hero](heroMM, nil, db)
-	weaponTable := crud.DeriveGormCRUDTable[Weapon](weaponMM, nil, db)
-	skillTable := crud.DeriveGormCRUDTable[Skill](skillMM, nil, db)
+	// Zero-config tables: an empty recipe yields all reflected defaults
+	// (default slugs heros / weapons / skills, no per-field tweaks). Admin
+	// links their relations automatically when it registers their routes.
+	heroTable := crud.NewGormTable(db, crud.Table[Hero]{})
+	weaponTable := crud.NewGormTable(db, crud.Table[Weapon]{})
+	skillTable := crud.NewGormTable(db, crud.Table[Skill]{})
 
 	mux := chi.NewRouter()
 
