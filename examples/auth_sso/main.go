@@ -91,8 +91,8 @@ func main() {
 			"ID": {DisplayValue: func(mf crud.MetaField, value any) templ.Component {
 				return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
 			}},
-			// Secrets: write-only password box (re-hashes a non-blank entry),
-			// and set/unset-only display for TOTP + the opaque WebAuthn handle.
+			// Write-only password box (re-hashes a non-blank entry); TOTP +
+			// passkey fields are hidden (managed from the account page).
 			"PasswordHash": {
 				Label:          "Password",
 				InputType:      "password",
@@ -100,8 +100,9 @@ func main() {
 				GenFormElement: crud.PasswordInput,
 				BindStrings:    crud.HashWith(auth.HashPassword),
 			},
-			"TOTPSecret":     {Label: "TOTP", ReadOnly: true, DisplayValue: crud.Redact},
-			"WebAuthnHandle": {ReadOnly: true, DisplayValue: crud.Redact},
+			"TOTPSecret":     {Hidden: true},
+			"WebAuthnHandle": {Hidden: true},
+			"Passkeys":       {Hidden: true},
 			// SSO-Only flag + linked identities, with helpful admin copy.
 			"SSOOnly": {
 				Label: "SSO-Only",

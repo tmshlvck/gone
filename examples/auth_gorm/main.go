@@ -79,10 +79,8 @@ func main() {
 			"ID": {DisplayValue: func(mf crud.MetaField, value any) templ.Component {
 				return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
 			}},
-			// Secrets: never shown raw. PasswordHash is a write-only password
-			// box that re-hashes a non-blank entry (blank keeps the current
-			// one); TOTP secret and the opaque WebAuthn handle show only
-			// whether they're set, and can't be edited from the table.
+			// PasswordHash is a write-only password box that re-hashes a
+			// non-blank entry (blank keeps the current one).
 			"PasswordHash": {
 				Label:          "Password",
 				InputType:      "password",
@@ -90,8 +88,11 @@ func main() {
 				GenFormElement: crud.PasswordInput,
 				BindStrings:    crud.HashWith(auth.HashPassword),
 			},
-			"TOTPSecret":     {Label: "TOTP", ReadOnly: true, DisplayValue: crud.Redact},
-			"WebAuthnHandle": {ReadOnly: true, DisplayValue: crud.Redact},
+			// TOTP + passkey fields are managed from the user's own account
+			// page, not the admin table — hide them here entirely.
+			"TOTPSecret":     {Hidden: true},
+			"WebAuthnHandle": {Hidden: true},
+			"Passkeys":       {Hidden: true},
 		},
 	})
 	groupTable := crud.NewGormTable(db, crud.Table[auth.GroupGORM]{
