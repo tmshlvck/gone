@@ -51,17 +51,19 @@ func seedHeroes() map[uint]Hero {
 	return store
 }
 
-// deriveHeroesTable builds the configured CRUDTable[Hero] from one recipe.
+// deriveHeroesTable builds the configured CRUDTable[Hero] in three steps:
+// metadata, data plane, table config. az gates every route.
 func deriveHeroesTable(store map[uint]Hero, mu *sync.RWMutex, az auth.Authz) crud.CRUDTable[Hero] {
-	return crud.NewMapTable(store, mu, crud.Table[Hero]{
-		Slug: "heroes", Title: "Heroes", PageSize: 10, Authz: az,
-		Fields: crud.Fields{
-			"ID":    {ReadOnly: true},
-			"Name":  {Help: "Display name, 2–30 characters.", Validate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))},
-			"Realm": {Help: "Origin (e.g. Gondor, Mirkwood).", Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
-			"Power": {Help: "Power level, 0–100.", Validate: crud.IntRange(0, 100)},
+	mm := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+		DisplayName: "Heroes",
+		Fields: []crud.MetaField{
+			{Name: "ID", ReadOnly: true},
+			{Name: "Name", FormHelp: "Display name, 2–30 characters.", FieldValidate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))},
+			{Name: "Realm", FormHelp: "Origin (e.g. Gondor, Mirkwood).", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+			{Name: "Power", FormHelp: "Power level, 0–100.", FieldValidate: crud.IntRange(0, 100)},
 		},
 	})
+	return crud.NewTable(mm, crud.MapAccessor(mm, store, mu), 10, az)
 }
 
 func main() {
@@ -119,8 +121,9 @@ func main() {
 	}
 	// The library registers the table's fragment endpoints; the app owns
 	// the page route, embedding table.Render(r) in pageShell.
-	table.RegisterRoutes(mux, "", table.Slug)
-	mux.Get("/"+table.Slug, func(w http.ResponseWriter, r *http.Request) {
+	const heroesPath = "/heroes"
+	table.RegisterRoutes(mux, "", heroesPath)
+	mux.Get(heroesPath, func(w http.ResponseWriter, r *http.Request) {
 		content, err := table.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

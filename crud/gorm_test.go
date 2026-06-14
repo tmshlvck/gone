@@ -59,22 +59,14 @@ func newGormServer(t *testing.T) (chi.Router, *CRUDTable[gormHero], *CRUDTable[g
 		t.Fatalf("seed heroes: %v", err)
 	}
 
-	hmm, err := DeriveMetaModel[gormHero]()
-	if err != nil {
-		t.Fatalf("derive hero: %v", err)
-	}
-	smm, err := DeriveMetaModel[gormSkill]()
-	if err != nil {
-		t.Fatalf("derive skill: %v", err)
-	}
-	htbl := DeriveGormCRUDTable[gormHero](hmm, nil, db)
-	stbl := DeriveGormCRUDTable[gormSkill](smm, nil, db)
-	htbl.Slug = "heroes"
-	stbl.Slug = "skills"
+	hmm := DeriveMetaModel[gormHero](MetaModel[gormHero]{})
+	smm := DeriveMetaModel[gormSkill](MetaModel[gormSkill]{})
+	htbl := NewTable(hmm, GORMAccessor(hmm, db), 0, nil)
+	stbl := NewTable(smm, GORMAccessor(smm, db), 0, nil)
 
 	mux := chi.NewRouter()
-	htbl.RegisterRoutes(mux, "", "")
-	stbl.RegisterRoutes(mux, "", "")
+	htbl.RegisterRoutes(mux, "", "/heroes")
+	stbl.RegisterRoutes(mux, "", "/skills")
 	// Link the m2m relation to Skill now that both tables are routed.
 	WireRelations(&htbl, &stbl)
 	mux.Get(htbl.URLBase(), func(w http.ResponseWriter, r *http.Request) {

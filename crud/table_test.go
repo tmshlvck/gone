@@ -26,14 +26,10 @@ func newTestServer(t *testing.T) (chi.Router, *CRUDTable[item]) {
 		4: {ID: 4, Name: "Boromir", Realm: "Gondor", Power: 70},
 	}
 	mu := &sync.RWMutex{}
-	mm, err := DeriveMetaModel[item]()
-	if err != nil {
-		t.Fatalf("DeriveMetaModel: %v", err)
-	}
-	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
-	tbl.Slug = "items"
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, nil)
 	mux := chi.NewRouter()
-	tbl.RegisterRoutes(mux, "", "")
+	tbl.RegisterRoutes(mux, "", "") // componentPath "" → default plural "items"
 	// CRUDTable.Route registers only partial endpoints. The "main" page
 	// route is the app's job — for tests we register a thin handler
 	// that just renders Render as a bare fragment (no page
@@ -290,11 +286,11 @@ func TestRowDisplay_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeriveMapCRUDTable_DefaultSlugFromName(t *testing.T) {
-	mm, _ := DeriveMetaModel[item]()
-	tbl := DeriveMapCRUDTable[item](mm, nil, map[uint]item{}, &sync.RWMutex{})
-	if tbl.Slug != "items" {
-		t.Errorf("default Slug = %q, want items", tbl.Slug)
+func TestDefaultURLSlugFromName(t *testing.T) {
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	tbl := NewTable(mm, MapAccessor(mm, map[uint]item{}, &sync.RWMutex{}), 0, nil)
+	if tbl.URLSlug() != "items" {
+		t.Errorf("default URLSlug = %q, want items", tbl.URLSlug())
 	}
 }
 
@@ -321,9 +317,8 @@ func newTestServerWithAuthz(t *testing.T, az authzFunc, hideUnauthorized bool) c
 		4: {ID: 4, Name: "Boromir", Realm: "Gondor", Power: 70},
 	}
 	mu := &sync.RWMutex{}
-	mm, _ := DeriveMetaModel[item]()
-	tbl := DeriveMapCRUDTable[item](mm, az, store, mu)
-	tbl.Slug = "items"
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, az)
 	tbl.HideUnauthorized = hideUnauthorized
 	mux := chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "")
@@ -417,10 +412,8 @@ func TestMutationRetainsPage(t *testing.T) {
 		store[uint(i)] = item{ID: uint(i), Name: "Hero" + string(rune('A'+i-1))}
 	}
 	mu := &sync.RWMutex{}
-	mm, _ := DeriveMetaModel[item]()
-	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
-	tbl.Slug = "items"
-	tbl.PageSize = 2
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 2, nil)
 	mux = chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "")
 
@@ -467,10 +460,8 @@ func TestMutationClampsBeyondLastPage(t *testing.T) {
 		3: {ID: 3, Name: "HeroC"}, // sole row on page 2
 	}
 	mu := &sync.RWMutex{}
-	mm, _ := DeriveMetaModel[item]()
-	tbl := DeriveMapCRUDTable[item](mm, nil, store, mu)
-	tbl.Slug = "items"
-	tbl.PageSize = 2
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 2, nil)
 	mux := chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "")
 

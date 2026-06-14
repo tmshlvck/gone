@@ -152,11 +152,15 @@ func main() {
 	// form and the Owner cell in the weapons list now read "Name — Realm"
 	// instead of the default (the Name alone). Drop the override to get the
 	// default back.
-	heroTable := crud.NewGormTable(db, crud.Table[Hero]{
-		ShortLabel: func(h Hero) string { return h.Name + " — " + h.Realm },
-	})
-	weaponTable := crud.NewGormTable(db, crud.Table[Weapon]{})
-	skillTable := crud.NewGormTable(db, crud.Table[Skill]{})
+	heroMM := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{})
+	heroTable := crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 0, nil)
+	heroTable.ShortLabel = func(h Hero) string { return h.Name + " — " + h.Realm }
+
+	weaponMM := crud.DeriveMetaModel[Weapon](crud.MetaModel[Weapon]{})
+	weaponTable := crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), 0, nil)
+
+	skillMM := crud.DeriveMetaModel[Skill](crud.MetaModel[Skill]{})
+	skillTable := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 0, nil)
 
 	mux := chi.NewRouter()
 
@@ -176,16 +180,14 @@ func main() {
 		{DisplayName: "Hello", URL: "/testlink"},
 	}
 
-	// The app mounts Admin under /admin (a stripping chi.Route); Admin
-	// registers, relative to that router:
-	//   - GET /admin → 303 to /admin/{first.Slug}
+	// Admin composes every path on the root mux — no stripping chi.Route.
+	// For componentPath "/admin" it registers:
+	//   - GET /admin → 303 to /admin/{first.URLSlug}
 	//   - GET /admin/{slug} → wraps admin.Render(r) in pageShell
 	//   - each child's fragment endpoints at /admin/{slug}/view, /create, …
-	mux.Route("/admin", func(r chi.Router) {
-		if err := admin.RegisterRoutes(r, "/admin", pageShell); err != nil {
-			log.Fatalf("admin route: %v", err)
-		}
-	})
+	if err := admin.RegisterRoutes(mux, "", "/admin", pageShell); err != nil {
+		log.Fatalf("admin route: %v", err)
+	}
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})

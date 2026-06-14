@@ -152,22 +152,43 @@ func (mm *MetaModel[T]) MustFindField(name string) *MetaField {
 	return f
 }
 
-// DeriveMetaModel reflects T, builds default MetaFields, and installs the
-// model-level hooks. Caller may post-mutate the returned model — the
-// hooks read mm at call time so changes are observed.
-func DeriveMetaModel[T any]() (MetaModel[T], error) {
+// DeriveMetaModel reflects T into a MetaModel, then overlays preset — a
+// partial MetaModel carrying just the overrides you want:
+//
+//	mm := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+//	    DisplayName: "Heroes",
+//	    Fields: []crud.MetaField{
+//	        {Name: "Name",  FieldValidate: crud.NotEmpty},
+//	        {Name: "Power", FormHelp: "0–100"},
+//	    },
+//	})
+//
+// Merge rules: preset's non-empty DisplayName / Validate win; each preset
+// field (matched by Name) overlays its non-empty strings, non-nil hooks, and
+// additive ReadOnly/Hidden/Sortable/Searchable (a true turns the flag on;
+// forcing one off uses the returned mm directly). Relation metadata
+// (RelationKind, RelatedTypeName, FKFieldName, relation hooks) stays
+// derive-authoritative.
+//
+// Panics on a non-struct T or a preset field Name the struct doesn't have —
+// programming errors caught at startup (regexp.MustCompile idiom). Pass the
+// zero MetaModel[T]{} for pure defaults.
+func DeriveMetaModel[T any](preset MetaModel[T]) MetaModel[T] {
 	var zero T
 	rt := reflect.TypeOf(zero)
 	for rt.Kind() == reflect.Pointer {
 		rt = rt.Elem()
 	}
 	if rt.Kind() != reflect.Struct {
-		return MetaModel[T]{}, fmt.Errorf("DeriveMetaModel: %v is not a struct", rt)
+		panic(fmt.Errorf("crud.DeriveMetaModel: %v is not a struct", rt))
 	}
 
-	mm := MetaModel[T]{
-		Name:        rt.Name(),
-		DisplayName: rt.Name(),
+	mm := MetaModel[T]{Name: rt.Name(), DisplayName: rt.Name()}
+	if preset.DisplayName != "" {
+		mm.DisplayName = preset.DisplayName
+	}
+	if preset.Validate != nil {
+		mm.Validate = preset.Validate
 	}
 
 	for i := 0; i < rt.NumField(); i++ {
@@ -194,7 +215,57 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 		}
 	}
 
-	return mm, nil
+	// Overlay per-field overrides (matched by Name; unknown name = panic).
+	for _, pf := range preset.Fields {
+		target, err := mm.FindField(pf.Name)
+		if err != nil {
+			panic(fmt.Errorf("crud.DeriveMetaModel[%s].Fields: %w", mm.Name, err))
+		}
+		mergeMetaField(target, pf)
+	}
+
+	return mm
+}
+
+// mergeMetaField overlays a preset field's user-set values onto the derived
+// field dst. Relation metadata and derive-authoritative ids are left intact.
+func mergeMetaField(dst *MetaField, src MetaField) {
+	if src.DisplayName != "" {
+		dst.DisplayName = src.DisplayName
+	}
+	if src.FormInputType != "" {
+		dst.FormInputType = src.FormInputType
+	}
+	if src.FormHelp != "" {
+		dst.FormHelp = src.FormHelp
+	}
+	if src.FormFieldName != "" {
+		dst.FormFieldName = src.FormFieldName
+	}
+	if src.ReadOnly {
+		dst.ReadOnly = true
+	}
+	if src.Hidden {
+		dst.Hidden = true
+	}
+	if src.Sortable {
+		dst.Sortable = true
+	}
+	if src.Searchable {
+		dst.Searchable = true
+	}
+	if src.FieldValidate != nil {
+		dst.FieldValidate = src.FieldValidate
+	}
+	if src.DisplayValue != nil {
+		dst.DisplayValue = src.DisplayValue
+	}
+	if src.GenFormElement != nil {
+		dst.GenFormElement = src.GenFormElement
+	}
+	if src.BindStrings != nil {
+		dst.BindStrings = src.BindStrings
+	}
 }
 
 func deriveField(f reflect.StructField) MetaField {

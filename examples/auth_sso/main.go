@@ -85,39 +85,37 @@ func main() {
 	// ── CRUD tables for User + Group ────────────────────────────────
 	gate := auth.AuthzLoggedInReadAdminWrite{Auth: ag}
 
-	userTable := crud.NewGormTable(db, crud.Table[auth.UserGORM]{
-		Slug: "users", Title: "Users", Authz: gate,
-		Fields: crud.Fields{
-			"ID": {DisplayValue: func(mf crud.MetaField, value any) templ.Component {
-				return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
+	userMM := crud.DeriveMetaModel[auth.UserGORM](crud.MetaModel[auth.UserGORM]{
+		DisplayName: "Users",
+		Fields: []crud.MetaField{
+			// The L1 modal body id derives from the table's component path
+			// ("/admin/users" → "admin-users-modal-l1-body").
+			{Name: "ID", DisplayValue: func(mf crud.MetaField, value any) templ.Component {
+				return userIDLink(fmt.Sprintf("%v", value), "admin-users-modal-l1-body")
 			}},
 			// Write-only password box (re-hashes a non-blank entry); TOTP +
 			// passkey fields are hidden (managed from the account page).
-			"PasswordHash": {
-				Label:          "Password",
-				InputType:      "password",
+			{Name: "PasswordHash", DisplayName: "Password", FormInputType: "password",
 				DisplayValue:   crud.Redact,
 				GenFormElement: crud.PasswordInput,
-				BindStrings:    crud.HashWith(auth.HashPassword),
-			},
-			"TOTPSecret":     {Hidden: true},
-			"WebAuthnHandle": {Hidden: true},
-			"Passkeys":       {Hidden: true},
+				BindStrings:    crud.HashWith(auth.HashPassword)},
+			{Name: "TOTPSecret", Hidden: true},
+			{Name: "WebAuthnHandle", Hidden: true},
+			{Name: "Passkeys", Hidden: true},
 			// SSO-Only flag + linked identities, with helpful admin copy.
-			"SSOOnly": {
-				Label: "SSO-Only",
-				Help:  "When checked, this user can sign in only via a linked SSO identity (and optional TOTP). Password change and passkey enrolment are disabled. Cleared automatically when an admin un-checks this box.",
-			},
-			"SSOIdentities": {
-				Label:    "Linked SSO identities",
-				Help:     "Read-only. Users unlink their own identities from their account page; admins delete the user wholesale to remove all links at once.",
-				ReadOnly: true,
-			},
+			{Name: "SSOOnly", DisplayName: "SSO-Only",
+				FormHelp: "When checked, this user can sign in only via a linked SSO identity (and optional TOTP). Password change and passkey enrolment are disabled. Cleared automatically when an admin un-checks this box."},
+			{Name: "SSOIdentities", DisplayName: "Linked SSO identities",
+				FormHelp: "Read-only. Users unlink their own identities from their account page; admins delete the user wholesale to remove all links at once.",
+				ReadOnly: true},
 		},
 	})
-	groupTable := crud.NewGormTable(db, crud.Table[auth.GroupGORM]{
-		Slug: "groups", Title: "Groups", Authz: gate,
-	})
+	userTable := crud.NewTable(userMM, crud.GORMAccessor(userMM, db), 0, gate)
+	userTable.Segment = "users" // irregular plural of "UserGORM"
+
+	groupMM := crud.DeriveMetaModel[auth.GroupGORM](crud.MetaModel[auth.GroupGORM]{DisplayName: "Groups"})
+	groupTable := crud.NewTable(groupMM, crud.GORMAccessor(groupMM, db), 0, gate)
+	groupTable.Segment = "groups"
 
 	tables := []crud.CRUDTableInterface{&userTable, &groupTable}
 	admin := crud.DeriveAdmin(tables, nil)
@@ -146,11 +144,10 @@ func main() {
 	if err := ag.RegisterRoutes(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	mux.Route("/admin", func(r chi.Router) {
-		if err := admin.RegisterRoutes(r, "/admin", pageShell); err != nil {
-			log.Fatalf("admin route: %v", err)
-		}
-	})
+	// Admin composes every path on the root mux — no stripping chi.Route.
+	if err := admin.RegisterRoutes(mux, "", "/admin", pageShell); err != nil {
+		log.Fatalf("admin route: %v", err)
+	}
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})

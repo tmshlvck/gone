@@ -15,13 +15,14 @@ type Hero struct {
     Power int
 }
 
-mm, _ := crud.DeriveMetaModel[Hero]()
-table := crud.DeriveMapCRUDTable[Hero](mm, nil, store, &mu)
-table.Slug = "heroes"
+mm    := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{DisplayName: "Heroes"})
+data  := crud.MapAccessor(mm, store, &mu)
+table := crud.NewTable(mm, data, 20, nil)
 
-url, _ := table.Route(mux, "/", pageShell)
-// "/heroes" now serves a full CRUD UI:
-// /heroes              — list with search/sort/pagination + create modal
+table.RegisterRoutes(root, "", "/heroes")
+// "/heroes/…" now serves the CRUD fragments (the app owns the page route):
+// /heroes/view         — list with search/sort/pagination
+// /heroes/create       — create modal
 // /heroes/{id}/edit    — edit modal
 // /heroes/{id}/display — read-only detail
 // /heroes/{id}/delete  — delete
@@ -55,8 +56,8 @@ The library emits **HTML fragments** — `<html>` / `<head>` /
   caller's page shell (no static assets shipped by the library).
 - GORM v2 (`gorm.io/gorm`) for the GORM backend, with pure-Go SQLite
   (`glebarez/sqlite`) in examples.
-- stdlib `net/http`; works with `chi` (use `chi.Group` for middleware,
-  not `chi.Mount` — see [`docs/CRUD.md`](docs/CRUD.md)).
+- [chi v5](https://github.com/go-chi/chi) router — tables register their
+  fragment endpoints relative to a `chi.Router` (see [`docs/CRUD.md`](docs/CRUD.md)).
 
 ## Quick start
 
@@ -69,6 +70,7 @@ import (
     "sync"
 
     "github.com/a-h/templ"
+    "github.com/go-chi/chi/v5"
     "github.com/tmshlvck/gone/crud"
 )
 
@@ -86,21 +88,30 @@ func main() {
     }
     var mu sync.RWMutex
 
-    mm, err := crud.DeriveMetaModel[Hero]()
-    if err != nil { log.Fatal(err) }
-    mm.DisplayName = "Heroes"
-    mm.MustFindField("Name").FieldValidate = crud.All(crud.NotEmpty, crud.MaxLen(40))
-    mm.MustFindField("Power").FieldValidate = crud.IntRange(0, 100)
+    // 1. Metadata: reflect Hero, overlay overrides (panics on a typo'd field).
+    mm := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+        DisplayName: "Heroes",
+        Fields: []crud.MetaField{
+            {Name: "Name", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+            {Name: "Power", FieldValidate: crud.IntRange(0, 100)},
+        },
+    })
+    // 2. Data plane. 3. Table config (pageSize 20, no authz).
+    table := crud.NewTable(mm, crud.MapAccessor(mm, store, &mu), 20, nil)
 
-    table := crud.DeriveMapCRUDTable[Hero](mm, nil, store, &mu)
-    table.Slug = "heroes"
-    table.PageSize = 20
-
-    mux := http.NewServeMux()
-    url, err := table.Route(mux, "/", pageShell)
-    if err != nil { log.Fatal(err) }
-    mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-        http.Redirect(w, r, url, http.StatusSeeOther)
+    mux := chi.NewRouter()
+    const heroesPath = "/heroes"
+    table.RegisterRoutes(mux, "", heroesPath) // the app owns the page route:
+    mux.Get(heroesPath, func(w http.ResponseWriter, r *http.Request) {
+        content, err := table.Render(r)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        pageShell(w, r, "Heroes", content)
+    })
+    mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
+        http.Redirect(w, r, table.URLBase(), http.StatusSeeOther)
     })
 
     log.Fatal(http.ListenAndServe(":8080", mux))
@@ -123,27 +134,27 @@ func pageShell(w http.ResponseWriter, r *http.Request, title string, content tem
 When you have several models, wrap them in an `Admin`:
 
 ```go
-heroTable   := crud.DeriveGormCRUDTable[Hero](heroMM, nil, db)
-weaponTable := crud.DeriveGormCRUDTable[Weapon](weaponMM, nil, db)
-skillTable  := crud.DeriveGormCRUDTable[Skill](skillMM, nil, db)
+heroTable   := crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 0, nil)
+weaponTable := crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), 0, nil)
+skillTable  := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 0, nil)
 
-admin := crud.DeriveAdminAutoWire(
+admin := crud.DeriveAdmin(
     []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable},
     nil,
 )
 
-url, _ := admin.Route(mux, "/", pageShell)
-// "/admin" → 303 to /admin/heroes
-// "/admin/heroes" — Hero table with sidebar, Hero active
+admin.RegisterRoutes(mux, "", "/admin", pageShell)
+// "/admin" → 303 to /admin/heros
+// "/admin/heros" — Hero table with sidebar, Hero active
 // "/admin/weapons" — Weapon table with sidebar, Weapon active
 // "/admin/skills"  — Skill table with sidebar, Skill active
 // Plus every child's HTMX endpoints under /admin/{slug}/...
 ```
 
-`DeriveAdminAutoWire` matches each relation field's Go type against
-peer tables' model names and fills `RelatedCRUD` automatically — Hero's
-`Skills []Skill` widget knows about the Skill table without any manual
-wiring.
+`DeriveAdmin` matches each relation field's Go type against peer tables'
+model names and wires the relation pickers automatically when it registers
+their routes — Hero's `Skills []Skill` widget knows about the Skill table
+without any manual `WireRelations` call.
 
 ## Auth
 
@@ -163,8 +174,8 @@ sm := scs.New()
 sa := auth.NewAuthSimple(sm)
 sa.UserAdd("admin", "admin@local", "admin")
 
-mux := http.NewServeMux()
-sa.Route(mux, "", pageShell)
+mux := chi.NewRouter()
+sa.RegisterRoutes(mux, "", pageShell)
 
 // Pipeline: scs.LoadAndSave → auth.CSRFWrap → app mux.
 handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
@@ -175,8 +186,8 @@ helpers — `AuthzLoggedIn`, `AuthzLoggedInReadOnly`,
 `AuthzLoggedInReadAdminWrite`, `AuthzAllowAll`, `AuthzDenyAll`:
 
 ```go
-zoneTable := crud.DeriveGormCRUDTable[Zone](zoneMM,
-    auth.AuthzLoggedInReadAdminWrite{Auth: a}, db)
+zoneTable := crud.NewTable(zoneMM, crud.GORMAccessor(zoneMM, db), 0,
+    auth.AuthzLoggedInReadAdminWrite{Auth: a})
 ```
 
 Or implement `auth.Authz` directly for per-resource policy. See
@@ -189,7 +200,7 @@ Or implement `auth.Authz` directly for per-resource policy. See
 | `examples/form_mem`           | Single struct, manual handlers using `MetaModel.RenderForm` / `TryBindForm`. Shows the IPv4-or-IPv6 validator. |
 | `examples/crud_mem`           | One `CRUDTable` over an in-memory map.                        |
 | `examples/crud_gorm`          | Three `CRUDTable`s (Hero, Weapon, Skill) with 1:N and N:M relations. GORM backend. MPA-style — one model per page. |
-| `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` with `DeriveAdminAutoWire`. Custom sidebar link demo. Zero per-field tweaking. |
+| `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` (`DeriveAdmin`, relations auto-wired). Custom sidebar link demo. Zero per-field tweaking. |
 | `examples/auth_simple`        | `AuthSimple` + a single CRUDTable behind a gated page shell. |
 | `examples/auth_gorm`          | Full `AuthGORM`: User + Group CRUDTables under Admin; `AuthzLoggedInReadAdminWrite`; password / TOTP / passkey login; account modal. |
 | `examples/auth_sso`           | `auth_gorm` + SSO providers (Google / GitHub / Okta) wired from env vars. README walks through OAuth-app registration on each. |

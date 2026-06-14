@@ -143,52 +143,57 @@ func pickN[T any](rng *rand.Rand, src []T, n int) []T {
 	return out
 }
 
-// buildTables describes the three CRUDTables declaratively — identity,
-// paging, and per-field tweaks in one literal each. NewGormTable reflects
-// the model, merges the overrides over the reflected defaults, and panics at
-// startup on a typo'd field name (so a renamed model fails fast, not at
-// form-render time). Cross-table relation links are established later, in
-// main(), by crud.WireRelations once the tables have been routed (a relation
-// picker loads its options from the related table's URL).
+// buildTables describes the three CRUDTables in the three-step construction:
+// DeriveMetaModel reflects the model and overlays per-field overrides (panics
+// at startup on a typo'd field name), GORMAccessor pairs it with the DB, and
+// NewTable adds the table config. Path comes later at RegisterRoutes;
+// cross-table relation links are established in main() by crud.WireRelations
+// once the tables have been routed (a relation picker loads its options from
+// the related table's URL).
 func buildTables(db *gorm.DB) (
 	heroTable crud.CRUDTable[Hero],
 	weaponTable crud.CRUDTable[Weapon],
 	skillTable crud.CRUDTable[Skill],
 ) {
-	heroTable = crud.NewGormTable(db, crud.Table[Hero]{
-		Slug: "heroes", Title: "Heroes", PageSize: 10,
-		Fields: crud.Fields{
-			"ID":      {ReadOnly: true},
-			"Name":    {Help: "Display name, 2–40 characters.", Validate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(40))},
-			"Realm":   {Help: "Origin (e.g. Gondor, Mirkwood).", Validate: crud.MaxLen(40)},
-			"Power":   {Help: "Power level, 0–100.", Validate: crud.IntRange(0, 100)},
-			"Weapons": {Label: "Weapons (read-only)", Help: "Edit weapons individually via /weapons."},
-			"Skills":  {Help: "Hold Ctrl/Cmd to pick multiple."},
+	heroMM := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+		DisplayName: "Heroes",
+		Fields: []crud.MetaField{
+			{Name: "ID", ReadOnly: true},
+			{Name: "Name", FormHelp: "Display name, 2–40 characters.", FieldValidate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(40))},
+			{Name: "Realm", FormHelp: "Origin (e.g. Gondor, Mirkwood).", FieldValidate: crud.MaxLen(40)},
+			{Name: "Power", FormHelp: "Power level, 0–100.", FieldValidate: crud.IntRange(0, 100)},
+			{Name: "Weapons", DisplayName: "Weapons (read-only)", FormHelp: "Edit weapons individually via /weapons."},
+			{Name: "Skills", FormHelp: "Hold Ctrl/Cmd to pick multiple."},
 		},
 	})
-	weaponTable = crud.NewGormTable(db, crud.Table[Weapon]{
-		Slug: "weapons", Title: "Weapons", PageSize: 10,
-		Fields: crud.Fields{
-			"ID":     {ReadOnly: true},
-			"Name":   {Validate: crud.All(crud.NotEmpty, crud.MaxLen(50))},
-			"Kind":   {Help: "Weapon type (sword, axe, …)."},
-			"Damage": {Help: "Damage rating, 1–100.", Validate: crud.IntRange(0, 100)},
-			"Owner":  {Help: "Wielder. Pick one or use + to create a new hero."},
+	heroTable = crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 10, nil)
+
+	weaponMM := crud.DeriveMetaModel[Weapon](crud.MetaModel[Weapon]{
+		DisplayName: "Weapons",
+		Fields: []crud.MetaField{
+			{Name: "ID", ReadOnly: true},
+			{Name: "Name", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(50))},
+			{Name: "Kind", FormHelp: "Weapon type (sword, axe, …)."},
+			{Name: "Damage", FormHelp: "Damage rating, 1–100.", FieldValidate: crud.IntRange(0, 100)},
+			{Name: "Owner", FormHelp: "Wielder. Pick one or use + to create a new hero."},
 		},
 	})
-	skillTable = crud.NewGormTable(db, crud.Table[Skill]{
-		Slug: "skills", Title: "Skills", PageSize: 8,
-		Fields: crud.Fields{
-			"ID":     {ReadOnly: true},
-			"Name":   {Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
-			"School": {Help: "Combat / Magic / Roguery / ..."},
-			"Level":  {Help: "Mastery, 1–10.", Validate: crud.IntRange(0, 10)},
+	weaponTable = crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), 10, nil)
+
+	skillMM := crud.DeriveMetaModel[Skill](crud.MetaModel[Skill]{
+		DisplayName: "Skills",
+		Fields: []crud.MetaField{
+			{Name: "ID", ReadOnly: true},
+			{Name: "Name", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+			{Name: "School", FormHelp: "Combat / Magic / Roguery / ..."},
+			{Name: "Level", FormHelp: "Mastery, 1–10.", FieldValidate: crud.IntRange(0, 10)},
 			// Skill ↔ Hero is m2m editable in principle, but the app flow
 			// assigns skills via the Hero form — ReadOnly keeps Heroes in the
 			// dump but skips it in the Skill form.
-			"Heroes": {ReadOnly: true},
+			{Name: "Heroes", ReadOnly: true},
 		},
 	})
+	skillTable = crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 8, nil)
 	return
 }
 
@@ -209,10 +214,11 @@ func main() {
 
 	mux := chi.NewRouter()
 	// The library registers each table's fragment endpoints; the app owns
-	// the page route (GET /{slug}) that embeds table.Render(r) in chrome.
-	mountPage(mux, &heroTable, "Heroes")
-	mountPage(mux, &weaponTable, "Weapons")
-	mountPage(mux, &skillTable, "Skills")
+	// the page route that embeds table.Render(r) in chrome. The path is
+	// supplied here, at mount time — construction said what, this says where.
+	mountPage(mux, &heroTable, "/heroes", "Heroes")
+	mountPage(mux, &weaponTable, "/weapons", "Weapons")
+	mountPage(mux, &skillTable, "/skills", "Skills")
 	// Link the relation pickers now that every table has its URL: the
 	// Owner select on /weapons loads options from /heroes, etc.
 	crud.WireRelations(&heroTable, &weaponTable, &skillTable)
@@ -227,17 +233,16 @@ func main() {
 
 // pageComponent is the slice of a CRUDTable the app needs to mount a page.
 type pageComponent interface {
-	RegisterRoutes(r chi.Router, mountBase, slug string)
+	RegisterRoutes(r chi.Router, routerPrefix, componentPath string)
 	Render(r *http.Request) (templ.Component, error)
-	URLSlug() string
 	URLBase() string
 }
 
-// mountPage registers a table's fragment endpoints plus the app-owned page
-// route that wraps its Render output in pageShell.
-func mountPage(mux chi.Router, t pageComponent, title string) {
-	t.RegisterRoutes(mux, "", t.URLSlug())
-	mux.Get("/"+t.URLSlug(), func(w http.ResponseWriter, r *http.Request) {
+// mountPage registers a table's fragment endpoints at path plus the app-owned
+// page route that wraps its Render output in pageShell.
+func mountPage(mux chi.Router, t pageComponent, path, title string) {
+	t.RegisterRoutes(mux, "", path)
+	mux.Get(path, func(w http.ResponseWriter, r *http.Request) {
 		content, err := t.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

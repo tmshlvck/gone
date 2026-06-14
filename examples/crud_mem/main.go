@@ -1,7 +1,8 @@
-// Example: full CRUD over a multi-row in-memory map. Demonstrates
-// crud.CRUDTable[T] + crud.DeriveMapCRUDTable[T] + crud.Route — list,
-// create, edit, delete on /heroes, plus ?q= search, ?sort= column sort,
-// ?page= pagination, and HTMX-driven modal forms.
+// Example: full CRUD over a multi-row in-memory map. Demonstrates the
+// three-step construction — DeriveMetaModel → MapAccessor → NewTable —
+// then RegisterRoutes places it at /heroes. List, create, edit, delete,
+// plus ?q= search, ?sort= column sort, ?page= pagination, and HTMX-driven
+// modal forms.
 package main
 
 import (
@@ -75,27 +76,28 @@ func main() {
 	store := seedHeroes()
 	var mu sync.RWMutex
 
-	// The whole table — identity, paging, and per-field tweaks — is
-	// described once, declaratively. NewMapTable reflects Hero, merges these
-	// overrides over the reflected defaults, and panics at startup on a
-	// typo'd field name (regexp.MustCompile idiom).
-	table := crud.NewMapTable(store, &mu, crud.Table[Hero]{
-		Slug:     "heroes",
-		Title:    "Heroes",
-		PageSize: 10,
-		Fields: crud.Fields{
-			"ID":    {ReadOnly: true},
-			"Name":  {Help: "Display name, 2–30 characters.", Validate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))},
-			"Realm": {Help: "Origin (e.g. Gondor, Mirkwood).", Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
-			"Power": {Help: "Power level, 0–100.", Validate: crud.IntRange(0, 100)},
+	// 1. Metadata: reflect Hero, then overlay per-field overrides. A typo'd
+	//    field name panics at startup (regexp.MustCompile idiom).
+	mm := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+		DisplayName: "Heroes",
+		Fields: []crud.MetaField{
+			{Name: "ID", ReadOnly: true},
+			{Name: "Name", FormHelp: "Display name, 2–30 characters.", FieldValidate: crud.All(crud.NotEmpty, crud.MinLen(2), crud.MaxLen(30))},
+			{Name: "Realm", FormHelp: "Origin (e.g. Gondor, Mirkwood).", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+			{Name: "Power", FormHelp: "Power level, 0–100.", FieldValidate: crud.IntRange(0, 100)},
 		},
 	})
+	// 2. Data plane over the caller-owned map + mutex.
+	data := crud.MapAccessor(mm, store, &mu)
+	// 3. Table config (pageSize 10, no authz). Path comes at RegisterRoutes.
+	table := crud.NewTable(mm, data, 10, nil)
 
 	mux := chi.NewRouter()
 	// The library registers only the table's fragment endpoints; the app
 	// owns the page route, embedding table.Render(r) in its own chrome.
-	table.RegisterRoutes(mux, "", table.Slug)
-	mux.Get("/"+table.Slug, func(w http.ResponseWriter, r *http.Request) {
+	const heroesPath = "/heroes"
+	table.RegisterRoutes(mux, "", heroesPath)
+	mux.Get(heroesPath, func(w http.ResponseWriter, r *http.Request) {
 		content, err := table.Render(r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

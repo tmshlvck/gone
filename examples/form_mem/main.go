@@ -51,11 +51,12 @@ const (
 )
 
 func main() {
-	mm, err := crud.DeriveMetaModel[ExampleConfig]()
-	if err != nil {
-		log.Fatalf("derive: %v", err)
-	}
-	mm.DisplayName = "Server configuration"
+	// DeriveMetaModel reflects the struct; this example post-mutates the
+	// returned model via MustFindField (the alternative to passing a preset)
+	// to show the render/bind primitives without library-managed routing.
+	mm := crud.DeriveMetaModel[ExampleConfig](crud.MetaModel[ExampleConfig]{
+		DisplayName: "Server configuration",
+	})
 
 	// Per-field metadata: display names, help text, and field validators
 	// — each tweak reaches its field via MetaModel.MustFindField, which

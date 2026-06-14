@@ -25,14 +25,13 @@ you need the archaeology.
   classification, HX-\* response directives, modal control) lives in
   `gone/htmx`. Splitting these out keeps an app free to reuse them on
   its own non-CRUD pages.
-- **Describe once in a recipe, derive, merge.** A model is described
-  one time as a declarative recipe (`crud.Table[T]{Fields: …}`);
-  reflection + gorm tags fill in sensible defaults; the constructor
-  (`NewGormTable` / `NewMapTable`) merges the recipe's overrides over
-  those defaults and validates field names at construction (a typo
-  panics at startup). No code generation, no annotations beyond the
-  gorm tags. The low-level `DeriveMetaModel` + post-mutation path stays
-  as the escape hatch for custom hooks.
+- **Describe once, derive, merge.** A model is described one time as a
+  `MetaModel[T]` preset; `DeriveMetaModel` reflects `T` + gorm tags for
+  sensible defaults, then overlays the preset's per-field overrides and
+  validates field names (a typo panics at startup — the
+  `regexp.MustCompile` idiom). No code generation, no annotations beyond
+  the gorm tags. Post-mutation via `MustFindField` stays as the
+  alternative for callers that prefer building the model imperatively.
 - **Safe HTML by default.** templ escapes every interpolated value;
   `templ.Raw` is the explicit escape hatch.
 - **Real multi-page navigation; HTMX only where it earns its keep.**
@@ -46,11 +45,13 @@ you need the archaeology.
 - **Absolute URLs, but composable.** Components render absolute paths
   (`hx-get`, form `action`, …), so a component must know its full
   external URL. Rather than infer it, it is *told*: `RegisterRoutes(r,
-  mountBase, slug)` registers routes relative to `r` and records
-  `mountBase` (the absolute prefix where `r` is served) for link
-  generation. This makes stripping mounts (`chi.Route` / `chi.Mount`)
-  first-class — the prefix the router hides from handlers is supplied
-  explicitly instead.
+  routerPrefix, componentPath)` registers routes at `componentPath`
+  relative to `r` and records `routerPrefix` (the absolute prefix where
+  `r` is served) for link generation. `componentPath` can be
+  multi-segment (`/admin/heroes`), so a table mounts on the root mux
+  without a stripping `chi.Route` — though stripping mounts stay
+  first-class, since the hidden prefix is just supplied as
+  `routerPrefix`.
 
 ## gone/crud
 
@@ -65,20 +66,25 @@ prefix.
   renderings of the same metadata, so field labels, sortability,
   validation, and relation shape are described once. Reflection +
   gorm tags infer belongs-to / has-many / many-to-many.
-- **Closures are the data plane.** `CRUDTable` holds
-  `Get`/`List`/`Create`/`Update`/`Delete` closures, populated by a
-  backend-specific `Derive*CRUDTable` constructor (which `NewGormTable`
-  / `NewMapTable` wrap). GORM and an in-memory map are first-class; a
-  new backend is just a new constructor — the rendering/validation/
-  routing code is backend-blind.
+- **`Accessor[T]` is the data plane.** `CRUDTable` holds one
+  `Accessor[T]` interface value — `Get`/`List`/`Create`/`Update`/
+  `Delete` — built by a backend constructor (`GORMAccessor` /
+  `MapAccessor`) from the same `MetaModel`. `NewTable(mm, accessor,
+  pageSize, authz)` pairs the two. GORM and an in-memory map are
+  first-class; a new backend is just a new `Accessor` implementation —
+  the rendering/validation/routing code is backend-blind. Construction
+  says *what* (metadata + data + behaviour); `RegisterRoutes` says
+  *where* (the path), so a table is built once and mountable anywhere.
 - **Admin registers its children; the app owns pages.** A `CRUDTable`'s
   `RegisterRoutes` mounts only its fragment endpoints; the app writes
-  the `GET /{slug}` page route and embeds `Render(r)` in its shell.
-  `Admin.RegisterRoutes` does both for the tables it bundles — child
-  fragments, a per-slug page handler wrapping the active table in the
-  app's `site.Shell`, and an index redirect — so an Admin app stays a
-  few lines. The caller lists tables once; it never calls a child's
-  `RegisterRoutes` separately.
+  the page route and embeds `Render(r)` in its shell.
+  `Admin.RegisterRoutes(r, routerPrefix, componentPath, shell)` composes
+  every child path on one router — child fragments under
+  `componentPath/{slug}`, a per-slug page handler wrapping the active
+  table in the app's `site.Shell`, and an index redirect — so an Admin
+  app stays a few lines and needs no stripping `chi.Route`. The caller
+  lists tables once; it never calls a child's `RegisterRoutes`
+  separately.
 - **Relations link by URL, not by a pointer.** A relation `<select>`
   loads its options over HTTP from the *related* table's own `/options`
   endpoint (fired on `load`, refreshed on `refresh-relation`); the

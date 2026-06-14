@@ -69,35 +69,36 @@ func main() {
 	// users via the UI.
 	gate := auth.AuthzLoggedInReadAdminWrite{Auth: ag}
 
-	userTable := crud.NewGormTable(db, crud.Table[auth.UserGORM]{
-		Slug: "users", Title: "Users", Authz: gate,
-		Fields: crud.Fields{
+	userMM := crud.DeriveMetaModel[auth.UserGORM](crud.MetaModel[auth.UserGORM]{
+		DisplayName: "Users",
+		Fields: []crud.MetaField{
 			// Make the ID column clickable: instead of plain text, render an
-			// HTMX button that GETs /account/{id} into the per-table modal.
-			// Admin clicks a user's ID → password-change modal opens for that
-			// user. AuthGORM's handler gates self-or-admin.
-			"ID": {DisplayValue: func(mf crud.MetaField, value any) templ.Component {
-				return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
+			// HTMX button that GETs /account/{id} into the table's L1 modal.
+			// The modal body id is derived from the table's component path
+			// ("/admin/users" → "admin-users-modal-l1-body"). Admin clicks a
+			// user's ID → password-change modal opens; AuthGORM gates self-or-admin.
+			{Name: "ID", DisplayValue: func(mf crud.MetaField, value any) templ.Component {
+				return userIDLink(fmt.Sprintf("%v", value), "admin-users-modal-l1-body")
 			}},
 			// PasswordHash is a write-only password box that re-hashes a
 			// non-blank entry (blank keeps the current one).
-			"PasswordHash": {
-				Label:          "Password",
-				InputType:      "password",
+			{Name: "PasswordHash", DisplayName: "Password", FormInputType: "password",
 				DisplayValue:   crud.Redact,
 				GenFormElement: crud.PasswordInput,
-				BindStrings:    crud.HashWith(auth.HashPassword),
-			},
+				BindStrings:    crud.HashWith(auth.HashPassword)},
 			// TOTP + passkey fields are managed from the user's own account
 			// page, not the admin table — hide them here entirely.
-			"TOTPSecret":     {Hidden: true},
-			"WebAuthnHandle": {Hidden: true},
-			"Passkeys":       {Hidden: true},
+			{Name: "TOTPSecret", Hidden: true},
+			{Name: "WebAuthnHandle", Hidden: true},
+			{Name: "Passkeys", Hidden: true},
 		},
 	})
-	groupTable := crud.NewGormTable(db, crud.Table[auth.GroupGORM]{
-		Slug: "groups", Title: "Groups", Authz: gate,
-	})
+	userTable := crud.NewTable(userMM, crud.GORMAccessor(userMM, db), 0, gate)
+	userTable.Segment = "users" // irregular plural of "UserGORM"
+
+	groupMM := crud.DeriveMetaModel[auth.GroupGORM](crud.MetaModel[auth.GroupGORM]{DisplayName: "Groups"})
+	groupTable := crud.NewTable(groupMM, crud.GORMAccessor(groupMM, db), 0, gate)
+	groupTable.Segment = "groups"
 
 	// Admin links each table's relation fields automatically at
 	// RegisterRoutes time — the Groups picker on the User form, and the
@@ -141,11 +142,10 @@ func main() {
 	if err := ag.RegisterRoutes(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	mux.Route("/admin", func(r chi.Router) {
-		if err := admin.RegisterRoutes(r, "/admin", pageShell); err != nil {
-			log.Fatalf("admin route: %v", err)
-		}
-	})
+	// Admin composes every path on the root mux — no stripping chi.Route.
+	if err := admin.RegisterRoutes(mux, "", "/admin", pageShell); err != nil {
+		log.Fatalf("admin route: %v", err)
+	}
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})

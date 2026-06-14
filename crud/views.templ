@@ -8,9 +8,9 @@ import (
 // Modal IDs used by the library's HTMX-driven create/edit forms.
 //
 // L1 (the table's own create/edit modal) is PER-TABLE: each CRUDTable
-// emits its own <dialog id="{slug}-modal-l1"> inside its Render()
-// output. Multiple tables on the same page never collide because
-// every slug is unique.
+// emits its own <dialog id="{key}-modal-l1"> inside its Render()
+// output, where key is derived from the table's component path. Multiple
+// tables on the same page never collide because every path is unique.
 //
 // L2 (the nested "+ create new" modal opened from inside an L1 form)
 // is a SHARED singleton with the fixed IDs below. Only one nested
@@ -23,10 +23,10 @@ const (
 )
 
 // L1ModalIDFromSlug / L1BodyIDFromSlug build per-table L1 IDs from a
-// CRUDTable's Slug. Exported so user-written handlers and templates
-// can reference them by the same rule the library uses.
-func L1ModalIDFromSlug(slug string) string { return slug + "-modal-l1" }
-func L1BodyIDFromSlug(slug string) string  { return slug + "-modal-l1-body" }
+// CRUDTable's path key (see pathKey). Exported so user-written handlers and
+// templates can reference them by the same rule the library uses.
+func L1ModalIDFromSlug(key string) string { return key + "-modal-l1" }
+func L1BodyIDFromSlug(key string) string  { return key + "-modal-l1-body" }
 
 // ──────────────────────────────────────────────────────────────────────────
 // View data structs

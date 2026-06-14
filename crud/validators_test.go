@@ -105,7 +105,7 @@ type formModel struct {
 }
 
 func TestDefaultBindForm_RunsFieldValidateAfterParse(t *testing.T) {
-	mm, _ := DeriveMetaModel[formModel]()
+	mm := DeriveMetaModel[formModel](MetaModel[formModel]{})
 	for i := range mm.Fields {
 		switch mm.Fields[i].Name {
 		case "Title":
@@ -137,7 +137,7 @@ func TestDefaultBindForm_RunsFieldValidateAfterParse(t *testing.T) {
 }
 
 func TestDefaultBindForm_BindErrorSkipsValidate(t *testing.T) {
-	mm, _ := DeriveMetaModel[formModel]()
+	mm := DeriveMetaModel[formModel](MetaModel[formModel]{})
 	for i := range mm.Fields {
 		if mm.Fields[i].Name == "Count" {
 			mm.Fields[i].FieldValidate = IntRange(0, 10)
@@ -163,7 +163,7 @@ func TestDefaultBindForm_BindErrorSkipsValidate(t *testing.T) {
 }
 
 func TestDefaultBindForm_AllPassReturnsNil(t *testing.T) {
-	mm, _ := DeriveMetaModel[formModel]()
+	mm := DeriveMetaModel[formModel](MetaModel[formModel]{})
 	for i := range mm.Fields {
 		switch mm.Fields[i].Name {
 		case "Title":
@@ -191,7 +191,7 @@ func TestDefaultBindForm_AllPassReturnsNil(t *testing.T) {
 // ──────────────────────────────────────────────────────────────────────────
 
 func TestModelValidate_RunsWhenSet_AndOnlyAfterFieldsPass(t *testing.T) {
-	mm, _ := DeriveMetaModel[formModel]()
+	mm := DeriveMetaModel[formModel](MetaModel[formModel]{})
 	for i := range mm.Fields {
 		if mm.Fields[i].Name == "Count" {
 			mm.Fields[i].FieldValidate = IntRange(0, 1000) // permissive
@@ -235,7 +235,7 @@ func TestModelValidate_RunsWhenSet_AndOnlyAfterFieldsPass(t *testing.T) {
 }
 
 func TestModelValidate_NilMeansNoCrossField(t *testing.T) {
-	mm, _ := DeriveMetaModel[formModel]()
+	mm := DeriveMetaModel[formModel](MetaModel[formModel]{})
 	// Validate is nil — must NOT run, and clean inputs pass cleanly.
 	form := map[string][]string{"Title": {"x"}, "Count": {"5"}}
 	var out formModel

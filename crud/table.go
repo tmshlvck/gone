@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -19,13 +18,16 @@ import (
 // data plane) plus table-level config. The renderer and route handlers are
 // backend-blind — they go through Data.
 //
-// urlBase is set by RegisterRoutes to mountBase + "/" + Slug — read it via
-// URLBase(). Slug defaults to a lowercased plural of MetaData.Name; override
-// it before RegisterRoutes for irregular plurals.
+// Construction says WHAT (metadata + data + behaviour); RegisterRoutes says
+// WHERE (the path namespace). Build a table with NewTable, then mount it:
+//
+//	mm    := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{DisplayName: "Heroes"})
+//	data  := crud.GORMAccessor[Hero](mm, db)
+//	table := crud.NewTable(mm, data, 10, az)
+//	table.RegisterRoutes(root, "", "/admin/heroes")
 type CRUDTable[T any] struct {
 	MetaData      MetaModel[T]
 	Authz         auth.Authz // nil = AuthzAllowAll
-	Slug          string     // url-safe plural; default = lowercase(Name) + "s"
 	PageSize      int        // rows per page; 0 = library default (20)
 	CreateEnabled bool
 	EditEnabled   bool
@@ -44,15 +46,11 @@ type CRUDTable[T any] struct {
 	// is false OR Authz permits the action).
 	HideUnauthorized bool
 
-	// urlBase becomes mountBase + "/" + Slug once RegisterRoutes is called.
-	// Private because external readers go through URLBase() — the field name
-	// shouldn't be a stable API.
-	urlBase string
-
-	// ListID wraps the table + footer; HTMX swap target for list
-	// refreshes. Per-instance random suffix so multiple CRUDTables
-	// can coexist on one page without collision.
-	ListID string
+	// Segment is the URL path segment this table prefers when it's composed
+	// under an Admin, and the fallback componentPath for a bare
+	// RegisterRoutes(r, prefix, ""). Empty = a lowercased plural of the Go
+	// model name (Hero→"heros"); set it for irregular plurals.
+	Segment string
 
 	// Data is the data plane — Get/List/Create/Update/Delete. Built by a
 	// backend constructor (MapAccessor / GORMAccessor) or any custom Accessor.
@@ -61,16 +59,43 @@ type CRUDTable[T any] struct {
 	// ShortLabel overrides DefaultShortLabel for this model — the short label
 	// shown for one of its rows in a relation <select> option (this table's
 	// /options endpoint) and in a relation cell on another table (wired by
-	// WireRelations). nil uses DefaultShortLabel. Set it via the recipe's
-	// Table.ShortLabel.
+	// WireRelations). nil uses DefaultShortLabel.
 	ShortLabel func(T) string
+
+	// urlBase becomes routerPrefix + componentPath once RegisterRoutes is
+	// called. Private because external readers go through URLBase().
+	urlBase string
+
+	// componentPath is where the table is mounted RELATIVE to its router
+	// (e.g. "/admin/heroes"). Set by RegisterRoutes.
+	componentPath string
+
+	// modalKey is a DOM-id-safe key derived from componentPath; it namespaces
+	// this table's L1 modal so multiple tables coexist on one page.
+	modalKey string
+
+	// ListID wraps the table + footer; HTMX swap target for list
+	// refreshes. Per-instance random suffix so multiple CRUDTables
+	// can coexist on one page without collision.
+	ListID string
 }
 
 // defaultSlug returns a heuristic plural for a Go type name. Wrong for
-// irregular plurals (Hero→heros, Person→persons, Sheep→sheeps) — caller
-// overrides CRUDTable.Slug for those.
+// irregular plurals (Hero→heros, Person→persons, Sheep→sheeps) — set
+// CRUDTable.Segment (or pass an explicit componentPath) for those.
 func defaultSlug(name string) string {
 	return strings.ToLower(name) + "s"
+}
+
+// pathKey turns a (possibly multi-segment) component path into a DOM-id-safe
+// key: "/admin/heroes" → "admin-heroes", "" / "/" → "root".
+func pathKey(p string) string {
+	p = strings.Trim(p, "/")
+	p = strings.ReplaceAll(p, "/", "-")
+	if p == "" {
+		return "root"
+	}
+	return p
 }
 
 // defaultPageSize is used when CRUDTable.PageSize is 0 and pagination is
@@ -78,24 +103,24 @@ func defaultSlug(name string) string {
 // only when you intentionally want all rows in one shot).
 const defaultPageSize = 20
 
-// DeriveMapCRUDTable wires CRUDTable[T] to a caller-owned map and mutex.
-// Search is a case-insensitive substring match against every MetaField
-// with Searchable=true. Sort uses reflection on the named field.
+// NewTable pairs a MetaModel with an Accessor (the data plane) into a ready
+// CRUDTable. pageSize is rows per page (0 = library default, 20); authz gates
+// every route (nil = allow all). Create/Edit/Delete are enabled by default —
+// toggle the *Enabled fields, HideUnauthorized, Segment, or ShortLabel on the
+// returned value before RegisterRoutes.
 //
-// The map key is the row's ID. If T has an exported "ID" field of an
-// integer kind, Create/Update keep it in sync with the map key.
-//
-// authz gates every route Route() registers (nil = AllowAll).
-func DeriveMapCRUDTable[T any](mm MetaModel[T], az auth.Authz, store map[uint]T, mu *sync.RWMutex) CRUDTable[T] {
+// The data Accessor must be built from the SAME mm (GORMAccessor/MapAccessor
+// read mm to learn which fields are searchable/sortable/relations).
+func NewTable[T any](mm MetaModel[T], data Accessor[T], pageSize int, authz auth.Authz) CRUDTable[T] {
 	return CRUDTable[T]{
 		MetaData:      mm,
-		Authz:         az,
-		Slug:          defaultSlug(mm.Name),
+		Data:          data,
+		Authz:         authz,
+		PageSize:      pageSize,
 		CreateEnabled: true,
 		EditEnabled:   true,
 		DeleteEnabled: true,
 		ListID:        "table_" + randSuffix(),
-		Data:          MapAccessor(mm, store, mu),
 	}
 }
 
@@ -122,20 +147,22 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 
 // RegisterRoutes mounts the table's in-component (fragment) endpoints on r.
 // It does NOT register a whole-page handler — the application owns the page
-// route (GET {mountBase}/{slug}) and embeds Render(r) in its own chrome.
+// route and embeds Render(r) in its own chrome.
 //
-// Two strings place the table (see REFACTOR-HTMX.md §2):
+// Two strings place the table — construction said WHAT, this says WHERE:
 //
-//   - mountBase is the ABSOLUTE path at which r itself is served (the caller
-//     knows it; chi can't report it at registration time).
-//   - slug is where this table sits RELATIVE to r (e.g. "heroes" or
-//     "/heroes"). Empty falls back to the table's Slug field, then to a
-//     derived plural. The table's absolute base, used for every rendered
-//     hx-get / form action, is normalizePrefix(mountBase) + "/" + slug.
+//   - routerPrefix is the ABSOLUTE path at which r itself is served (the
+//     caller knows it; chi can't report it at registration time). "" when r
+//     is the root mux.
+//   - componentPath is where this table sits RELATIVE to r — one or more
+//     segments, e.g. "/heroes" or "/admin/heroes". Empty falls back to the
+//     table's Segment field, then to a derived plural of the model name. The
+//     table's absolute base, used for every rendered hx-get / form action, is
+//     normalizePrefix(routerPrefix) + componentPath.
 //
-// Routes are registered relative to r, so the table composes under stripping
-// mounts (chi.Route/Mount) and groups alike. For Slug="heroes" and
-// mountBase="/admin":
+// Routes are registered relative to r, so the table composes on the root mux
+// without a stripping chi.Route. For componentPath="/admin/heroes",
+// routerPrefix="":
 //
 //	GET    /admin/heroes/view          table fragment for HTMX swaps into #ListID
 //	GET    /admin/heroes/create        create form fragment (target: modal body)
@@ -148,16 +175,17 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 //
 // Every handler gates on c.Authz (CanList / CanRead / CanCreate /
 // CanUpdate / CanDelete); nil = AllowAll.
-func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, mountBase, slug string) {
-	if slug == "" {
-		slug = c.Slug
+func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, routerPrefix, componentPath string) {
+	if componentPath == "" {
+		componentPath = c.Segment
 	}
-	if slug == "" {
-		slug = defaultSlug(c.MetaData.Name)
+	if componentPath == "" {
+		componentPath = defaultSlug(c.MetaData.Name)
 	}
-	c.Slug = strings.Trim(slug, "/")
-	rel := "/" + c.Slug
-	c.urlBase = normalizePrefix(mountBase) + rel
+	rel := "/" + strings.Trim(componentPath, "/")
+	c.componentPath = rel
+	c.modalKey = pathKey(rel)
+	c.urlBase = normalizePrefix(routerPrefix) + rel
 
 	r.Get(rel+"/view", c.makeFragmentHandler(c.handleListRows, "list"))
 	if c.CreateEnabled {
@@ -317,8 +345,8 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 		PageSize:         pageSize,
 		NumPages:         numPages,
 		ListID:           c.ListID,
-		L1ModalID:        L1ModalIDFromSlug(c.Slug),
-		L1BodyID:         L1BodyIDFromSlug(c.Slug),
+		L1ModalID:        L1ModalIDFromSlug(c.modalKey),
+		L1BodyID:         L1BodyIDFromSlug(c.modalKey),
 	}, nil
 }
 
@@ -366,30 +394,38 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) te
 	return TableContent(d)
 }
 
-// createFormView returns the FormView component for a fresh row.
-// bodyID names the modal body the form is being rendered into — the
-// form's hx-target points back to it so validation errors re-render
-// in place. When bodyID is "" the form has no HTMX wiring (browser
-// fallback). modelErr renders above the form; fieldErrors render
-// below each named field.
-//
-// FormView is barebone — the modal-box that surrounds it provides
-// chrome. CRUDTable builds FormViewData directly (rather than going
-// through mm.RenderFormComponent) because the URLs are per-action
-// (/create, /{id}/edit) and don't match mm.FormURL.
-func (c *CRUDTable[T]) createFormView(errs ValidationErrors, data T, bodyID string) templ.Component {
-	d := FormViewData{
-		DisplayName: "Create " + c.MetaData.DisplayName,
+// createForm / editForm render the create / edit form for the table by
+// reusing the MetaModel's RenderForm primitive (the same one applications
+// call when they own the routing) — the table only supplies the per-action
+// URL, label, and modal-body hx-target. bodyID names the modal body the form
+// renders into; "" leaves the form with no HTMX wiring (browser fallback).
+func (c *CRUDTable[T]) createForm(errs ValidationErrors, data T, bodyID string) templ.Component {
+	return c.MetaData.RenderForm(data, FormOpts{
+		Title:       "Create " + c.MetaData.DisplayName,
 		ActionURL:   c.urlBase + "/create",
-		SubmitText:  "Create",
-		Fields:      c.MetaData.Fields,
-		Inputs:      c.MetaData.GenFormElements(data),
+		SubmitLabel: "Create",
 		Errors:      errs,
+		HXTarget:    hxTarget(bodyID),
+	})
+}
+
+func (c *CRUDTable[T]) editForm(id uint, errs ValidationErrors, row T, bodyID string) templ.Component {
+	idStr := strconv.FormatUint(uint64(id), 10)
+	return c.MetaData.RenderForm(row, FormOpts{
+		Title:       "Edit " + c.MetaData.DisplayName + " #" + idStr,
+		ActionURL:   c.urlBase + "/" + idStr + "/edit",
+		SubmitLabel: "Save",
+		Errors:      errs,
+		HXTarget:    hxTarget(bodyID),
+	})
+}
+
+// hxTarget turns a modal body id into a CSS selector, or "" for no wiring.
+func hxTarget(bodyID string) string {
+	if bodyID == "" {
+		return ""
 	}
-	if bodyID != "" {
-		d.HXTarget = "#" + bodyID
-	}
-	return FormView(d)
+	return "#" + bodyID
 }
 
 func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) templ.Component {
@@ -400,23 +436,19 @@ func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) 
 		// it correctly names this table's per-slug L1 OR the shared L2.
 		htmx.Reply().OpenModal(modalID).Apply(w)
 	}
-	return c.createFormView(nil, zero, bodyID)
+	return c.createForm(nil, zero, bodyID)
 }
 
 func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) templ.Component {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return nil
-	}
 	modalID, bodyID, isL2 := modalIDsFromHeader(r)
 	var data T
-	if err := c.MetaData.BindForm(r.PostForm, &data); err != nil {
+	if err := c.MetaData.TryBindForm(r, &data); err != nil {
 		if htmx.IsRequest(r) {
 			// Validation failure: re-render the form in the same modal
 			// body it came from.
 			htmx.Reply().Retarget("#" + bodyID).Reswap("innerHTML").Apply(w)
 		}
-		return c.createFormView(ValidationErrorsFromError(err), data, bodyID)
+		return c.createForm(ValidationErrorsFromError(err), data, bodyID)
 	}
 	if _, _, err := c.Data.Create(r.Context(), data); failInternal(w, err) {
 		return nil
@@ -443,22 +475,6 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 	return nil
 }
 
-func (c *CRUDTable[T]) editFormView(id uint, errs ValidationErrors, row T, bodyID string) templ.Component {
-	idStr := strconv.FormatUint(uint64(id), 10)
-	d := FormViewData{
-		DisplayName: "Edit " + c.MetaData.DisplayName + " #" + idStr,
-		ActionURL:   c.urlBase + "/" + idStr + "/edit",
-		SubmitText:  "Save",
-		Fields:      c.MetaData.Fields,
-		Inputs:      c.MetaData.GenFormElements(row),
-		Errors:      errs,
-	}
-	if bodyID != "" {
-		d.HXTarget = "#" + bodyID
-	}
-	return FormView(d)
-}
-
 func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) templ.Component {
 	id, ok := parseID(r)
 	if !ok {
@@ -477,17 +493,13 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) te
 	if htmx.IsRequest(r) {
 		htmx.Reply().OpenModal(modalID).Apply(w)
 	}
-	return c.editFormView(id, nil, row, bodyID)
+	return c.editForm(id, nil, row, bodyID)
 }
 
 func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) templ.Component {
 	id, ok := parseID(r)
 	if !ok {
 		http.Error(w, "bad id", http.StatusBadRequest)
-		return nil
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return nil
 	}
 	// Start from the current row so unsubmitted hidden/read-only fields
@@ -501,11 +513,11 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) te
 		return nil
 	}
 	modalID, bodyID, isL2 := modalIDsFromHeader(r)
-	if err := c.MetaData.BindForm(r.PostForm, &row); err != nil {
+	if err := c.MetaData.TryBindForm(r, &row); err != nil {
 		if htmx.IsRequest(r) {
 			htmx.Reply().Retarget("#" + bodyID).Reswap("innerHTML").Apply(w)
 		}
-		return c.editFormView(id, ValidationErrorsFromError(err), row, bodyID)
+		return c.editForm(id, ValidationErrorsFromError(err), row, bodyID)
 	}
 	if _, err := c.Data.Update(r.Context(), id, row); failInternal(w, err) {
 		return nil

@@ -28,10 +28,7 @@ type blobModel struct {
 // "unsupported kind slice" — which previously blocked creating any row with
 // such a field — and display as its string (HTML-escaped).
 func TestByteSliceBindAndDisplay(t *testing.T) {
-	mm, err := DeriveMetaModel[blobModel]()
-	if err != nil {
-		t.Fatalf("derive: %v", err)
-	}
+	mm := DeriveMetaModel[blobModel](MetaModel[blobModel]{})
 	h := mm.MustFindField("Handle")
 	if h.RelationKind != NotRelation {
 		t.Fatalf("Handle should be a scalar field, got relation kind %v", h.RelationKind)
@@ -66,10 +63,7 @@ func TestByteSliceBindAndDisplay(t *testing.T) {
 }
 
 func TestDeriveMetaModel_FieldsAndInputTypes(t *testing.T) {
-	mm, err := DeriveMetaModel[sampleConfig]()
-	if err != nil {
-		t.Fatalf("derive: %v", err)
-	}
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	if mm.Name != "sampleConfig" {
 		t.Errorf("Name = %q, want sampleConfig", mm.Name)
 	}
@@ -98,7 +92,7 @@ func TestDeriveMetaModel_FieldsAndInputTypes(t *testing.T) {
 }
 
 func TestDeriveMetaModel_SortableSearchable(t *testing.T) {
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	for _, mf := range mm.Fields {
 		if !mf.Sortable {
 			t.Errorf("%s should be Sortable (all scalar types are)", mf.Name)
@@ -117,7 +111,7 @@ func TestDeriveMetaModel_SortableSearchable(t *testing.T) {
 }
 
 func TestDefaultBindForm_AllScalars(t *testing.T) {
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	form := map[string][]string{
 		"Hostname": {"box.example.com"},
 		"Port":     {"443"},
@@ -153,7 +147,7 @@ func TestDefaultBindForm_AllScalars(t *testing.T) {
 
 func TestDefaultBindForm_UncheckedCheckbox(t *testing.T) {
 	// An unchecked checkbox sends only the paired hidden "off" value.
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	out := sampleConfig{Enabled: true} // start true; bind should flip to false
 	form := map[string][]string{
 		"Enabled": {"off"},
@@ -167,7 +161,7 @@ func TestDefaultBindForm_UncheckedCheckbox(t *testing.T) {
 }
 
 func TestDefaultBindForm_InvalidNumberFails(t *testing.T) {
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	form := map[string][]string{"Port": {"notnumber"}}
 	var out sampleConfig
 	err := mm.BindForm(form, &out)
@@ -180,7 +174,7 @@ func TestDefaultBindForm_InvalidNumberFails(t *testing.T) {
 }
 
 func TestFindField(t *testing.T) {
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	f, err := mm.FindField("Port")
 	if err != nil {
 		t.Fatalf("FindField(Port): %v", err)
@@ -196,7 +190,7 @@ func TestFindField(t *testing.T) {
 }
 
 func TestMustFindField(t *testing.T) {
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	mm.MustFindField("Port").FormHelp = "TCP port"
 	if mm.Fields[1].FormHelp != "TCP port" {
 		t.Errorf("MustFindField did not mutate in place")
@@ -210,7 +204,7 @@ func TestMustFindField(t *testing.T) {
 }
 
 func TestDefaultDisplayValues_RenderShape(t *testing.T) {
-	mm, _ := DeriveMetaModel[sampleConfig]()
+	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
 	v := sampleConfig{
 		Hostname: "box",
 		Port:     80,

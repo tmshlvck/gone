@@ -21,32 +21,24 @@ func newCfgStore() (map[uint]cfgHero, *sync.RWMutex) {
 	return map[uint]cfgHero{1: {ID: 1, Name: "Aragorn"}}, &sync.RWMutex{}
 }
 
-func TestNewMapTableAppliesRecipe(t *testing.T) {
-	store, mu := newCfgStore()
-	tbl := NewMapTable(store, mu, Table[cfgHero]{
-		Slug:     "heroes",
-		Title:    "Heroes",
-		PageSize: 7,
-		Fields: Fields{
-			"ID":   {ReadOnly: true},
-			"Name": {Label: "Full name", Help: "2–40 chars.", Validate: All(NotEmpty, MaxLen(40))},
+// TestDeriveMetaModelMergesPreset covers the overlay rules: preset's
+// non-empty DisplayName / per-field strings / hooks / additive flags win over
+// the reflected defaults; NewTable then enables mutations by default.
+func TestDeriveMetaModelMergesPreset(t *testing.T) {
+	mm := DeriveMetaModel[cfgHero](MetaModel[cfgHero]{
+		DisplayName: "Heroes",
+		Fields: []MetaField{
+			{Name: "ID", ReadOnly: true},
+			{Name: "Name", DisplayName: "Full name", FormHelp: "2–40 chars.", FieldValidate: All(NotEmpty, MaxLen(40))},
 		},
 	})
-
-	if tbl.Slug != "heroes" {
-		t.Errorf("Slug = %q, want heroes", tbl.Slug)
+	if mm.DisplayName != "Heroes" {
+		t.Errorf("DisplayName = %q, want Heroes", mm.DisplayName)
 	}
-	if tbl.PageSize != 7 {
-		t.Errorf("PageSize = %d, want 7", tbl.PageSize)
-	}
-	if tbl.MetaData.DisplayName != "Heroes" {
-		t.Errorf("DisplayName = %q, want Heroes", tbl.MetaData.DisplayName)
-	}
-	id := tbl.MetaData.MustFindField("ID")
-	if !id.ReadOnly {
+	if id := mm.MustFindField("ID"); !id.ReadOnly {
 		t.Error("ID.ReadOnly = false, want true")
 	}
-	name := tbl.MetaData.MustFindField("Name")
+	name := mm.MustFindField("Name")
 	if name.DisplayName != "Full name" {
 		t.Errorf("Name.DisplayName = %q, want Full name", name.DisplayName)
 	}
@@ -56,52 +48,68 @@ func TestNewMapTableAppliesRecipe(t *testing.T) {
 	if name.FieldValidate == nil {
 		t.Error("Name.FieldValidate not set")
 	}
-	// Mutations enabled by default.
+
+	store, mu := newCfgStore()
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 7, nil)
+	if tbl.PageSize != 7 {
+		t.Errorf("PageSize = %d, want 7", tbl.PageSize)
+	}
 	if !tbl.CreateEnabled || !tbl.EditEnabled || !tbl.DeleteEnabled {
 		t.Error("expected create/edit/delete enabled by default")
 	}
 }
 
-func TestNewMapTableDefaults(t *testing.T) {
-	store, mu := newCfgStore()
-	tbl := NewMapTable(store, mu, Table[cfgHero]{})
-	// Default slug = lowercase(type)+"s".
-	if tbl.Slug != "cfgheros" {
-		t.Errorf("default Slug = %q, want cfgheros", tbl.Slug)
+// TestDeriveMetaModelDefaults covers the zero preset: type-name DisplayName
+// and reflected per-field defaults left intact.
+func TestDeriveMetaModelDefaults(t *testing.T) {
+	mm := DeriveMetaModel[cfgHero](MetaModel[cfgHero]{})
+	if mm.DisplayName != "cfgHero" {
+		t.Errorf("default DisplayName = %q, want cfgHero", mm.DisplayName)
 	}
-	// Title defaults to the type name.
-	if tbl.MetaData.DisplayName != "cfgHero" {
-		t.Errorf("default DisplayName = %q, want cfgHero", tbl.MetaData.DisplayName)
-	}
-	// Untouched fields keep reflected defaults: Name is searchable, not read-only.
-	name := tbl.MetaData.MustFindField("Name")
+	name := mm.MustFindField("Name")
 	if name.ReadOnly {
 		t.Error("Name unexpectedly read-only")
 	}
 	if !name.Searchable {
 		t.Error("Name should stay searchable (reflected default)")
 	}
-}
-
-func TestReadOnlyDisablesMutations(t *testing.T) {
+	// URLSlug falls back to a lowercased plural of the model name.
 	store, mu := newCfgStore()
-	tbl := NewMapTable(store, mu, Table[cfgHero]{ReadOnly: true})
-	if tbl.CreateEnabled || tbl.EditEnabled || tbl.DeleteEnabled {
-		t.Errorf("ReadOnly recipe should disable all mutations; got C=%v E=%v D=%v",
-			tbl.CreateEnabled, tbl.EditEnabled, tbl.DeleteEnabled)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, nil)
+	if tbl.URLSlug() != "cfgheros" {
+		t.Errorf("default URLSlug = %q, want cfgheros", tbl.URLSlug())
 	}
 }
 
-func TestUnknownFieldPanics(t *testing.T) {
+// TestSegmentOverridesURLSlug covers the irregular-plural escape hatch.
+func TestSegmentOverridesURLSlug(t *testing.T) {
+	mm := DeriveMetaModel[cfgHero](MetaModel[cfgHero]{})
+	store, mu := newCfgStore()
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, nil)
+	tbl.Segment = "heroes"
+	if tbl.URLSlug() != "heroes" {
+		t.Errorf("URLSlug = %q, want heroes", tbl.URLSlug())
+	}
+}
+
+func TestUnknownPresetFieldPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatal("expected panic for unknown field name")
+			t.Fatal("expected panic for unknown preset field name")
 		}
 	}()
-	store, mu := newCfgStore()
-	_ = NewMapTable(store, mu, Table[cfgHero]{
-		Fields: Fields{"Nmae": {Help: "typo"}}, // misspelled "Name"
+	_ = DeriveMetaModel[cfgHero](MetaModel[cfgHero]{
+		Fields: []MetaField{{Name: "Nmae", FormHelp: "typo"}}, // misspelled "Name"
 	})
+}
+
+func TestNonStructPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for non-struct T")
+		}
+	}()
+	_ = DeriveMetaModel[int](MetaModel[int]{})
 }
 
 type secretModel struct {
@@ -123,13 +131,10 @@ func renderHook(t *testing.T, c templ.Component) string {
 // TestRedactHelper covers crud.Redact as a DisplayValue hook (paired with
 // ReadOnly to make a shown-but-uneditable secret field).
 func TestRedactHelper(t *testing.T) {
-	store := map[uint]secretModel{}
-	tbl := NewMapTable(store, &sync.RWMutex{}, Table[secretModel]{
-		Fields: Fields{
-			"Handle": {ReadOnly: true, DisplayValue: Redact},
-		},
+	mm := DeriveMetaModel[secretModel](MetaModel[secretModel]{
+		Fields: []MetaField{{Name: "Handle", ReadOnly: true, DisplayValue: Redact}},
 	})
-	h := tbl.MetaData.MustFindField("Handle")
+	h := mm.MustFindField("Handle")
 	if !h.ReadOnly {
 		t.Error("Handle should be ReadOnly (shown, not bound)")
 	}
@@ -151,21 +156,17 @@ func TestRedactHelper(t *testing.T) {
 }
 
 // TestPasswordFieldViaHelpers composes a write-only password field from the
-// generic hooks + Redact / PasswordInput / HashWith — no bespoke Field flag.
+// generic hooks + Redact / PasswordInput / HashWith — no bespoke field flag.
 func TestPasswordFieldViaHelpers(t *testing.T) {
-	store := map[uint]secretModel{}
-	tbl := NewMapTable(store, &sync.RWMutex{}, Table[secretModel]{
-		Fields: Fields{
-			"PasswordHash": {
-				Label:          "Password",
-				InputType:      "password",
-				DisplayValue:   Redact,
-				GenFormElement: PasswordInput,
-				BindStrings:    HashWith(func(pw string) (string, error) { return "H(" + pw + ")", nil }),
-			},
-		},
+	mm := DeriveMetaModel[secretModel](MetaModel[secretModel]{
+		Fields: []MetaField{{
+			Name: "PasswordHash", DisplayName: "Password", FormInputType: "password",
+			DisplayValue:   Redact,
+			GenFormElement: PasswordInput,
+			BindStrings:    HashWith(func(pw string) (string, error) { return "H(" + pw + ")", nil }),
+		}},
 	})
-	f := tbl.MetaData.MustFindField("PasswordHash")
+	f := mm.MustFindField("PasswordHash")
 
 	// Empty password box — the stored hash never leaks into the form.
 	form := renderHook(t, f.GenFormElement(*f, "argon2$secret"))
@@ -211,10 +212,11 @@ func TestShortLabelOverride(t *testing.T) {
 		OwnerID uint
 		Owner   svHero
 	}
-	htbl := NewMapTable(map[uint]svHero{}, &sync.RWMutex{}, Table[svHero]{
-		ShortLabel: func(h svHero) string { return h.Name + " (" + h.Realm + ")" },
-	})
-	wtbl := NewMapTable(map[uint]svWeapon{}, &sync.RWMutex{}, Table[svWeapon]{})
+	hmm := DeriveMetaModel[svHero](MetaModel[svHero]{})
+	htbl := NewTable(hmm, MapAccessor(hmm, map[uint]svHero{}, &sync.RWMutex{}), 0, nil)
+	htbl.ShortLabel = func(h svHero) string { return h.Name + " (" + h.Realm + ")" }
+	wmm := DeriveMetaModel[svWeapon](MetaModel[svWeapon]{})
+	wtbl := NewTable(wmm, MapAccessor(wmm, map[uint]svWeapon{}, &sync.RWMutex{}), 0, nil)
 
 	// The override drives this table's own label (used by its /options).
 	if got := htbl.InstanceShortLabel(svHero{Name: "Aragorn", Realm: "Gondor"}); got != "Aragorn (Gondor)" {
@@ -232,10 +234,9 @@ func TestShortLabelOverride(t *testing.T) {
 }
 
 func TestModelValidateWired(t *testing.T) {
-	store, mu := newCfgStore()
 	sentinel := func(cfgHero) error { return nil }
-	tbl := NewMapTable(store, mu, Table[cfgHero]{Validate: sentinel})
-	if tbl.MetaData.Validate == nil {
-		t.Error("model-level Validate not wired onto MetaModel")
+	mm := DeriveMetaModel[cfgHero](MetaModel[cfgHero]{Validate: sentinel})
+	if mm.Validate == nil {
+		t.Error("model-level Validate not wired onto MetaModel from preset")
 	}
 }

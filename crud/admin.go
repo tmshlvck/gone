@@ -31,11 +31,6 @@ type Admin struct {
 	// child table has its own Authz gating its own routes.
 	Authz auth.Authz
 
-	// Slug is the path segment under which Admin is mounted. Default
-	// "admin". Currently used only for documentation / future
-	// multi-admin scenarios.
-	Slug string
-
 	// SidebarTop / SidebarBottom are optional app-defined links that
 	// render above / below the table entries. Clicking one HTMX-swaps
 	// the response into the working area (#crud-admin-main) instead
@@ -84,39 +79,42 @@ func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
 	return Admin{
 		Tables: tables,
 		Authz:  az,
-		Slug:   "admin",
 	}
 }
 
-// RegisterRoutes mounts Admin on r, registering everything relative to r.
-// mountBase is the absolute path at which r is served (recorded so rendered
-// links resolve absolutely — see CRUDTable.RegisterRoutes). The caller mounts
-// r at mountBase, typically via a stripping chi.Route:
+// RegisterRoutes mounts Admin on r, composing every path relative to r — no
+// stripping chi.Route needed, just the root mux:
 //
-//	r.Route("/admin", func(r chi.Router) { admin.RegisterRoutes(r, "/admin", shell) })
+//	admin.RegisterRoutes(root, "", "/admin", pageShell)
 //
-// Registers, for mountBase="/admin", tables ["heros","weapons","skills"]:
+// routerPrefix is the absolute path at which r is served ("" for the root
+// mux); componentPath is where Admin sits relative to r (e.g. "/admin"). Each
+// child table is mounted at componentPath + "/" + its URLSlug (a lowercased
+// plural of the model name, or its Segment override).
 //
-//	GET  /admin                       → 303 to /admin/heros (index redirect)
-//	GET  /admin/heros                 → page (shell wrapping sidebar + heros table)
-//	GET  /admin/weapons | /skills     → page (active table)
-//	GET  /admin/heros/view, /create…  → each child table's fragment endpoints
+// Registers, for componentPath="/admin", tables ["heroes","weapons","skills"]:
+//
+//	GET  /admin                        → 303 to /admin/heroes (index redirect)
+//	GET  /admin/heroes                 → page (shell wrapping sidebar + heroes table)
+//	GET  /admin/weapons | /skills      → page (active table)
+//	GET  /admin/heroes/view, /create…  → each child table's fragment endpoints
 //
 // shell == nil → no per-slug page handler is registered (the index redirect
 // and child fragments still are). Child relation fields are linked via
 // WireRelations once all children are routed.
-func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error {
-	a.urlBase = normalizePrefix(mountBase)
+func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string, shell site.Shell) error {
+	base := "/" + strings.Trim(componentPath, "/")
+	a.urlBase = normalizePrefix(routerPrefix) + base
 	if len(a.Tables) == 0 {
 		return nil
 	}
-	// Delegate each child table's fragment endpoints. Children's page
+	// Mount each child under {base}/{slug}, relative to r. Children's page
 	// handlers are not registered — Admin owns the page route.
 	for _, t := range a.Tables {
 		if t.URLSlug() == "" {
 			return fmt.Errorf("Admin: table %q has empty URLSlug", t.DisplayName())
 		}
-		t.RegisterRoutes(r, a.urlBase, t.URLSlug())
+		t.RegisterRoutes(r, routerPrefix, base+"/"+t.URLSlug())
 	}
 	// Every child now has its URLBase set — link relation fields across
 	// them (Go type name → URLBase) so relation pickers fetch options from
@@ -124,9 +122,8 @@ func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell)
 	WireRelations(a.Tables...)
 	az := auth.AuthzOrAllow(a.Authz)
 	firstSlug := a.Tables[0].URLSlug()
-	// Index redirect: GET {mountBase} → first table. Registered relative
-	// to r (which the caller mounted at mountBase).
-	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+	// Index redirect: GET {base} → first table.
+	r.Get(base, func(w http.ResponseWriter, req *http.Request) {
 		if !az.CanList(req) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
@@ -137,7 +134,7 @@ func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell)
 	// shell. Wraps Admin.Render in the shell with the active table's
 	// DisplayName as the page title.
 	if shell != nil {
-		r.Get("/{slug}", func(w http.ResponseWriter, req *http.Request) {
+		r.Get(base+"/{slug}", func(w http.ResponseWriter, req *http.Request) {
 			if !az.CanList(req) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
@@ -165,9 +162,9 @@ func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell)
 // urlBase); its Render(r) output is embedded inline in the working
 // area. The sidebar marks the matching entry as active.
 //
-// Sidebar links use hx-boost so clicks become fetch+body-swap
-// (no full page reload), the URL updates via hx-push-url, and back-
-// button works through HTMX's history cache.
+// Sidebar entries are plain links (real MPA navigation); the server
+// re-renders the whole page on each load and marks the active entry
+// from the request path.
 func (a *Admin) Render(r *http.Request) (templ.Component, error) {
 	activeSlug := a.activeSlug(r)
 	entries := make([]AdminEntry, 0, len(a.Tables))

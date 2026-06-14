@@ -7,7 +7,8 @@ reference see [`AUTH.md`](AUTH.md).
 
 ## What it does
 
-You describe a Go struct once, in a declarative recipe. The library gives you:
+You describe a Go struct once as a `MetaModel`, pair it with a data
+`Accessor`, and wrap the two in a `CRUDTable`. The library gives you:
 
 - **A list page** (search + sort + pagination + per-row edit / delete).
 - **A create form** and **an edit form** with per-field validators, a
@@ -19,8 +20,8 @@ You describe a Go struct once, in a declarative recipe. The library gives you:
 - **An Admin** that bundles many `CRUDTable`s under one URL prefix with a
   sidebar.
 
-Backends today: in-memory map (`NewMapTable`), GORM (`NewGormTable`). A new
-backend is a new constructor over the same `Accessor` closures.
+Backends today: in-memory map (`MapAccessor`), GORM (`GORMAccessor`). A new
+backend is a new type implementing the five-method `Accessor[T]` interface.
 
 The library emits **HTML fragments** — no `<html>/<body>/<style>` — plus a
 small JS bridge that wires HTMX modal events to DaisyUI dialogs. The page
@@ -32,6 +33,27 @@ Navigation is multi-page — real `<a href>` links (Admin's sidebar included),
 each a full page load; no `hx-boost`. Only in-component interactions (sort,
 search, paginate, modal forms, delete) use targeted HTMX swaps. See
 [`../REFACTOR-HTMX.md`](../REFACTOR-HTMX.md) for the why.
+
+## The three steps
+
+Construction separates **what** from **where**. You build a table from three
+pieces — metadata, data, config — and only then say where it lives:
+
+```go
+mm    := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{ /* overrides */ }) // WHAT to render/bind
+data  := crud.GORMAccessor[Hero](mm, db)                                     // the data plane
+table := crud.NewTable(mm, data, 10, az)                                     // table config (pageSize, authz)
+table.RegisterRoutes(root, "", "/admin/heroes")                             // WHERE it lives
+```
+
+- `DeriveMetaModel` reflects `Hero`, then overlays your overrides.
+- `GORMAccessor` / `MapAccessor` build the data plane from the **same** `mm`
+  (they read it to learn which fields are searchable / sortable / relations).
+- `NewTable` pairs the two and adds table-level config (`pageSize`, `authz`,
+  the mutation toggles).
+- `RegisterRoutes` is the only place a path appears — the table is otherwise
+  path-agnostic, so the same table can be mounted standalone or under an
+  Admin without rebuilding it.
 
 ## Quick taste
 
@@ -46,20 +68,24 @@ func main() {
     store := map[uint]Hero{1: {1, "Aragorn", 90}}
     var mu sync.RWMutex
 
-    // Describe the whole table once.
-    table := crud.NewMapTable(store, &mu, crud.Table[Hero]{
-        Slug:  "heroes",
-        Title: "Heroes",
-        Fields: crud.Fields{
-            "ID":    {ReadOnly: true},
-            "Name":  {Validate: crud.All(crud.NotEmpty, crud.MaxLen(30))},
-            "Power": {Help: "0–100", Validate: crud.IntRange(0, 100)},
+    // 1. Metadata: reflect Hero, overlay per-field overrides.
+    mm := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+        DisplayName: "Heroes",
+        Fields: []crud.MetaField{
+            {Name: "ID", ReadOnly: true},
+            {Name: "Name", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(30))},
+            {Name: "Power", FormHelp: "0–100", FieldValidate: crud.IntRange(0, 100)},
         },
     })
+    // 2. Data plane over the caller-owned map + mutex.
+    data := crud.MapAccessor(mm, store, &mu)
+    // 3. Table config: pageSize 0 (= default 20), no authz.
+    table := crud.NewTable(mm, data, 0, nil)
 
     r := chi.NewRouter()
-    table.RegisterRoutes(r, "", table.Slug) // fragment endpoints under /heroes/…
-    r.Get("/"+table.Slug, func(w http.ResponseWriter, req *http.Request) {
+    const heroesPath = "/heroes"
+    table.RegisterRoutes(r, "", heroesPath) // fragment endpoints under /heroes/…
+    r.Get(heroesPath, func(w http.ResponseWriter, req *http.Request) {
         content, err := table.Render(req) // the app owns the page route
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -99,8 +125,8 @@ Tailwind + HTMX from jsDelivr/unpkg.
 
 ## Packages
 
-- **`gone/crud`** — the recipe, the table/admin components, the metadata
-  model, validators. What this document covers.
+- **`gone/crud`** — the metadata model, the table/admin components, the data
+  accessors, validators. What this document covers.
 - **`gone/site`** — page-composition helpers shared with the app: the
   `Shell` function shape (the app's page chrome), a `Fragment` writer, and a
   `Respond` helper for a single URL that serves both a fragment and a full
@@ -111,49 +137,69 @@ Tailwind + HTMX from jsDelivr/unpkg.
   backend-driven modal control (`OpenModal`/`CloseModal`). Dependency-free.
   Apps reach for it in their own handlers; `crud` uses it internally.
 
-## The recipe — `Table[T]`, `Field`, `Fields`
+## Metadata — `DeriveMetaModel` and `MetaField`
 
-A model is described once, declaratively, and handed to a constructor. The
-constructor reflects `T`, merges the overrides over the reflected defaults,
-and returns a ready `CRUDTable[T]`.
+`MetaModel[T]` is pure metadata + render/bind helpers — no routing, no data,
+no authz. `DeriveMetaModel` reflects `T` into defaults, then overlays a
+*preset* — a partial `MetaModel[T]` carrying only the overrides you want:
 
 ```go
-type Table[T any] struct {
-    Slug     string     // URL slug (plural); empty = lowercase(TypeName)+"s"
-    Title    string     // display name; empty = the Go type name
-    PageSize int        // rows per page; 0 = library default (20)
-    Authz    auth.Authz // nil = allow all
+func DeriveMetaModel[T any](preset MetaModel[T]) MetaModel[T]
+```
 
-    ReadOnly         bool // disables create + edit + delete in one switch
-    HideUnauthorized bool // omit disallowed mutation buttons (vs render disabled)
+```go
+mm := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{
+    DisplayName: "Heroes",                          // empty = the Go type name
+    Validate:    func(h Hero) error { … },          // optional cross-field rule
+    Fields: []crud.MetaField{                        // matched to derived fields by Name
+        {Name: "ID",    ReadOnly: true},
+        {Name: "Name",  FormHelp: "2–40 chars.", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
+        {Name: "Power", FormInputType: "number",  FieldValidate: crud.IntRange(0, 100)},
+    },
+})
+```
 
-    Fields     Fields              // per-field overrides, keyed by Go field name
-    Validate   func(instance T) error // optional model-level cross-field validator
-    ShortLabel func(instance T) string // relation label override (see Relations)
-}
+Merge rules: the preset's non-empty `DisplayName` / `Validate` win; each
+preset field (matched by `Name`) overlays its non-empty strings, non-nil
+hooks, and **additive** `ReadOnly`/`Hidden`/`Sortable`/`Searchable` (a `true`
+turns the flag on; forcing one *off* means editing the returned `mm`
+directly). Relation metadata (`RelationKind`, `FKFieldName`, the relation
+hooks) stays derive-authoritative.
 
-// Field overrides one field's derived defaults. The zero value changes
-// nothing — set only what you want. ReadOnly/Hidden are additive (true turns
-// the flag on); every other field overrides when non-empty / non-nil.
-type Field struct {
-    Label     string    // -> DisplayName  (empty = keep derived = Go field name)
-    Help      string    // -> FormHelp     (hint under the input)
-    InputType string    // -> FormInputType ("email", "password", "date", …)
-    ReadOnly  bool      // show in detail/list, omit from the form
-    Hidden    bool      // omit entirely (list, detail, form)
-    Validate  Validator // -> FieldValidate (per-field server validator)
+`DeriveMetaModel` **panics at startup** on a programming error — a non-struct
+`T`, or a preset field `Name` the type doesn't have (a typo / renamed field).
+This is the `regexp.MustCompile` idiom: fail loudly at boot, not silently at
+first render. Pass the zero `crud.MetaModel[T]{}` for pure defaults.
+
+`MetaField` describes one field. Its relation metadata is filled by
+derivation; `RelatedURLBase` (the related table's absolute URL) is left blank
+and filled later by `WireRelations` / `Admin`:
+
+```go
+type MetaField struct {
+    Name, DisplayName, FormInputType, FormHelp string
+    Hidden, ReadOnly, Multiple, Sortable, Searchable bool
+
+    RelationKind    RelationKind // NotRelation | RelationSingle | RelationMany2Many | RelationHasMany
+    RelatedURLBase  string       // related table URL; blank until wired
+    RelatedTypeName string       // Go type name of the related model
+    FKFieldName     string       // RelationSingle: sibling FK uint
+    FormFieldName   string       // POST key (defaults to Name)
 
     // The three generic per-field transforms; nil keeps the derived hook.
-    // Compose them for bespoke fields without dropping to the low-level path.
     DisplayValue   func(mf MetaField, value any) templ.Component         // table/detail cell
     GenFormElement func(mf MetaField, value any) templ.Component         // whole form <input>
     BindStrings    func(mf MetaField, strs []string, instance any) error // parse form value(s) → struct
+    FieldValidate  Validator                                             // per-field server validator
 }
+```
 
-type Fields map[string]Field
+After construction you can still mutate the model in place via
+`MustFindField` (`examples/form_mem` does this) — both styles are supported:
 
-func NewGormTable[T any](db *gorm.DB, cfg Table[T]) CRUDTable[T]
-func NewMapTable[T any](store map[uint]T, mu *sync.RWMutex, cfg Table[T]) CRUDTable[T]
+```go
+func (mm *MetaModel[T]) FindField(name string) (*MetaField, error)
+func (mm *MetaModel[T]) MustFindField(name string) *MetaField // panics on miss
 ```
 
 ### Secret / password fields
@@ -171,7 +217,7 @@ func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) 
   `[]byte` handle) — redacted in the table, never sent to the form or bound:
 
   ```go
-  "TOTPSecret": {Label: "TOTP", ReadOnly: true, DisplayValue: crud.Redact},
+  {Name: "TOTPSecret", ReadOnly: true, DisplayValue: crud.Redact},
   ```
 
 - **A write-only password field** — empty box in the form, redacted in the
@@ -179,38 +225,61 @@ func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) 
   current value:
 
   ```go
-  "PasswordHash": {Label: "Password", InputType: "password",
+  {Name: "PasswordHash", DisplayName: "Password", FormInputType: "password",
       DisplayValue:   crud.Redact,
       GenFormElement: crud.PasswordInput,
-      BindStrings:    crud.HashWith(auth.HashPassword), // auth.HashPassword = argon2id
-  },
+      BindStrings:    crud.HashWith(auth.HashPassword)}, // auth.HashPassword = argon2id
   ```
 
 `auth.HashPassword` hashes the same way the login path verifies. See
 `examples/auth_gorm` for the User table using all of this.
 
-The constructors **panic at startup** on a programming error — a non-struct
-`T`, or a `Fields` key the type doesn't have (a typo / renamed field). This
-is the `regexp.MustCompile` idiom: fail loudly at boot, not silently at first
-render.
+## The data plane — `Accessor[T]`
+
+A `CRUDTable` is backend-blind: every read and write goes through an
+`Accessor[T]`. The library ships two; a third backend is just a third
+implementation of this interface.
 
 ```go
-heroes := crud.NewGormTable(db, crud.Table[Hero]{
-    Slug: "heroes", Title: "Heroes", PageSize: 10,
-    Fields: crud.Fields{
-        "ID":      {ReadOnly: true},
-        "Name":    {Help: "2–40 chars.", Validate: crud.All(crud.NotEmpty, crud.MaxLen(40))},
-        "Weapons": {Label: "Weapons (read-only)", Help: "Edit via /weapons."},
-    },
-})
+type Accessor[T any] interface {
+    Get(ctx context.Context, id uint) (T, error)
+    List(ctx context.Context, search, sortBy string, sortDesc bool, offset, limit int) ([]CRUDSearchResult[T], int64, error)
+    Create(ctx context.Context, in T) (id uint, out T, err error)
+    Update(ctx context.Context, id uint, in T) (out T, err error)
+    Delete(ctx context.Context, id uint) error
+}
+
+func GORMAccessor[T any](mm MetaModel[T], db *gorm.DB) Accessor[T]
+func MapAccessor[T any](mm MetaModel[T], store map[uint]T, mu *sync.RWMutex) Accessor[T]
 ```
 
-The returned `CRUDTable[T]` is a plain struct with public fields, so anything
-the recipe doesn't cover — granular `CreateEnabled`, a one-off MetaField
-hook — is still settable afterward. The low-level `DeriveMetaModel` +
-`DeriveGormCRUDTable` + `MustFindField` path (see [Lower-level
-API](#lower-level-api)) remains available for callers that need a custom
-backend or hook.
+Both constructors take the `mm` so they can resolve searchable/sortable
+fields to columns (GORM) or reflection lookups (map) once, up front. Build
+the accessor from the **same** `MetaModel` you hand to `NewTable`.
+
+`MapAccessor` searches with a case-insensitive substring match over every
+`Searchable` field and sorts by reflection; the map and mutex stay the
+caller's. `GORMAccessor` searches Searchable columns with `LIKE`, preloads
+associations on reads, and replays many-to-many selections on update.
+
+## Building the table — `NewTable`
+
+```go
+func NewTable[T any](mm MetaModel[T], data Accessor[T], pageSize int, authz auth.Authz) CRUDTable[T]
+```
+
+`pageSize` is rows per page (0 = library default, 20); `authz` gates every
+route (nil = allow all). Create / edit / delete are enabled by default. The
+returned `CRUDTable[T]` is a plain struct with public fields, so anything the
+constructor doesn't cover is set afterward:
+
+```go
+table := crud.NewTable(mm, data, 10, gate)
+table.CreateEnabled = false           // granular mutation toggles
+table.HideUnauthorized = true         // omit disallowed buttons (vs render disabled)
+table.Segment = "heroes"              // path segment override (irregular plurals)
+table.ShortLabel = func(h Hero) string { return h.Name } // relation label (see Relations)
+```
 
 ## Routing surface
 
@@ -218,21 +287,22 @@ A table registers its in-component (fragment) endpoints **relative to the
 router it is handed**, and renders absolute links from a base it is *told*:
 
 ```go
-func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, mountBase, slug string)
+func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, routerPrefix, componentPath string)
 func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error)
 func (c *CRUDTable[T]) URLBase() string // absolute base, e.g. "/admin/heroes"
 ```
 
-- **`slug`** is where the table sits relative to `r` (e.g. `"heroes"`). Empty
-  falls back to the table's `Slug`, then a derived plural.
-- **`mountBase`** is the absolute path at which `r` itself is served. The
-  caller knows this; chi can't report it at registration time. The table's
-  absolute base, used for every rendered `hx-get` / form action, is
-  `mountBase + "/" + slug`.
+- **`componentPath`** is where the table sits relative to `r` — one or more
+  segments, e.g. `"/heroes"` or `"/admin/heroes"`. Empty falls back to the
+  table's `Segment`, then a derived plural of the model name.
+- **`routerPrefix`** is the absolute path at which `r` itself is served (`""`
+  when `r` is the root mux). The caller knows this; chi can't report it at
+  registration time. The table's absolute base, used for every rendered
+  `hx-get` / form action, is `routerPrefix + componentPath`.
 
-The **app owns the page route** (`GET /{slug}`): it calls `Render(r)` and
-wraps the result in its own shell. `RegisterRoutes` registers only the
-fragments. For `slug="heroes"`, `mountBase="/admin"`:
+The **app owns the page route**: it calls `Render(r)` and wraps the result in
+its own shell. `RegisterRoutes` registers only the fragments. For
+`componentPath="/admin/heroes"`, `routerPrefix=""`:
 
 | Method | Path                         | Returns                                   |
 |--------|------------------------------|-------------------------------------------|
@@ -249,63 +319,70 @@ Every handler gates on the table's `Authz` (nil = allow all).
 
 ### Mounting — the composition contract
 
-One rule: **`mountBase` must equal the absolute prefix at which the passed
+One rule: **`routerPrefix` must equal the absolute prefix at which the passed
 router is served.** Because routes register relative to `r`, the table
-composes under stripping mounts (`chi.Route` / `chi.Mount`) and groups alike:
+composes on the root mux without a stripping `chi.Route`, and under one too:
 
-| caller wiring                         | call                                       | served at            |
-|---------------------------------------|--------------------------------------------|----------------------|
-| root                                  | `RegisterRoutes(root, "", "heroes")`       | `/heroes/…`          |
-| `r.Route("/admin", …)` (strips)       | `RegisterRoutes(r, "/admin", "heroes")`    | `/admin/heroes/…`    |
-| `r.Mount("/admin", sub)` (strips)     | `RegisterRoutes(sub, "/admin", "heroes")`  | `/admin/heroes/…`    |
-| `r.Group(…)` at root (no strip)       | `RegisterRoutes(g, "", "admin/heroes")`    | `/admin/heroes/…`    |
+| caller wiring                         | call                                              | served at         |
+|---------------------------------------|---------------------------------------------------|-------------------|
+| root mux                              | `RegisterRoutes(root, "", "/heroes")`             | `/heroes/…`       |
+| root mux, multi-segment path          | `RegisterRoutes(root, "", "/admin/heroes")`       | `/admin/heroes/…` |
+| `r.Route("/app", …)` (strips)         | `RegisterRoutes(r, "/app", "/heroes")`            | `/app/heroes/…`   |
+| `r.Mount("/app", sub)` (strips)       | `RegisterRoutes(sub, "/app", "/heroes")`          | `/app/heroes/…`   |
 
-Stripping mounts are first-class — the rendered HTML carries the right
-absolute URLs because they're built from `mountBase`, never reverse-engineered
-from the request.
+Multi-segment component paths and stripping mounts both work — the rendered
+HTML carries the right absolute URLs because they're built from
+`routerPrefix + componentPath`, never reverse-engineered from the request.
 
 ## `Admin`
 
 Bundles tables behind a sidebar. Navigation between tables is plain page
-navigation (each sidebar entry is a real link to `/{mountBase}/{slug}`); the
-server renders the whole page on each load and marks the active entry from
-the request path — no JS for the active highlight.
+navigation (each sidebar entry is a real link); the server renders the whole
+page on each load and marks the active entry from the request path — no JS
+for the active highlight.
 
 ```go
 type Admin struct {
     Tables []CRUDTableInterface
     Authz  auth.Authz
-    Slug   string // default "admin" (informational; mounting is the caller's)
+    SidebarTop, SidebarBottom []SidebarLink // optional app-defined links
 }
 
 func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin
 
-func (a *Admin) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error
+func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string, shell site.Shell) error
 func (a *Admin) Render(r *http.Request) (templ.Component, error)
 ```
 
-`Admin.RegisterRoutes` registers, on the router it is handed: every child
-table's fragment endpoints, a `GET /{slug}` page handler that wraps the
-active table in `shell`, a `GET` index redirect to the first table, and it
-links the children's relation fields (see [Relations](#relations)). The
-caller mounts it once, typically via a stripping `chi.Route`:
+`Admin.RegisterRoutes` composes every path on the router it is handed — **no
+stripping `chi.Route` needed**, just the root mux. Each child table is
+mounted at `componentPath + "/" + its URLSlug` (a lowercased plural of the
+model name, or its `Segment` override). It also registers an index redirect
+to the first table, a per-slug page handler wrapping the active table in
+`shell`, and links the children's relation fields (see [Relations](#relations)):
 
 ```go
-r.Route("/admin", func(r chi.Router) {
-    admin.RegisterRoutes(r, "/admin", pageShell)
-})
+admin.RegisterRoutes(root, "", "/admin", pageShell)
 ```
 
-Registered for `mountBase="/admin"`, tables `["heros","weapons","skills"]`:
+Registered for `componentPath="/admin"`, tables `["heroes","weapons","skills"]`:
 
-| Method | Path                              | Returns                                  |
-|--------|-----------------------------------|------------------------------------------|
-| GET    | `/admin`                          | 303 redirect to `/admin/heros`           |
-| GET    | `/admin/{slug}`                   | full page (sidebar + active table)       |
-| GET    | `/admin/heros/view`, `/create`, … | each child table's fragment endpoints    |
+| Method | Path                               | Returns                                  |
+|--------|------------------------------------|------------------------------------------|
+| GET    | `/admin`                           | 303 redirect to `/admin/heroes`          |
+| GET    | `/admin/{slug}`                    | full page (sidebar + active table)       |
+| GET    | `/admin/heroes/view`, `/create`, … | each child table's fragment endpoints    |
 
 `shell == nil` registers the index redirect and child fragments but no
 per-slug page handler.
+
+Children's URL segments come from `URLSlug()` — a lowercased plural of the Go
+type name. For an irregular plural (or a model named `UserGORM` you want at
+`/admin/users`), set `Segment` on the child table before building the Admin:
+
+```go
+userTable.Segment = "users" // else /admin/usergorms
+```
 
 ## Relations
 
@@ -329,8 +406,8 @@ func WireRelations(tables ...CRUDTableInterface)
   `RegisterRoutes` (so the URLBases are set):
 
   ```go
-  heroTable.RegisterRoutes(r, "", "heroes")
-  weaponTable.RegisterRoutes(r, "", "weapons")
+  heroTable.RegisterRoutes(r, "", "/heroes")
+  weaponTable.RegisterRoutes(r, "", "/weapons")
   crud.WireRelations(&heroTable, &weaponTable) // Owner select on /weapons → /heroes/options
   ```
 
@@ -351,57 +428,24 @@ cell — comes from `DefaultShortLabel(instance)`, which tries, in order:
 7. a JSON dump of the row, as a last resort.
 
 Stages 1–5 return the label alone (no `id:` prefix). To override it for a
-model, set `ShortLabel` on its recipe — it drives both that table's `<select>`
+model, set `ShortLabel` on its table — it drives both that table's `<select>`
 options and the model's relation cells on other tables (propagated by
 `WireRelations`):
 
 ```go
-crud.Table[Hero]{
-    ShortLabel: func(h Hero) string { return h.Name + " — " + h.Realm },
-}
+heroTable.ShortLabel = func(h Hero) string { return h.Name + " — " + h.Realm }
 ```
 
-## Lower-level API
+## Single-instance primitives
 
-The recipe is sugar over these primitives. Reach for them to back a custom
-storage type, to render a one-off form outside a table (see
-`examples/form_mem`), or to install a bespoke MetaField hook.
-
-### `MetaModel[T]` and `MetaField`
-
-`MetaModel[T]` is pure metadata + render/bind helpers — no routing, no data,
-no authz. `MetaField` describes one field.
+`MetaModel` also exposes the render/bind primitives the table composes
+internally. Reach for them to render a one-off form / dump outside a table,
+owning the routing and data yourself (see `examples/form_mem`):
 
 ```go
-func DeriveMetaModel[T any]() (MetaModel[T], error) // reflect T → defaults
-func (mm *MetaModel[T]) FindField(name string) (*MetaField, error)
-func (mm *MetaModel[T]) MustFindField(name string) *MetaField // panics on miss
-
 func (mm *MetaModel[T]) RenderDisplay(instance T) templ.Component
 func (mm *MetaModel[T]) RenderForm(instance T, opts FormOpts) templ.Component
-func (mm *MetaModel[T]) TryBindForm(r *http.Request, out *T) error // parse + bind + validate
-```
-
-`MetaField`'s relation metadata is filled by derivation; `RelatedURLBase`
-(the related table's absolute URL) is left blank and filled later by
-`WireRelations` / `Admin`:
-
-```go
-type MetaField struct {
-    Name, DisplayName, FormInputType, FormHelp string
-    Hidden, ReadOnly, Multiple, Sortable, Searchable bool
-
-    RelationKind    RelationKind // NotRelation | RelationSingle | RelationMany2Many | RelationHasMany
-    RelatedURLBase  string       // related table URL; blank until wired
-    RelatedTypeName string       // Go type name of the related model
-    FKFieldName     string       // RelationSingle: sibling FK uint
-    FormFieldName   string       // POST key (defaults to Name)
-
-    DisplayValue   func(mf MetaField, value any) templ.Component
-    GenFormElement func(mf MetaField, value any) templ.Component
-    BindStrings    func(mf MetaField, strs []string, instance any) error
-    FieldValidate  Validator
-}
+func (mm *MetaModel[T]) TryBindForm(r *http.Request, out *T) error // ParseForm + bind + validate
 ```
 
 `FormOpts` for `RenderForm`:
@@ -417,19 +461,7 @@ type FormOpts struct {
 }
 ```
 
-### Backend constructors
-
-The recipe constructors wrap these:
-
-```go
-func DeriveMapCRUDTable[T any](mm MetaModel[T], az auth.Authz, store map[uint]T, mu *sync.RWMutex) CRUDTable[T]
-func DeriveGormCRUDTable[T any](mm MetaModel[T], az auth.Authz, db *gorm.DB) CRUDTable[T]
-```
-
-`NewMapTable(store, mu, cfg)` ≡ `DeriveMapCRUDTable(cfg→MetaModel, cfg.Authz,
-store, mu)` + the table-level field assignments; same for GORM.
-
-### Authz
+## Authz
 
 ```go
 type Authz interface { // gone/auth
@@ -486,7 +518,9 @@ func ValidationErrorsFromError(err error) ValidationErrors // non-validation err
 
 Create / edit forms open in two stacked DaisyUI dialogs:
 
-- **L1 — per-table** — `#{slug}-modal-l1` — emitted by each `Render()`.
+- **L1 — per-table** — `#{key}-modal-l1` — emitted by each `Render()`, where
+  `{key}` is the table's component path sanitized to a DOM id
+  (`/admin/heroes` → `admin-heroes`).
 - **L2 — shared singleton** — `#crud-modal-l2` — for the nested "+ create
   new" a relation picker opens. Auto-embedded by `Render`.
 
@@ -510,7 +544,7 @@ app still works as a plain MPA.
 
 ## Pagination
 
-`PageSize` (default 20) controls rows per page; `?page=N` selects it
+`pageSize` (default 20) controls rows per page; `?page=N` selects it
 (1-indexed). The renderer emits a DaisyUI `join` button group with prev/next
 + numbers. Page / sort / search links are HTMX with `hx-push-url`, so the
 state is a real, shareable URL — a reload re-renders the full page in that
@@ -521,9 +555,10 @@ state. Search and sort reset to page 1.
 - **One stateful table per page.** Bookmarkable state (`hx-push-url`) lives in
   the table's own URL; multiple tables can't all own the address bar. Admin
   shows one table at a time, which sidesteps this.
-- **Distinct slugs.** Two tables on one page (or in one Admin) MUST have
-  distinct `Slug`s — the per-slug L1 modal IDs would otherwise collide. The
-  default `lowercase(Name)+"s"` keeps distinct Go types apart; sharing a slug
+- **Distinct component paths.** Two tables on one page (or in one Admin) MUST
+  be mounted at distinct paths — the per-table L1 modal IDs derive from the
+  component path, so a shared path would collide. The default
+  `lowercase(Name)+"s"` segment keeps distinct Go types apart; sharing a path
   deliberately is a configuration bug.
 
 ## Testing
@@ -533,10 +568,10 @@ against a `chi.Router`: rows render, search filters, POST persists,
 `HX-Request` flips the delete response from 303 to a fragment, the relation
 `<select>` carries the right `/options` URL, …
 
-Unit tests cover the reflection-heavy and config primitives that aren't
-naturally observable through HTTP: `DeriveMetaModel`, `DefaultBindForm`, the
-built-in validators (incl. IPv4/IPv6), `FindField` / `MustFindField`, and the
-recipe (`NewMapTable` override application, unknown-field panic).
+Unit tests cover the reflection-heavy primitives that aren't naturally
+observable through HTTP: `DeriveMetaModel` (preset merge, unknown-field
+panic), `DefaultBindForm`, the built-in validators (incl. IPv4/IPv6),
+`FindField` / `MustFindField`, and the secret-field helpers.
 
 `go test ./...` — no external deps; SQLite is in-memory.
 
@@ -545,9 +580,9 @@ recipe (`NewMapTable` override application, unknown-field panic).
 | Path                  | Shows                                                                                          |
 |-----------------------|------------------------------------------------------------------------------------------------|
 | `examples/form_mem`   | Single struct + manual handlers using `RenderForm` / `TryBindForm`. IPv4-or-IPv6 via `Any(IPv4Addr, IPv6Addr)`. |
-| `examples/crud_mem`   | One table via `NewMapTable`, in-memory map backend.                                            |
-| `examples/crud_gorm`  | Three tables (Hero, Weapon, Skill) with 1:N and N:M relations via `NewGormTable` + `WireRelations`. GORM backend, MPA tab nav. |
-| `examples/admin_gorm` | Same schema wrapped in `Admin` — zero per-field config (empty recipes, default slugs), relations auto-wired. |
-| `examples/auth_gorm`  | `AuthGORM` + `Admin` over User/Group, with `Authz` and a `DisplayValue` override in the recipe. |
+| `examples/crud_mem`   | One table via `DeriveMetaModel` + `MapAccessor` + `NewTable`, in-memory map backend.           |
+| `examples/crud_gorm`  | Three tables (Hero, Weapon, Skill) with 1:N and N:M relations via `GORMAccessor` + `WireRelations`. GORM backend, MPA tab nav. |
+| `examples/admin_gorm` | Same schema wrapped in `Admin` — zero per-field config (empty presets, default slugs), relations auto-wired. |
+| `examples/auth_gorm`  | `AuthGORM` + `Admin` over User/Group, with `Authz`, a write-only password field, and a `DisplayValue` override. |
 
 `go run ./examples/<name>` — each starts on `:8080`.
