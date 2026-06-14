@@ -370,18 +370,25 @@ templ pagination(d TableViewData) {
 
 // PageModals renders the shared L2 modal dialog used for "+ create
 // new" forms opened from a relation picker inside an L1 form, plus
-// the bridge JS that listens for HX-Trigger {openModal, closeModal}
-// events and calls dialog.showModal() / dialog.close() on the
-// matching <dialog>.
+// the client-side modal bridge.
+//
+// The bridge is a generic push/pop stack — the server carries no modal
+// ids. It does two things:
+//
+//   - Auto-open: when HTMX swaps a fragment into a node inside a closed
+//     <dialog.modal> (a create/edit form landing in a modal body), it
+//     opens that dialog and pushes it on the stack.
+//   - Generic close: on the "crud-close-modal" event (emitted by a
+//     successful mutation) it closes the TOPMOST open modal — so a nested
+//     "+ new" create closes itself and leaves its parent form open. A
+//     capture-phase 'close' listener keeps the stack in sync however a
+//     dialog closes (Esc, backdrop, or .close()).
 //
 // Each CRUDTable's TableView embeds PageModals automatically, so the
 // typical caller never needs to call it. Standalone callers (using
 // MetaModel.RenderForm directly inside a modal, without a CRUDTable
-// on the page) can embed it manually in their page-shell.
-//
-// The bridge JS guards itself against duplicate listener attachment
-// — if it's somehow rendered twice on a page (e.g. two CRUDTables
-// visible at once) the second invocation is a no-op.
+// on the page) can embed it manually in their page-shell. The bridge
+// guards against duplicate attachment if rendered twice on a page.
 //
 // The dialog has an X close button in the top-right corner; the
 // backdrop also closes it on click (HTML5 <form method="dialog">).
@@ -396,20 +403,33 @@ templ PageModals() {
 		(function(){
 			if (window.__crudModalBridgeAttached) return;
 			window.__crudModalBridgeAttached = true;
+			const stack = [];
 			const attach = () => {
-				document.body.addEventListener('openModal', (e) => {
-					const m = e.detail && e.detail.value
-						? document.getElementById(e.detail.value)
-						: document.querySelector('dialog.modal');
-					if (m) m.showModal();
+				// Auto-open the dialog a form was fetched INTO. Two guards keep
+				// this from firing spuriously:
+				//   - verb must be GET: only a form fetch opens a modal, never a
+				//     POST submit — whose Reswap:none still fires afterSwap on the
+				//     body and would otherwise re-open the modal it just closed.
+				//   - target must BE the modal body (class crud-modal-body), not a
+				//     descendant — so a relation <select> reloading its options
+				//     inside a modal doesn't count.
+				document.body.addEventListener('htmx:afterSwap', (e) => {
+					const d = e.detail || {};
+					if (d.requestConfig && d.requestConfig.verb !== 'get') return;
+					const t = d.target;
+					if (!t || !t.classList || !t.classList.contains('crud-modal-body')) return;
+					const dlg = t.closest('dialog.modal');
+					if (dlg && !dlg.open) { dlg.showModal(); stack.push(dlg); }
 				});
-				document.body.addEventListener('closeModal', (e) => {
-					if (e.detail && e.detail.value) {
-						const m = document.getElementById(e.detail.value);
-						if (m) m.close();
-						return;
-					}
-					document.querySelectorAll('dialog.modal[open]').forEach(m => m.close());
+				// Keep the stack honest no matter how a dialog closes.
+				document.addEventListener('close', (e) => {
+					const i = stack.lastIndexOf(e.target);
+					if (i !== -1) stack.splice(i, 1);
+				}, true);
+				// Success response asks to close the topmost modal.
+				document.body.addEventListener('crud-close-modal', () => {
+					const dlg = stack[stack.length - 1];
+					if (dlg) dlg.close(); // fires native 'close' → popped above
 				});
 			};
 			if (document.readyState === 'loading') {
@@ -432,7 +452,9 @@ templ modalDialog(modalID, bodyID string) {
 					aria-label="close"
 				>✕</button>
 			</form>
-			<div id={ bodyID }></div>
+			<!-- pt-6 keeps full-width content (e.g. a card at the top of the
+			     form) clear of the absolutely-positioned ✕ close button. -->
+			<div id={ bodyID } class="crud-modal-body pt-6"></div>
 		</div>
 		<form method="dialog" class="modal-backdrop">
 			<button type="submit">close</button>

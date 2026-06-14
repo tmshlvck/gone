@@ -2,12 +2,10 @@ package auth
 
 import (
 	"errors"
-	"fmt"
 	"github.com/go-chi/chi/v5"
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/a-h/templ"
 	"gorm.io/gorm"
@@ -45,9 +43,9 @@ func (a *AuthGORM) mountAccountRoutes(mux chi.Router, shell PageShellFunc) {
 // serveAccountForm renders the form for the GET path AND from the
 // POST handler when validation fails / on success.
 //
-// HTMX requests get the bare form fragment + HX-Trigger openModal
-// so the caller's modal pops; plain GETs get the form wrapped in
-// the page shell.
+// HTMX requests get the bare form fragment, which the crud modal bridge
+// auto-opens when it lands in a modal body; plain GETs get the form wrapped
+// in the page shell.
 func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shell PageShellFunc, errMsg, successMsg string) {
 	current := a.CurrentUser(r)
 	if current == nil {
@@ -129,13 +127,10 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 	})
 
 	if htmx {
-		// HTMX path: return the fragment for the modal body. Fire
-		// openModal only on the initial GET (no errMsg/successMsg) —
-		// re-renders inside an already-open modal don't need to
-		// re-open it.
-		if modalID := modalIDFromHXTarget(r); modalID != "" && errMsg == "" && successMsg == "" {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"openModal":%q}`, modalID))
-		}
+		// HTMX path: return the bare form fragment for the modal body. The
+		// crud modal bridge (crud.PageModals) auto-opens the dialog a form is
+		// swapped into — a GET landing in a .crud-modal-body — so no explicit
+		// open event is needed here.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		renderOrLog(w, r, form)
 		return
@@ -208,15 +203,11 @@ func (a *AuthGORM) handleAccountPost(w http.ResponseWriter, r *http.Request, she
 
 	// Success.
 	if isHTMXAuthRequest(r) {
-		// Modal flow: close the modal and suppress the swap so the
-		// admin lands back on the page they were on (the admin
-		// table). No success banner needed — closing the modal is
-		// itself the confirmation. The page reload that would have
-		// shown a success message is reserved for the full-page
-		// flow below.
-		if modalID := modalIDFromHXTarget(r); modalID != "" {
-			w.Header().Set("HX-Trigger", fmt.Sprintf(`{"closeModal":%q}`, modalID))
-		}
+		// Modal flow: ask the crud bridge to close the topmost modal and
+		// suppress the swap, so the admin lands back on the page they were on
+		// (the admin table). Closing the modal is itself the confirmation; no
+		// banner. The full-page flow below keeps the success message.
+		w.Header().Set("HX-Trigger", `{"crud-close-modal":null}`)
 		w.Header().Set("HX-Reswap", "none")
 		return
 	}
@@ -270,18 +261,6 @@ func accountAllowed(current User, target *UserGORM) bool {
 
 func isHTMXAuthRequest(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
-}
-
-// modalIDFromHXTarget reads HX-Target ("users-modal-l1-body") and
-// trims "-body" to get the modal id ("users-modal-l1"). Returns ""
-// if HX-Target isn't set (non-HTMX request, or the target is
-// something other than a modal body).
-func modalIDFromHXTarget(r *http.Request) string {
-	target := r.Header.Get("HX-Target")
-	if target == "" {
-		return ""
-	}
-	return strings.TrimSuffix(target, "-body")
 }
 
 func renderOrLog(w http.ResponseWriter, r *http.Request, c templ.Component) {

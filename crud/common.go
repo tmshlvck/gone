@@ -18,25 +18,35 @@ import (
 // crud-specific glue (id parsing, modal-id derivation, error shaping).
 // ──────────────────────────────────────────────────────────────────────────
 
-// modalIDsFromHeader returns (modalID, bodyID, isL2) for the originating
-// modal, derived from the HX-Target request header.
-//
-//   - bodyID = the value of HX-Target (e.g. "hero-modal-l1-body" or
-//     "crud-modal-l2-body").
-//   - modalID = bodyID with the "-body" suffix stripped
-//     ("hero-modal-l1" / "crud-modal-l2").
-//   - isL2 = true iff bodyID is the shared L2 body ID.
-//
-// Browser (non-HTMX) callers have no HX-Target — returns empty strings
-// and isL2=false. Handlers that branch on level use isL2 as the test.
-func modalIDsFromHeader(r *http.Request) (modalID, bodyID string, isL2 bool) {
-	bodyID = htmx.Target(r)
-	if bodyID == "" {
-		return "", "", false
-	}
-	modalID = strings.TrimSuffix(bodyID, "-body")
-	isL2 = bodyID == ModalL2BodyID
-	return
+// Modal wiring constants. The library uses two stacked DaisyUI dialogs for
+// create/edit forms; open/close is driven by the client-side bridge in
+// PageModals (see views.templ), so handlers carry no per-modal id bookkeeping.
+const (
+	// modalFormTarget is the hx-target a create/edit form re-renders itself
+	// into on a validation error. "closest .crud-modal-body" resolves to the
+	// body of whichever modal (L1 or the shared L2) the form is shown in, so
+	// the same form markup works at either level — no per-modal id threading.
+	modalFormTarget = "closest .crud-modal-body"
+
+	// crudCloseModalEvent asks the client to close the topmost open modal (the
+	// dialog the just-submitted form lived in). Emitted on a successful
+	// mutation; the PageModals bridge JS listens for it by this exact name.
+	crudCloseModalEvent = "crud-close-modal"
+
+	// refreshRelationEvent tells every relation <select> to reload its option
+	// list — fired after a nested ("+ new") create adds a row. Relation
+	// pickers subscribe via hx-trigger="… refresh-relation from:body" (see
+	// relation.go); the name must stay in sync.
+	refreshRelationEvent = "refresh-relation"
+)
+
+// isNestedModal reports whether the request was submitted from inside the
+// shared L2 ("+ create new") modal — its resolved hx-target is the L2 body.
+// A nested create refreshes the parent form's relation pickers instead of the
+// table (whose list area isn't even on the current page). Browser (non-HTMX)
+// callers have no HX-Target and read as not-nested.
+func isNestedModal(r *http.Request) bool {
+	return htmx.Target(r) == ModalL2BodyID
 }
 
 // parseID extracts the {id} path value from r and parses it to uint.

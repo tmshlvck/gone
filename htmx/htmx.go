@@ -10,12 +10,12 @@
 //	htmx.Reply().
 //		Retarget("#table").
 //		Reswap("innerHTML").
-//		CloseModal("hero-modal").
+//		Trigger("crud-close-modal", nil).
 //		Apply(w)
 //
-// Multiple Trigger/OpenModal/CloseModal calls coalesce into a single
-// HX-Trigger header (a JSON object keyed by event name), which is how HTMX
-// dispatches several client-side events from one response.
+// Multiple Trigger calls coalesce into a single HX-Trigger header (a JSON
+// object keyed by event name), which is how HTMX dispatches several
+// client-side events from one response.
 package htmx
 
 import (
@@ -113,8 +113,9 @@ func (h *Resp) Refresh() *Resp { h.refresh = true; return h }
 
 // Trigger schedules a client-side event named event after the swap settles
 // (HX-Trigger). detail is JSON-encoded as the event payload; pass nil for a
-// bare event. Repeated calls (and OpenModal/CloseModal) coalesce into one
-// HX-Trigger header.
+// bare event. Repeated calls coalesce into one HX-Trigger header. Use it for
+// any app- or component-specific event the client listens for (e.g. crud's
+// "crud-close-modal" / "refresh-relation").
 func (h *Resp) Trigger(event string, detail any) *Resp {
 	if h.triggers == nil {
 		h.triggers = map[string]any{}
@@ -122,15 +123,6 @@ func (h *Resp) Trigger(event string, detail any) *Resp {
 	h.triggers[event] = detail
 	return h
 }
-
-// OpenModal tells the client to open the dialog with the given id. It emits
-// the "openModal" event gone.js listens for — the backend drives the modal,
-// the client obeys.
-func (h *Resp) OpenModal(id string) *Resp { return h.Trigger("openModal", id) }
-
-// CloseModal tells the client to close the dialog with the given id, via the
-// "closeModal" event.
-func (h *Resp) CloseModal(id string) *Resp { return h.Trigger("closeModal", id) }
 
 // Apply writes the accumulated directives onto w's header. Call once, before
 // writing the response body.

@@ -255,14 +255,19 @@ duplicated:
    are "stubbed and will land in later iterations" — they shipped. Fix.
 5. **`relation.go` split** — §5 (`tableiface.go`).
 
-Flagged but **out of scope** for this pass (note, don't fix now):
+Done in a follow-up pass:
 
-6. **Modal HX wiring.** The L1/L2 two-level modal — `modalIDsFromHeader`
-   parsing `HX-Target`, the `openModal`/`closeModal` `HX-Trigger` dance, the
-   per-component modal ids, the `crud-relation-add-btn { display:none }` hack
-   for hiding the nested "+ new" inside L2 — is the densest remaining
-   complexity. It works and it's verified; a generic push/pop modal stack in
-   `gone.js` would simplify it, but that's its own change. Leave a `TODO`.
+6. **Modal HX wiring.** ✅ Resolved. Open/close is now client-driven via a
+   generic push/pop modal stack in `PageModals`: a GET that lands a form in a
+   `.crud-modal-body` auto-opens the dialog; a `crud-close-modal` event closes
+   the topmost. The server no longer parses `HX-Target` for modal ids
+   (`modalIDsFromHeader` gone), no longer sends `openModal`, and sends a
+   generic close — so the create/edit success paths collapsed into one
+   `afterMutation`. `OpenModal`/`CloseModal` were removed from `gone/htmx`
+   (misplaced there); `auth`'s account modal was migrated to the same bridge.
+   The `crud-relation-add-btn { display:none }` rule stays (one shared L2, no
+   L3). Verified end-to-end with Playwright (L1 create/edit, validation-error,
+   L2 nested create closing only itself, auth password modal).
 
 ---
 

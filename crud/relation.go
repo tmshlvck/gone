@@ -312,10 +312,14 @@ func relationSelect(mf MetaField, single uint, multi []uint, isMulti bool) templ
 	var sb strings.Builder
 	sb.WriteString(`<div class="join">`)
 
-	// The <select> input itself.
+	// The <select> input itself. The multi-select is a native listbox — it
+	// deliberately does NOT use DaisyUI's .select class, whose fixed
+	// single-line height (field-sizing based) collapses a multi-row <select
+	// multiple> so the options overlap. A plain bordered box lets size="5"
+	// govern, one option per line.
 	if isMulti {
 		sb.WriteString(fmt.Sprintf(
-			`<select name=%q multiple size="5" class="select join-item w-full"%s>`,
+			`<select name=%q multiple size="5" class="join-item w-full border border-base-300 rounded-box bg-base-100 p-1"%s>`,
 			html.EscapeString(name), hxAttrs))
 	} else {
 		sb.WriteString(fmt.Sprintf(

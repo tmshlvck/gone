@@ -73,11 +73,11 @@ func TestEmptyReplyWritesNothing(t *testing.T) {
 
 func TestModalTriggersCoalesce(t *testing.T) {
 	w := httptest.NewRecorder()
-	// A nested L2 create closes its modal and asks every relation widget to
-	// refresh — two events in one HX-Trigger header, matching the old
-	// hand-written `{"closeModal":…,"refresh-relation":true}`.
+	// A nested create closes its modal and asks every relation widget to
+	// refresh — two events in one HX-Trigger header, the JSON object
+	// `{"crud-close-modal":null,"refresh-relation":true}`.
 	Reply().
-		CloseModal("crud-modal-l2").
+		Trigger("crud-close-modal", nil).
 		Trigger("refresh-relation", true).
 		Apply(w)
 
@@ -86,21 +86,11 @@ func TestModalTriggersCoalesce(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("HX-Trigger not valid JSON object: %q (%v)", raw, err)
 	}
-	if got["closeModal"] != "crud-modal-l2" {
-		t.Errorf("closeModal = %v", got["closeModal"])
+	if v, ok := got["crud-close-modal"]; !ok || v != nil {
+		t.Errorf("crud-close-modal = %v (present=%v), want null/present", v, ok)
 	}
 	if got["refresh-relation"] != true {
 		t.Errorf("refresh-relation = %v", got["refresh-relation"])
-	}
-}
-
-func TestOpenCloseModalEventNames(t *testing.T) {
-	w := httptest.NewRecorder()
-	Reply().OpenModal("hero-modal-l1").Apply(w)
-	var got map[string]any
-	_ = json.Unmarshal([]byte(w.Header().Get("HX-Trigger")), &got)
-	if got["openModal"] != "hero-modal-l1" {
-		t.Fatalf("openModal not emitted: %v", got)
 	}
 }
 

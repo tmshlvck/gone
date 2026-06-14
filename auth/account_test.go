@@ -297,7 +297,7 @@ func TestAccountPost_AdminChangesOthersPassword(t *testing.T) {
 
 // TestAccountPost_HTMXModalSuccessClosesModal: the bug the user
 // reported. Admin opens the password modal from the User table,
-// submits — server should send HX-Trigger:closeModal + HX-Reswap:none
+// submits — server should send HX-Trigger:crud-close-modal + HX-Reswap:none
 // so the modal closes and the admin stays on the table. No success
 // body should be swapped into the modal.
 func TestAccountPost_HTMXModalSuccessClosesModal(t *testing.T) {
@@ -325,8 +325,8 @@ func TestAccountPost_HTMXModalSuccessClosesModal(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("HTMX modal POST status = %d", rr.Code)
 	}
-	if trig := rr.Header().Get("HX-Trigger"); !strings.Contains(trig, "closeModal") {
-		t.Errorf("HX-Trigger should request closeModal; got %q", trig)
+	if trig := rr.Header().Get("HX-Trigger"); !strings.Contains(trig, "crud-close-modal") {
+		t.Errorf("HX-Trigger should request crud-close-modal; got %q", trig)
 	}
 	if reswap := rr.Header().Get("HX-Reswap"); reswap != "none" {
 		t.Errorf("HX-Reswap = %q, want \"none\" (so no body swaps into the closed modal)", reswap)

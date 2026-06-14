@@ -961,18 +961,25 @@ func pagination(d TableViewData) templ.Component {
 
 // PageModals renders the shared L2 modal dialog used for "+ create
 // new" forms opened from a relation picker inside an L1 form, plus
-// the bridge JS that listens for HX-Trigger {openModal, closeModal}
-// events and calls dialog.showModal() / dialog.close() on the
-// matching <dialog>.
+// the client-side modal bridge.
+//
+// The bridge is a generic push/pop stack — the server carries no modal
+// ids. It does two things:
+//
+//   - Auto-open: when HTMX swaps a fragment into a node inside a closed
+//     <dialog.modal> (a create/edit form landing in a modal body), it
+//     opens that dialog and pushes it on the stack.
+//   - Generic close: on the "crud-close-modal" event (emitted by a
+//     successful mutation) it closes the TOPMOST open modal — so a nested
+//     "+ new" create closes itself and leaves its parent form open. A
+//     capture-phase 'close' listener keeps the stack in sync however a
+//     dialog closes (Esc, backdrop, or .close()).
 //
 // Each CRUDTable's TableView embeds PageModals automatically, so the
 // typical caller never needs to call it. Standalone callers (using
 // MetaModel.RenderForm directly inside a modal, without a CRUDTable
-// on the page) can embed it manually in their page-shell.
-//
-// The bridge JS guards itself against duplicate listener attachment
-// — if it's somehow rendered twice on a page (e.g. two CRUDTables
-// visible at once) the second invocation is a no-op.
+// on the page) can embed it manually in their page-shell. The bridge
+// guards against duplicate attachment if rendered twice on a page.
 //
 // The dialog has an X close button in the top-right corner; the
 // backdrop also closes it on click (HTML5 <form method="dialog">).
@@ -1002,7 +1009,7 @@ func PageModals() templ.Component {
 			templ_7745c5c3_Var39 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style><script>\n\t\t(function(){\n\t\t\tif (window.__crudModalBridgeAttached) return;\n\t\t\twindow.__crudModalBridgeAttached = true;\n\t\t\tconst attach = () => {\n\t\t\t\tdocument.body.addEventListener('openModal', (e) => {\n\t\t\t\t\tconst m = e.detail && e.detail.value\n\t\t\t\t\t\t? document.getElementById(e.detail.value)\n\t\t\t\t\t\t: document.querySelector('dialog.modal');\n\t\t\t\t\tif (m) m.showModal();\n\t\t\t\t});\n\t\t\t\tdocument.body.addEventListener('closeModal', (e) => {\n\t\t\t\t\tif (e.detail && e.detail.value) {\n\t\t\t\t\t\tconst m = document.getElementById(e.detail.value);\n\t\t\t\t\t\tif (m) m.close();\n\t\t\t\t\t\treturn;\n\t\t\t\t\t}\n\t\t\t\t\tdocument.querySelectorAll('dialog.modal[open]').forEach(m => m.close());\n\t\t\t\t});\n\t\t\t};\n\t\t\tif (document.readyState === 'loading') {\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', attach);\n\t\t\t} else {\n\t\t\t\tattach();\n\t\t\t}\n\t\t})();\n\t</script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "<style>#crud-modal-l2 .crud-relation-add-btn { display: none; }</style><script>\n\t\t(function(){\n\t\t\tif (window.__crudModalBridgeAttached) return;\n\t\t\twindow.__crudModalBridgeAttached = true;\n\t\t\tconst stack = [];\n\t\t\tconst attach = () => {\n\t\t\t\t// Auto-open the dialog a form was fetched INTO. Two guards keep\n\t\t\t\t// this from firing spuriously:\n\t\t\t\t//   - verb must be GET: only a form fetch opens a modal, never a\n\t\t\t\t//     POST submit — whose Reswap:none still fires afterSwap on the\n\t\t\t\t//     body and would otherwise re-open the modal it just closed.\n\t\t\t\t//   - target must BE the modal body (class crud-modal-body), not a\n\t\t\t\t//     descendant — so a relation <select> reloading its options\n\t\t\t\t//     inside a modal doesn't count.\n\t\t\t\tdocument.body.addEventListener('htmx:afterSwap', (e) => {\n\t\t\t\t\tconst d = e.detail || {};\n\t\t\t\t\tif (d.requestConfig && d.requestConfig.verb !== 'get') return;\n\t\t\t\t\tconst t = d.target;\n\t\t\t\t\tif (!t || !t.classList || !t.classList.contains('crud-modal-body')) return;\n\t\t\t\t\tconst dlg = t.closest('dialog.modal');\n\t\t\t\t\tif (dlg && !dlg.open) { dlg.showModal(); stack.push(dlg); }\n\t\t\t\t});\n\t\t\t\t// Keep the stack honest no matter how a dialog closes.\n\t\t\t\tdocument.addEventListener('close', (e) => {\n\t\t\t\t\tconst i = stack.lastIndexOf(e.target);\n\t\t\t\t\tif (i !== -1) stack.splice(i, 1);\n\t\t\t\t}, true);\n\t\t\t\t// Success response asks to close the topmost modal.\n\t\t\t\tdocument.body.addEventListener('crud-close-modal', () => {\n\t\t\t\t\tconst dlg = stack[stack.length - 1];\n\t\t\t\t\tif (dlg) dlg.close(); // fires native 'close' → popped above\n\t\t\t\t});\n\t\t\t};\n\t\t\tif (document.readyState === 'loading') {\n\t\t\t\tdocument.addEventListener('DOMContentLoaded', attach);\n\t\t\t} else {\n\t\t\t\tattach();\n\t\t\t}\n\t\t})();\n\t</script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1042,26 +1049,26 @@ func modalDialog(modalID, bodyID string) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(modalID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 426, Col: 21}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 446, Col: 21}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "\" class=\"modal\"><div class=\"modal-box max-w-2xl relative\"><form method=\"dialog\"><button type=\"submit\" class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" aria-label=\"close\">✕</button></form><div id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "\" class=\"modal\"><div class=\"modal-box max-w-2xl relative\"><form method=\"dialog\"><button type=\"submit\" class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" aria-label=\"close\">✕</button></form><!-- pt-6 keeps full-width content (e.g. a card at the top of the\n\t\t\t     form) clear of the absolutely-positioned ✕ close button. --><div id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(bodyID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 435, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 457, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "\"></div></div><form method=\"dialog\" class=\"modal-backdrop\"><button type=\"submit\">close</button></form></dialog>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "\" class=\"crud-modal-body pt-6\"></div></div><form method=\"dialog\" class=\"modal-backdrop\"><button type=\"submit\">close</button></form></dialog>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1105,7 +1112,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(d.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 453, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 475, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 			if templ_7745c5c3_Err != nil {
@@ -1124,7 +1131,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var45 string
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(d.SuccessMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 457, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 479, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1143,7 +1150,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var46 string
 			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 462, Col: 14}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 484, Col: 14}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 			if templ_7745c5c3_Err != nil {
@@ -1167,7 +1174,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var47 templ.SafeURL
 			templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 472, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 494, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 			if templ_7745c5c3_Err != nil {
@@ -1180,7 +1187,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var48 string
 			templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 474, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 496, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 			if templ_7745c5c3_Err != nil {
@@ -1193,7 +1200,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.HXTarget)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 475, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 497, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 			if templ_7745c5c3_Err != nil {
@@ -1219,7 +1226,7 @@ func FormView(d FormViewData) templ.Component {
 			var templ_7745c5c3_Var50 templ.SafeURL
 			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 481, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 503, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
@@ -1278,7 +1285,7 @@ func formBody(d FormViewData) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(d.SubmitText)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 494, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 516, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 		if templ_7745c5c3_Err != nil {
@@ -1323,7 +1330,7 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 		var templ_7745c5c3_Var54 string
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(mf.DisplayName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 503, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 525, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 		if templ_7745c5c3_Err != nil {
@@ -1345,7 +1352,7 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			var templ_7745c5c3_Var55 string
 			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 506, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 528, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 			if templ_7745c5c3_Err != nil {
@@ -1363,7 +1370,7 @@ func fieldRow(d FormViewData, mf MetaField, input templ.Component) templ.Compone
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(mf.FormHelp)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 508, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 530, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 			if templ_7745c5c3_Err != nil {
@@ -1530,7 +1537,7 @@ func AdminView(d AdminViewData) templ.Component {
 			var templ_7745c5c3_Var58 templ.SafeURL
 			templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(e.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 634, Col: 31}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 656, Col: 31}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 			if templ_7745c5c3_Err != nil {
@@ -1553,7 +1560,7 @@ func AdminView(d AdminViewData) templ.Component {
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(e.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 639, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 661, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 			if templ_7745c5c3_Err != nil {
@@ -1637,7 +1644,7 @@ func adminSidebarCustomLink(link SidebarLink) templ.Component {
 			var templ_7745c5c3_Var61 templ.SafeURL
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(link.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 674, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 696, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 			if templ_7745c5c3_Err != nil {
@@ -1650,7 +1657,7 @@ func adminSidebarCustomLink(link SidebarLink) templ.Component {
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue(link.URL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 675, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 697, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 			if templ_7745c5c3_Err != nil {
@@ -1663,7 +1670,7 @@ func adminSidebarCustomLink(link SidebarLink) templ.Component {
 			var templ_7745c5c3_Var63 string
 			templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(link.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 679, Col: 22}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `crud/views.templ`, Line: 701, Col: 22}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 			if templ_7745c5c3_Err != nil {

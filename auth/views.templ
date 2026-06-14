@@ -579,8 +579,9 @@ templ accountFormBody(d accountFormData) {
 		<!-- Modal flow: form submits via HTMX into the same modal body
 		     so the browser doesn't navigate. On validation error the
 		     handler re-renders the form into the modal body; on success
-		     it sets HX-Trigger:closeModal + HX-Reswap:none so the modal
-		     closes and the page underneath (the admin table) stays. -->
+		     it sets HX-Trigger:crud-close-modal + HX-Reswap:none so the
+		     crud bridge closes the modal and the admin table underneath
+		     stays. -->
 		<form
 			method="post"
 			action={ templ.SafeURL(d.ActionURL) }

@@ -397,79 +397,70 @@ func (c *CRUDTable[T]) handleListRows(w http.ResponseWriter, r *http.Request) te
 // createForm / editForm render the create / edit form for the table by
 // reusing the MetaModel's RenderForm primitive (the same one applications
 // call when they own the routing) — the table only supplies the per-action
-// URL, label, and modal-body hx-target. bodyID names the modal body the form
-// renders into; "" leaves the form with no HTMX wiring (browser fallback).
-func (c *CRUDTable[T]) createForm(errs ValidationErrors, data T, bodyID string) templ.Component {
+// URL and label. The form's hx-target is the level-agnostic modalFormTarget
+// (closest .crud-modal-body), so the same markup re-renders in place on a
+// validation error whether it's shown in the L1 or the shared L2 modal.
+func (c *CRUDTable[T]) createForm(errs ValidationErrors, data T) templ.Component {
 	return c.MetaData.RenderForm(data, FormOpts{
 		Title:       "Create " + c.MetaData.DisplayName,
 		ActionURL:   c.urlBase + "/create",
 		SubmitLabel: "Create",
 		Errors:      errs,
-		HXTarget:    hxTarget(bodyID),
+		HXTarget:    modalFormTarget,
 	})
 }
 
-func (c *CRUDTable[T]) editForm(id uint, errs ValidationErrors, row T, bodyID string) templ.Component {
+func (c *CRUDTable[T]) editForm(id uint, errs ValidationErrors, row T) templ.Component {
 	idStr := strconv.FormatUint(uint64(id), 10)
 	return c.MetaData.RenderForm(row, FormOpts{
 		Title:       "Edit " + c.MetaData.DisplayName + " #" + idStr,
 		ActionURL:   c.urlBase + "/" + idStr + "/edit",
 		SubmitLabel: "Save",
 		Errors:      errs,
-		HXTarget:    hxTarget(bodyID),
+		HXTarget:    modalFormTarget,
 	})
 }
 
-// hxTarget turns a modal body id into a CSS selector, or "" for no wiring.
-func hxTarget(bodyID string) string {
-	if bodyID == "" {
-		return ""
+// afterMutation finishes a successful HTMX create or edit: it closes the modal
+// the form lived in and refreshes the page. The two levels differ in WHAT to
+// refresh, not in how the modal closes (the client always closes the topmost):
+//
+//   - Nested (L2) create — opened from a relation "+ new" button — runs on the
+//     *related* table's handler, whose list area isn't on the current page. So
+//     it swaps nothing and just broadcasts refresh-relation, making the parent
+//     form's <select>s reload so the new row appears.
+//   - Normal (L1) create/edit swaps the refreshed table into its own list area.
+func (c *CRUDTable[T]) afterMutation(w http.ResponseWriter, r *http.Request) templ.Component {
+	reply := htmx.Reply().Trigger(crudCloseModalEvent, nil)
+	if isNestedModal(r) {
+		reply.Trigger(refreshRelationEvent, true).Reswap("none").Apply(w)
+		return nil
 	}
-	return "#" + bodyID
+	d, err := c.buildTableViewData(r)
+	if failInternal(w, err) {
+		return nil
+	}
+	reply.Retarget("#" + c.ListID).Reswap("innerHTML").Apply(w)
+	return TableContent(d)
 }
 
 func (c *CRUDTable[T]) handleCreateForm(w http.ResponseWriter, r *http.Request) templ.Component {
 	var zero T
-	modalID, bodyID, _ := modalIDsFromHeader(r)
-	if htmx.IsRequest(r) {
-		// Pop the right modal — modalID is derived from HX-Target so
-		// it correctly names this table's per-slug L1 OR the shared L2.
-		htmx.Reply().OpenModal(modalID).Apply(w)
-	}
-	return c.createForm(nil, zero, bodyID)
+	return c.createForm(nil, zero) // the client opens the modal on swap
 }
 
 func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) templ.Component {
-	modalID, bodyID, isL2 := modalIDsFromHeader(r)
 	var data T
 	if err := c.MetaData.TryBindForm(r, &data); err != nil {
-		if htmx.IsRequest(r) {
-			// Validation failure: re-render the form in the same modal
-			// body it came from.
-			htmx.Reply().Retarget("#" + bodyID).Reswap("innerHTML").Apply(w)
-		}
-		return c.createForm(ValidationErrorsFromError(err), data, bodyID)
+		// Validation failure: the form re-renders into its own modal body via
+		// its hx-target — no server retarget needed, modal stays open.
+		return c.createForm(ValidationErrorsFromError(err), data)
 	}
 	if _, _, err := c.Data.Create(r.Context(), data); failInternal(w, err) {
 		return nil
 	}
 	if htmx.IsRequest(r) {
-		if isL2 {
-			// Nested L2 create (from a relation "+" button) — close L2,
-			// don't touch L1's form values. The refresh-relation event
-			// makes every L1 relation widget re-fetch its <option>
-			// list so the freshly-created row appears in the dropdown.
-			htmx.Reply().CloseModal(modalID).Trigger("refresh-relation", true).Reswap("none").Apply(w)
-			return nil
-		}
-		// L1 success: redirect the swap from the modal body to the
-		// table's list area and return the refreshed rows.
-		htmx.Reply().CloseModal(modalID).Retarget("#" + c.ListID).Reswap("innerHTML").Apply(w)
-		d, err := c.buildTableViewData(r)
-		if failInternal(w, err) {
-			return nil
-		}
-		return TableContent(d)
+		return c.afterMutation(w, r)
 	}
 	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return nil
@@ -489,11 +480,7 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) te
 	if failInternal(w, err) {
 		return nil
 	}
-	modalID, bodyID, _ := modalIDsFromHeader(r)
-	if htmx.IsRequest(r) {
-		htmx.Reply().OpenModal(modalID).Apply(w)
-	}
-	return c.editForm(id, nil, row, bodyID)
+	return c.editForm(id, nil, row) // the client opens the modal on swap
 }
 
 func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) templ.Component {
@@ -512,28 +499,14 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) te
 	if failInternal(w, err) {
 		return nil
 	}
-	modalID, bodyID, isL2 := modalIDsFromHeader(r)
 	if err := c.MetaData.TryBindForm(r, &row); err != nil {
-		if htmx.IsRequest(r) {
-			htmx.Reply().Retarget("#" + bodyID).Reswap("innerHTML").Apply(w)
-		}
-		return c.editForm(id, ValidationErrorsFromError(err), row, bodyID)
+		return c.editForm(id, ValidationErrorsFromError(err), row)
 	}
 	if _, err := c.Data.Update(r.Context(), id, row); failInternal(w, err) {
 		return nil
 	}
 	if htmx.IsRequest(r) {
-		if isL2 {
-			// Unlikely (no UI path opens edit in L2 today) but be safe.
-			htmx.Reply().CloseModal(modalID).Reswap("none").Apply(w)
-			return nil
-		}
-		htmx.Reply().CloseModal(modalID).Retarget("#" + c.ListID).Reswap("innerHTML").Apply(w)
-		d, err := c.buildTableViewData(r)
-		if failInternal(w, err) {
-			return nil
-		}
-		return TableContent(d)
+		return c.afterMutation(w, r)
 	}
 	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return nil

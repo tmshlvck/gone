@@ -1221,14 +1221,14 @@ func accountFormBody(d accountFormData) templ.Component {
 			}
 		}
 		if d.Modal {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<!-- Modal flow: form submits via HTMX into the same modal body\n\t\t     so the browser doesn't navigate. On validation error the\n\t\t     handler re-renders the form into the modal body; on success\n\t\t     it sets HX-Trigger:closeModal + HX-Reswap:none so the modal\n\t\t     closes and the page underneath (the admin table) stays. --> <form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<!-- Modal flow: form submits via HTMX into the same modal body\n\t\t     so the browser doesn't navigate. On validation error the\n\t\t     handler re-renders the form into the modal body; on success\n\t\t     it sets HX-Trigger:crud-close-modal + HX-Reswap:none so the\n\t\t     crud bridge closes the modal and the admin table underneath\n\t\t     stays. --> <form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var51 templ.SafeURL
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 586, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 587, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -1241,7 +1241,7 @@ func accountFormBody(d accountFormData) templ.Component {
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.ActionURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 587, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 588, Col: 24}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 			if templ_7745c5c3_Err != nil {
@@ -1254,7 +1254,7 @@ func accountFormBody(d accountFormData) templ.Component {
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue("#" + d.ModalBodyID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 588, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 589, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 			if templ_7745c5c3_Err != nil {
@@ -1280,7 +1280,7 @@ func accountFormBody(d accountFormData) templ.Component {
 			var templ_7745c5c3_Var54 templ.SafeURL
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(d.ActionURL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 597, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 598, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
@@ -1334,7 +1334,7 @@ func accountFormFields(d accountFormData) templ.Component {
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 607, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 608, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
 		if templ_7745c5c3_Err != nil {
@@ -1357,7 +1357,7 @@ func accountFormFields(d accountFormData) templ.Component {
 			var templ_7745c5c3_Var57 string
 			templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(d.TargetUsername)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 616, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 617, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 			if templ_7745c5c3_Err != nil {
@@ -1432,7 +1432,7 @@ func passkeyCard(d accountFormData) templ.Component {
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 653, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 654, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1445,7 +1445,7 @@ func passkeyCard(d accountFormData) templ.Component {
 				var templ_7745c5c3_Var60 string
 				templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(p.CreatedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 654, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 655, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 				if templ_7745c5c3_Err != nil {
@@ -1458,7 +1458,7 @@ func passkeyCard(d accountFormData) templ.Component {
 				var templ_7745c5c3_Var61 string
 				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(p.LastUsedAt)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 654, Col: 89}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 655, Col: 89}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 				if templ_7745c5c3_Err != nil {
@@ -1476,7 +1476,7 @@ func passkeyCard(d accountFormData) templ.Component {
 					var templ_7745c5c3_Var62 string
 					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyBaseURL + "/" + passkeyIDStr(p.ID) + "/delete")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 659, Col: 74}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 660, Col: 74}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 					if templ_7745c5c3_Err != nil {
@@ -1489,7 +1489,7 @@ func passkeyCard(d accountFormData) templ.Component {
 					var templ_7745c5c3_Var63 string
 					templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.ResolveAttributeValue("Delete passkey \"" + p.Name + "\"?")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 662, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 663, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var63)
 					if templ_7745c5c3_Err != nil {
@@ -1502,7 +1502,7 @@ func passkeyCard(d accountFormData) templ.Component {
 					var templ_7745c5c3_Var64 string
 					templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 664, Col: 67}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 665, Col: 67}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
 					if templ_7745c5c3_Err != nil {
@@ -1531,7 +1531,7 @@ func passkeyCard(d accountFormData) templ.Component {
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.PasskeyBaseURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 681, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 682, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var65)
 			if templ_7745c5c3_Err != nil {
@@ -1544,7 +1544,7 @@ func passkeyCard(d accountFormData) templ.Component {
 			var templ_7745c5c3_Var66 string
 			templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.ResolveAttributeValue(d.CSRFToken)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 684, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `auth/views.templ`, Line: 685, Col: 63}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var66)
 			if templ_7745c5c3_Err != nil {

@@ -133,9 +133,9 @@ Tailwind + HTMX from jsDelivr/unpkg.
   page. Depends on templ.
 - **`gone/htmx`** — the HTMX wire protocol typed: request classification
   (`IsRequest`, `Target`, `CurrentURL`) and a fluent response-directive
-  builder (`Reply().Retarget(…).Reswap(…).Trigger(…).Apply(w)`) with
-  backend-driven modal control (`OpenModal`/`CloseModal`). Dependency-free.
-  Apps reach for it in their own handlers; `crud` uses it internally.
+  builder (`Reply().Retarget(…).Reswap(…).Trigger(…).Apply(w)`).
+  Dependency-free. Apps reach for it in their own handlers; `crud` uses it
+  internally (e.g. `Trigger("crud-close-modal", nil)` for the modal bridge).
 
 ## Metadata — `DeriveMetaModel` and `MetaField`
 
@@ -524,18 +524,28 @@ Create / edit forms open in two stacked DaisyUI dialogs:
 - **L2 — shared singleton** — `#crud-modal-l2` — for the nested "+ create
   new" a relation picker opens. Auto-embedded by `Render`.
 
-The flow is **backend-driven**: the form's HTMX attributes are static
-(`hx-post=<action> hx-target=#…-body`); the server decides the outcome with
-response directives, built via `gone/htmx`:
+Open and close are **client-driven** — the server carries no modal ids. A
+small JS bridge (auto-embedded by `Render` via `PageModals`) keeps a push/pop
+stack of open dialogs and does two things:
+
+- **Auto-open**: when a *GET* fetches a form into a `.crud-modal-body` (the
+  body of an L1 or L2 dialog), it opens that dialog and pushes it. The GET
+  guard means a POST submit — whose `Reswap:none` still fires `afterSwap` —
+  never re-opens the modal it just closed.
+- **Generic close**: on the `crud-close-modal` event (emitted on a successful
+  mutation) it closes the *topmost* dialog, so a nested "+ new" create closes
+  itself and leaves its parent form open. An Esc / backdrop close keeps the
+  stack in sync.
+
+The server only decides the *outcome* of a submit, via `gone/htmx`
+directives — it never names a dialog:
 
 | Outcome          | Directives (`htmx.Reply()…Apply(w)`)                                   |
 |------------------|------------------------------------------------------------------------|
-| Validation error | `Retarget("#<body>").Reswap("innerHTML")`, body = form with errors     |
-| L1 save success  | `CloseModal(<id>).Retarget("#<wrapper>").Reswap("innerHTML")`, body = refreshed table |
-| L2 save success  | `CloseModal(<id>).Trigger("refresh-relation", true).Reswap("none")`    |
+| Validation error | *(none)* — the form re-renders into its own `hx-target` (the modal body), modal stays open |
+| L1 save success  | `Trigger("crud-close-modal", nil).Retarget("#<list>").Reswap("innerHTML")`, body = refreshed table |
+| L2 save success  | `Trigger("crud-close-modal", nil).Trigger("refresh-relation", true).Reswap("none")` |
 
-A small JS bridge (auto-embedded by the library) maps the `openModal` /
-`closeModal` events to `dialog.showModal()` / `.close()`, and
 `refresh-relation` makes every relation `<select>` re-fetch its options so a
 freshly-created row appears — without disturbing any other field.
 

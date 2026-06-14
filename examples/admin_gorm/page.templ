@@ -19,8 +19,8 @@ templ pageLayout(title string, content templ.Component) {
 			</script>
 			<script>
 				// Theme toggle only — crud.PageModals (embedded automatically
-				// in each CRUDTable.Render) ships the openModal/closeModal
-				// bridge JS itself.
+				// in each CRUDTable.Render) ships the modal open/close bridge
+				// JS itself.
 				document.addEventListener('DOMContentLoaded', () => {
 					document.querySelectorAll('[data-theme-toggle]').forEach(el => {
 						el.checked = (document.documentElement.getAttribute('data-theme') === 'dark');
