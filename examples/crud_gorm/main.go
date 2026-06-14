@@ -1,19 +1,7 @@
-// Example: three GORM-backed CRUDTables — Hero, Weapon, Skill — wired
-// together with a 1:N (Hero has many Weapons) and an N:M (Hero ↔ Skill)
-// relation. Each CRUD lives at its own URL (/heroes, /weapons, /skills);
-// HTMX uses two stacked modal dialogs at the page-shell level for
-// create/edit (L1) and for nested "+ create new" from relation pickers
-// (L2). The library exports those dialogs via crud.PageModals() — the
-// app embeds them once and every CRUDTable on every page reuses them.
-//
-// Seeds ~50 heroes / 60 weapons / 12 skills so pagination kicks in at
-// the default 10-rows-per-page.
-//
-// The wiring is three functions: migrate, seed, buildTables. main()
-// chains them together and starts the server. All per-MetaField
-// customization (FormHelp, FieldValidate, ReadOnly) lives in buildTables
-// and goes through MetaModel.FindField; cross-table relation links are
-// wired in main() via crud.WireRelations after the tables are routed.
+// Example: three GORM-backed CRUDTables — Hero, Weapon, Skill — with a 1:N
+// (Hero has many Weapons) and an N:M (Hero ↔ Skill) relation, each at its own
+// URL (/heroes, /weapons, /skills). crud.WireRelations links the relation
+// pickers after the tables are routed.
 package main
 
 import (
@@ -24,6 +12,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
 )
@@ -143,13 +132,9 @@ func pickN[T any](rng *rand.Rand, src []T, n int) []T {
 	return out
 }
 
-// buildTables describes the three CRUDTables in the three-step construction:
-// DeriveMetaModel reflects the model and overlays per-field overrides (panics
-// at startup on a typo'd field name), GORMAccessor pairs it with the DB, and
-// NewTable adds the table config. Path comes later at RegisterRoutes;
-// cross-table relation links are established in main() by crud.WireRelations
-// once the tables have been routed (a relation picker loads its options from
-// the related table's URL).
+// buildTables builds the three tables via the three-step construction:
+// DeriveMetaModel (reflect + per-field overrides) → GORMAccessor → NewTable.
+// Path is supplied later, at RegisterRoutes.
 func buildTables(db *gorm.DB) (
 	heroTable crud.CRUDTable[Hero],
 	weaponTable crud.CRUDTable[Weapon],
@@ -213,14 +198,12 @@ func main() {
 	heroTable, weaponTable, skillTable := buildTables(db)
 
 	mux := chi.NewRouter()
-	// The library registers each table's fragment endpoints; the app owns
-	// the page route that embeds table.Render(r) in chrome. The path is
-	// supplied here, at mount time — construction said what, this says where.
+	mux.Use(middleware.Logger)
 	mountPage(mux, &heroTable, "/heroes", "Heroes")
 	mountPage(mux, &weaponTable, "/weapons", "Weapons")
 	mountPage(mux, &skillTable, "/skills", "Skills")
-	// Link the relation pickers now that every table has its URL: the
-	// Owner select on /weapons loads options from /heroes, etc.
+	// Link the relation pickers now every table has its URL (Owner select on
+	// /weapons loads options from /heroes, etc).
 	crud.WireRelations(&heroTable, &weaponTable, &skillTable)
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, heroTable.URLBase(), http.StatusSeeOther)
@@ -252,10 +235,7 @@ func mountPage(mux chi.Router, t pageComponent, path, title string) {
 	})
 }
 
-// pageShell wraps the library's component output in the app's chrome
-// (templ pageLayout). Implements crud.PageShellFunc — gets (w, r,
-// title, content). Free to redirect or write headers; here it just
-// renders the templ.
+// pageShell renders the library's component inside the app's HTML chrome.
 func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {

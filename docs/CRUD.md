@@ -32,7 +32,7 @@ embeds `table.Render(r)` in its own shell.
 Navigation is multi-page — real `<a href>` links (Admin's sidebar included),
 each a full page load; no `hx-boost`. Only in-component interactions (sort,
 search, paginate, modal forms, delete) use targeted HTMX swaps. See
-[`../REFACTOR-HTMX.md`](../REFACTOR-HTMX.md) for the why.
+[`DESIGN.md`](DESIGN.md) for the rationale.
 
 ## The three steps
 
@@ -194,12 +194,11 @@ type MetaField struct {
 }
 ```
 
-After construction you can still mutate the model in place via
-`MustFindField` (`examples/form_mem` does this) — both styles are supported:
+The preset is the usual way to set per-field metadata. For the rare
+post-construction tweak, `FindField` returns a mutable pointer into the model:
 
 ```go
 func (mm *MetaModel[T]) FindField(name string) (*MetaField, error)
-func (mm *MetaModel[T]) MustFindField(name string) *MetaField // panics on miss
 ```
 
 ### Secret / password fields
@@ -581,7 +580,7 @@ against a `chi.Router`: rows render, search filters, POST persists,
 Unit tests cover the reflection-heavy primitives that aren't naturally
 observable through HTTP: `DeriveMetaModel` (preset merge, unknown-field
 panic), `DefaultBindForm`, the built-in validators (incl. IPv4/IPv6),
-`FindField` / `MustFindField`, and the secret-field helpers.
+`FindField`, and the secret-field helpers.
 
 `go test ./...` — no external deps; SQLite is in-memory.
 

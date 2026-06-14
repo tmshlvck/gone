@@ -1,13 +1,7 @@
-// Example: Admin over three GORM-backed CRUDTables — Hero, Weapon,
-// Skill — with zero per-field tweaking. Every MetaModel and CRUDTable
-// uses the library defaults, and Admin links the cross-table relations
-// automatically at RegisterRoutes time (matching each relation field's
-// type against the managed tables' URLs).
-//
-// The sidebar HTMX-swaps each table into the working pane on click;
-// the URL updates via hx-push-url so bookmarking the active model
-// works. The page-shell wraps admin.Render and embeds the shared L2
-// modal via crud.PageModals.
+// Example: Admin over three GORM-backed CRUDTables — Hero, Weapon, Skill —
+// with near-zero per-field config. Admin links the cross-table relations
+// automatically at RegisterRoutes time and shows one table at a time behind a
+// sidebar (plain links, full page loads). Also keeps the dark/light toggle.
 package main
 
 import (
@@ -18,6 +12,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
 )
@@ -144,14 +139,9 @@ func main() {
 		log.Fatalf("seed: %v", err)
 	}
 
-	// Near-zero-config tables (default slugs heros / weapons / skills). Admin
-	// links their relations automatically when it registers their routes.
-	//
-	// Hero overrides ShortLabel to control how a hero is labelled wherever it
-	// appears as a relation — both the Owner <select> options on the weapons
-	// form and the Owner cell in the weapons list now read "Name — Realm"
-	// instead of the default (the Name alone). Drop the override to get the
-	// default back.
+	// Default tables (slugs heros / weapons / skills). Hero overrides
+	// ShortLabel so it reads "Name — Realm" wherever it appears as a relation
+	// (the Owner picker + cells on /weapons); drop it for the Name-only default.
 	heroMM := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{})
 	heroTable := crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 0, nil)
 	heroTable.ShortLabel = func(h Hero) string { return h.Name + " — " + h.Realm }
@@ -162,40 +152,24 @@ func main() {
 	skillMM := crud.DeriveMetaModel[Skill](crud.MetaModel[Skill]{})
 	skillTable := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 0, nil)
 
-	mux := chi.NewRouter()
+	// Admin auto-wires the relations (by matching related type name to the
+	// managed tables) when it registers their routes.
+	admin := crud.DeriveAdmin([]crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}, nil)
 
-	// Admin links every table's relation fields automatically when it
-	// registers their routes — matching the related type name (Hero /
-	// Weapon / Skill) against each managed table's URL, so the relation
-	// pickers load their options from the right sibling.
-	tables := []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}
-	admin := crud.DeriveAdmin(tables, nil)
-
-	// Demonstrate Admin's custom sidebar links. Each link swaps the
-	// response into the admin working area (#crud-admin-main); the
-	// /testlink handler below returns a fragment under HTMX and a
-	// full page when navigated to directly.
+	// Custom sidebar link → /testlink (a fragment under HTMX, full page direct).
 	admin.SidebarBottom = []crud.SidebarLink{
 		{Separator: true},
 		{DisplayName: "Hello", URL: "/testlink"},
 	}
 
-	// Admin composes every path on the root mux — no stripping chi.Route.
-	// For componentPath "/admin" it registers:
-	//   - GET /admin → 303 to /admin/{first.URLSlug}
-	//   - GET /admin/{slug} → wraps admin.Render(r) in pageShell
-	//   - each child's fragment endpoints at /admin/{slug}/view, /create, …
+	mux := chi.NewRouter()
+	mux.Use(middleware.Logger)
 	if err := admin.RegisterRoutes(mux, "", "/admin", pageShell); err != nil {
 		log.Fatalf("admin route: %v", err)
 	}
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
-
-	// /testlink — the target of the custom sidebar link. HTMX
-	// requests get the bare fragment swapped into the admin's main
-	// pane; direct browser hits get the full page wrapped in the
-	// shell.
 	mux.Get("/testlink", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -207,15 +181,11 @@ func main() {
 		pageShell(w, r, "Hello", helloFragment())
 	})
 
-	addr := ":8080"
-	log.Printf("admin_gorm listening on %s — open /admin", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Printf("admin_gorm listening on :8080 — open /admin")
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
-// pageShell wraps the library's component output in the app's chrome
-// (templ pageLayout). Implements crud.PageShellFunc — gets (w, r,
-// title, content). Free to redirect or write headers; here it just
-// renders the templ.
+// pageShell renders the library's component inside the app's HTML chrome.
 func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {

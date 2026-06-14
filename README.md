@@ -250,5 +250,3 @@ Planned (see [`docs/TODO.md`](docs/TODO.md)):
   wired into no routes by default.
 - **CSV import/export** — round-trip a CRUDTable's rows through CSV,
   driven by the existing MetaModel.
-- **JSON API** — a `JSONAPI` derived from a CRUDTable's MetaModel +
-  data closures.

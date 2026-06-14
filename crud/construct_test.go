@@ -21,6 +21,16 @@ func newCfgStore() (map[uint]cfgHero, *sync.RWMutex) {
 	return map[uint]cfgHero{1: {ID: 1, Name: "Aragorn"}}, &sync.RWMutex{}
 }
 
+// mustField fetches a field by name, failing the test if absent.
+func mustField[T any](t *testing.T, mm *MetaModel[T], name string) *MetaField {
+	t.Helper()
+	f, err := mm.FindField(name)
+	if err != nil {
+		t.Fatalf("FindField(%q): %v", name, err)
+	}
+	return f
+}
+
 // TestDeriveMetaModelMergesPreset covers the overlay rules: preset's
 // non-empty DisplayName / per-field strings / hooks / additive flags win over
 // the reflected defaults; NewTable then enables mutations by default.
@@ -35,10 +45,10 @@ func TestDeriveMetaModelMergesPreset(t *testing.T) {
 	if mm.DisplayName != "Heroes" {
 		t.Errorf("DisplayName = %q, want Heroes", mm.DisplayName)
 	}
-	if id := mm.MustFindField("ID"); !id.ReadOnly {
+	if id := mustField(t, &mm, "ID"); !id.ReadOnly {
 		t.Error("ID.ReadOnly = false, want true")
 	}
-	name := mm.MustFindField("Name")
+	name := mustField(t, &mm, "Name")
 	if name.DisplayName != "Full name" {
 		t.Errorf("Name.DisplayName = %q, want Full name", name.DisplayName)
 	}
@@ -66,7 +76,7 @@ func TestDeriveMetaModelDefaults(t *testing.T) {
 	if mm.DisplayName != "cfgHero" {
 		t.Errorf("default DisplayName = %q, want cfgHero", mm.DisplayName)
 	}
-	name := mm.MustFindField("Name")
+	name := mustField(t, &mm, "Name")
 	if name.ReadOnly {
 		t.Error("Name unexpectedly read-only")
 	}
@@ -134,7 +144,7 @@ func TestRedactHelper(t *testing.T) {
 	mm := DeriveMetaModel[secretModel](MetaModel[secretModel]{
 		Fields: []MetaField{{Name: "Handle", ReadOnly: true, DisplayValue: Redact}},
 	})
-	h := mm.MustFindField("Handle")
+	h := mustField(t, &mm, "Handle")
 	if !h.ReadOnly {
 		t.Error("Handle should be ReadOnly (shown, not bound)")
 	}
@@ -166,7 +176,7 @@ func TestPasswordFieldViaHelpers(t *testing.T) {
 			BindStrings:    HashWith(func(pw string) (string, error) { return "H(" + pw + ")", nil }),
 		}},
 	})
-	f := mm.MustFindField("PasswordHash")
+	f := mustField(t, &mm, "PasswordHash")
 
 	// Empty password box — the stored hash never leaks into the form.
 	form := renderHook(t, f.GenFormElement(*f, "argon2$secret"))
@@ -224,7 +234,7 @@ func TestShortLabelOverride(t *testing.T) {
 	}
 	// And WireRelations propagates it to a related table's relation cell.
 	WireRelations(&htbl, &wtbl)
-	owner := wtbl.MetaData.MustFindField("Owner")
+	owner := mustField(t, &wtbl.MetaData, "Owner")
 	if owner.RelatedShortLabel == nil {
 		t.Fatal("Owner.RelatedShortLabel not stamped by WireRelations")
 	}

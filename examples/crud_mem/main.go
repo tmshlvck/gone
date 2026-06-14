@@ -12,6 +12,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/crud"
 )
 
@@ -93,8 +94,8 @@ func main() {
 	table := crud.NewTable(mm, data, 10, nil)
 
 	mux := chi.NewRouter()
-	// The library registers only the table's fragment endpoints; the app
-	// owns the page route, embedding table.Render(r) in its own chrome.
+	mux.Use(middleware.Logger)
+	// The library registers the fragment endpoints; the app owns the page route.
 	const heroesPath = "/heroes"
 	table.RegisterRoutes(mux, "", heroesPath)
 	mux.Get(heroesPath, func(w http.ResponseWriter, r *http.Request) {
@@ -114,9 +115,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
-// pageShell wraps the library's component output in the app's chrome.
-// It's a PageShellFunc — gets (w, r, title, content). Free to redirect
-// or write headers directly; here we just render the templ.
+// pageShell renders the library's component inside the app's HTML chrome.
 func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {

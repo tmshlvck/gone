@@ -30,8 +30,8 @@ you need the archaeology.
   sensible defaults, then overlays the preset's per-field overrides and
   validates field names (a typo panics at startup — the
   `regexp.MustCompile` idiom). No code generation, no annotations beyond
-  the gorm tags. Post-mutation via `MustFindField` stays as the
-  alternative for callers that prefer building the model imperatively.
+  the gorm tags. `FindField` returns a mutable pointer for the rare
+  post-construction tweak.
 - **Safe HTML by default.** templ escapes every interpolated value;
   `templ.Raw` is the explicit escape hatch.
 - **Real multi-page navigation; HTMX only where it earns its keep.**

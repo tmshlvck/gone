@@ -9,7 +9,8 @@ detail lives in the linked docs.
 |------------------|-----------------------------------------------------------------------------------------------------------|
 | `gone/crud`      | HTMX-driven CRUD UIs from struct metadata. CRUDTable + Admin + MetaModel + validators + relation pickers. |
 | `gone/auth`      | Sessions / CSRF / login / authz. AuthSimple + AuthGORM impls. TOTP. Passkeys. Account page.               |
-| `gone/openapi`   | (Experimental) OpenAPI spec generation from MetaModel — prototype, not wired into CRUDTable yet.          |
+| `gone/htmx`      | Typed HTMX wire protocol: request classification + response-directive builder (Retarget/Reswap/Trigger).  |
+| `gone/site`      | Page-composition helpers: the Shell func shape, a Fragment writer, and a fragment-or-page Respond helper.  |
 
 ## Documentation
 

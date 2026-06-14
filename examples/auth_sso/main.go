@@ -32,19 +32,18 @@ import (
 	"github.com/alexedwards/scs/v2"
 	"github.com/glebarez/sqlite"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/auth"
 	"github.com/tmshlvck/gone/crud"
 	"gorm.io/gorm"
 )
 
 func main() {
-	// ── Sessions ────────────────────────────────────────────────────
 	sm := scs.New()
 	sm.Lifetime = 24 * time.Hour
 	sm.Cookie.HttpOnly = true
 	sm.Cookie.SameSite = http.SameSiteLaxMode
 
-	// ── DB + Auth ───────────────────────────────────────────────────
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("gorm: %v", err)
@@ -58,7 +57,6 @@ func main() {
 	ag.RPID = "localhost"
 	ag.RPOrigins = []string{"http://localhost:8080"}
 
-	// ── Seed admin / admin in admin group ───────────────────────────
 	if err := ag.GroupAdd("admin"); err != nil {
 		log.Fatalf("GroupAdd: %v", err)
 	}
@@ -72,17 +70,14 @@ func main() {
 		log.Fatalf("UserMod: %v", err)
 	}
 
-	// ── SSO providers (env-var driven) ──────────────────────────────
-	// Each registration is conditional on the relevant env vars. With
-	// none set the example behaves identically to auth_gorm — useful
-	// for showing the "zero-config" baseline.
+	// Each provider is registered only if its env vars are set; with none set
+	// this behaves like auth_gorm.
 	baseURL := os.Getenv("BASE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
 	registerSSOProviders(ag, baseURL)
 
-	// ── CRUD tables for User + Group ────────────────────────────────
 	gate := auth.AuthzLoggedInReadAdminWrite{Auth: ag}
 
 	userMM := crud.DeriveMetaModel[auth.UserGORM](crud.MetaModel[auth.UserGORM]{
@@ -117,10 +112,8 @@ func main() {
 	groupTable := crud.NewTable(groupMM, crud.GORMAccessor(groupMM, db), 0, gate)
 	groupTable.Segment = "groups"
 
-	tables := []crud.CRUDTableInterface{&userTable, &groupTable}
-	admin := crud.DeriveAdmin(tables, nil)
+	admin := crud.DeriveAdmin([]crud.CRUDTableInterface{&userTable, &groupTable}, nil)
 
-	// ── Page shell ──────────────────────────────────────────────────
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 		u := ag.CurrentUser(r)
 		if u == nil && !ag.IsAuthPath(r.URL.Path) {
@@ -139,12 +132,11 @@ func main() {
 		}
 	}
 
-	// ── Routing ─────────────────────────────────────────────────────
 	mux := chi.NewRouter()
+	mux.Use(middleware.Logger)
 	if err := ag.RegisterRoutes(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	// Admin composes every path on the root mux — no stripping chi.Route.
 	if err := admin.RegisterRoutes(mux, "", "/admin", pageShell); err != nil {
 		log.Fatalf("admin route: %v", err)
 	}
@@ -152,14 +144,9 @@ func main() {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
 
-	// ── Middleware ──────────────────────────────────────────────────
 	handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
-
-	// ── Run ─────────────────────────────────────────────────────────
-	addr := ":8080"
-	log.Printf("auth_sso listening on %s — login admin / admin, or via SSO if configured", addr)
-	log.Printf("admin URL: /admin")
-	log.Fatal(http.ListenAndServe(addr, handler))
+	log.Printf("auth_sso listening on :8080 — login admin / admin (or via SSO if configured), then open /admin")
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }
 
 // registerSSOProviders inspects environment variables and registers

@@ -5,7 +5,7 @@ start. Design rationale and the longer "maybe someday / pending real
 need" list live in [`DESIGN.md`](DESIGN.md); user reference is
 [`CRUD.md`](CRUD.md) + [`AUTH.md`](AUTH.md).
 
-Three things on deck:
+Two things on deck:
 
 ## 1. API keys (AuthGORM)
 
@@ -97,41 +97,6 @@ Open decisions to settle when building:
   one bad row rejects the whole file) vs. per-row with a report. Lean
   all-or-nothing for v1, returning the failing row + validation errors
   inline.
-
-## 3. JSON API from CRUDTable
-
-A `JSONAPI` derived from the same `MetaModel` + data closures a
-`CRUDTable` already holds, so an app gets a machine-readable surface
-for free alongside the HTML one.
-
-```go
-func DeriveJSONAPI[T any](mm *MetaModel[T], az auth.Authz, /* data source */) JSONAPI
-func (j *JSONAPI) Route(mux Mux, base string) (string, error)
-```
-
-Endpoints:
-
-- `GET    {base}` — list (`?search`, `?sort`, `?offset`, `?limit`)
-- `GET    {base}/{id}` — one entity, top-level relations preloaded
-- `POST   {base}` — create
-- `PUT    {base}/{id}` — update
-- `DELETE {base}/{id}` — delete
-- `GET    {base}/openapi.json` — spec generated from the `MetaModel`
-  (patterns prototyped in [`../openapi/openapi.go`](../openapi/openapi.go))
-
-Auth model, reusing the existing pieces:
-
-- **Authentication**: session cookie, or an API key (item 1) the app
-  resolves to its owning user, or anonymous — per route policy.
-- **Authorization**: the same `auth.Authz` interface the CRUDTable
-  uses; API-key requests resolve to the owning user before authz runs.
-- **CSRF**: enforced for cookie-authenticated requests, skipped for
-  header-authenticated ones (no session to forge against).
-- **Coexistence**: JSON lives at a separate path by default (`/heroes`
-  HTML, `/api/heroes` JSON) rather than negotiating one URL by
-  `Accept` header.
-
-Lands as `gone/jsonapi` (or `crud/jsonapi.go` if it stays thin).
 
 ---
 

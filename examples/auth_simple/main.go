@@ -12,6 +12,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/auth"
 	"github.com/tmshlvck/gone/crud"
 )
@@ -67,35 +68,28 @@ func deriveHeroesTable(store map[uint]Hero, mu *sync.RWMutex, az auth.Authz) cru
 }
 
 func main() {
-	// ── Seed ────────────────────────────────────────────────────────
 	store := seedHeroes()
 	var mu sync.RWMutex
 
-	// ── Sessions ────────────────────────────────────────────────────
 	sm := scs.New()
 	sm.Lifetime = 24 * time.Hour
 	sm.Cookie.HttpOnly = true
 	sm.Cookie.SameSite = http.SameSiteLaxMode
 
-	// ── Auth ────────────────────────────────────────────────────────
 	sa := auth.NewAuthSimple(sm)
 	sa.AfterLogin = "/heroes"
 	if err := sa.UserAdd("admin", "admin@local", "admin"); err != nil {
 		log.Fatalf("UserAdd: %v", err)
 	}
 
-	// ── CRUD table ──────────────────────────────────────────────────
-	// AuthzLoggedInReadAdminWrite: logged-in users read, admin group
-	// writes. Every AuthSimple user is implicitly in "admin", so this
-	// behaves like AuthzLoggedIn for this single-user demo.
+	// AuthzLoggedInReadAdminWrite: logged-in users read, admin group writes.
+	// Every AuthSimple user is in "admin", so for this single-user demo it
+	// behaves like AuthzLoggedIn.
 	table := deriveHeroesTable(store, &mu, auth.AuthzLoggedInReadAdminWrite{Auth: sa})
 
-	// ── Page shell ──────────────────────────────────────────────────
-	// One PageShellFunc serves both the login page and the protected
-	// /heroes routes. Anonymous requests are redirected to /login,
-	// except when they're already on an auth-managed page (login,
-	// or any future staged-login step). sa.IsAuthPath knows which
-	// ones to skip so the login flow doesn't bounce itself.
+	// One shell serves the login page and the protected /heroes routes.
+	// Anonymous requests redirect to /login, unless already on an auth page
+	// (IsAuthPath) — else the login flow would bounce itself.
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 		u := sa.CurrentUser(r)
 		if u == nil && !sa.IsAuthPath(r.URL.Path) {
@@ -114,13 +108,11 @@ func main() {
 		}
 	}
 
-	// ── Routing ─────────────────────────────────────────────────────
 	mux := chi.NewRouter()
+	mux.Use(middleware.Logger)
 	if err := sa.RegisterRoutes(mux, "", pageShell); err != nil {
 		log.Fatalf("auth route: %v", err)
 	}
-	// The library registers the table's fragment endpoints; the app owns
-	// the page route, embedding table.Render(r) in pageShell.
 	const heroesPath = "/heroes"
 	table.RegisterRoutes(mux, "", heroesPath)
 	mux.Get(heroesPath, func(w http.ResponseWriter, r *http.Request) {
@@ -135,13 +127,8 @@ func main() {
 		http.Redirect(w, r, table.URLBase(), http.StatusSeeOther)
 	})
 
-	// ── Middleware ──────────────────────────────────────────────────
-	// scs LoadAndSave is the outermost wrapper; auth.CSRFWrap runs
-	// inside it.
+	// scs LoadAndSave is the outermost wrapper; auth.CSRFWrap runs inside it.
 	handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
-
-	// ── Run ─────────────────────────────────────────────────────────
-	addr := ":8080"
-	log.Printf("auth_simple listening on %s — login admin / admin", addr)
-	log.Fatal(http.ListenAndServe(addr, handler))
+	log.Printf("auth_simple listening on :8080 — login admin / admin")
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }

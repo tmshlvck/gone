@@ -727,13 +727,18 @@ The example `pageShell` renders the user's name as a link to
 
 ### Admin link
 
-Inside the User CRUDTable, override the ID column to open the
-account page in a modal:
+Inside the User CRUDTable preset, override the ID column to open the
+account page in a modal (the modal body id derives from the table's
+component path — `/admin/users` → `admin-users-modal-l1-body`):
 
 ```go
-userMM.MustFindField("ID").DisplayValue = func(mf crud.MetaField, value any) templ.Component {
-    return userIDLink(fmt.Sprintf("%v", value), "users-modal-l1-body")
-}
+userMM := crud.DeriveMetaModel[auth.UserGORM](crud.MetaModel[auth.UserGORM]{
+    Fields: []crud.MetaField{
+        {Name: "ID", DisplayValue: func(mf crud.MetaField, value any) templ.Component {
+            return userIDLink(fmt.Sprintf("%v", value), "admin-users-modal-l1-body")
+        }},
+    },
+})
 ```
 
 where `userIDLink` is a small templ in your example:

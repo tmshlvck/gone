@@ -29,7 +29,10 @@ type blobModel struct {
 // such a field — and display as its string (HTML-escaped).
 func TestByteSliceBindAndDisplay(t *testing.T) {
 	mm := DeriveMetaModel[blobModel](MetaModel[blobModel]{})
-	h := mm.MustFindField("Handle")
+	h, err := mm.FindField("Handle")
+	if err != nil {
+		t.Fatalf("FindField: %v", err)
+	}
 	if h.RelationKind != NotRelation {
 		t.Fatalf("Handle should be a scalar field, got relation kind %v", h.RelationKind)
 	}
@@ -187,20 +190,6 @@ func TestFindField(t *testing.T) {
 	if _, err := mm.FindField("Nope"); err == nil {
 		t.Error("expected error for unknown field")
 	}
-}
-
-func TestMustFindField(t *testing.T) {
-	mm := DeriveMetaModel[sampleConfig](MetaModel[sampleConfig]{})
-	mm.MustFindField("Port").FormHelp = "TCP port"
-	if mm.Fields[1].FormHelp != "TCP port" {
-		t.Errorf("MustFindField did not mutate in place")
-	}
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("MustFindField should panic on missing field")
-		}
-	}()
-	mm.MustFindField("Nope")
 }
 
 func TestDefaultDisplayValues_RenderShape(t *testing.T) {
