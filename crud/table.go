@@ -1,16 +1,12 @@
 package crud
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/url"
-	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -19,20 +15,9 @@ import (
 	"github.com/tmshlvck/gone/site"
 )
 
-// CRUDSearchResult bundles a row with the ID the backend assigned to it.
-// The ID is exposed separately so handlers don't have to dig into the
-// model to discover it.
-type CRUDSearchResult[T any] struct {
-	ID  uint
-	Row T
-}
-
-// ErrNotFound is returned by Get/Update/Delete when the id is unknown.
-var ErrNotFound = errors.New("not found")
-
-// CRUDTable wraps a MetaModel with the data-plane closures every backend
-// must supply. DeriveMapCRUDTable / DeriveGormCRUDTable populate the
-// closures; the renderer and route handlers treat all backends uniformly.
+// CRUDTable pairs a MetaModel (how to render/bind) with an Accessor (the
+// data plane) plus table-level config. The renderer and route handlers are
+// backend-blind — they go through Data.
 //
 // urlBase is set by RegisterRoutes to mountBase + "/" + Slug — read it via
 // URLBase(). Slug defaults to a lowercased plural of MetaData.Name; override
@@ -69,11 +54,9 @@ type CRUDTable[T any] struct {
 	// can coexist on one page without collision.
 	ListID string
 
-	Get    func(ctx context.Context, id uint) (T, error)
-	List   func(ctx context.Context, search, sortBy string, sortDesc bool, offset, limit int) ([]CRUDSearchResult[T], int64, error)
-	Create func(ctx context.Context, data T) (uint, T, error)
-	Update func(ctx context.Context, id uint, data T) (T, error)
-	Delete func(ctx context.Context, id uint) error
+	// Data is the data plane — Get/List/Create/Update/Delete. Built by a
+	// backend constructor (MapAccessor / GORMAccessor) or any custom Accessor.
+	Data Accessor[T]
 
 	// ShortLabel overrides DefaultShortLabel for this model — the short label
 	// shown for one of its rows in a relation <select> option (this table's
@@ -104,7 +87,7 @@ const defaultPageSize = 20
 //
 // authz gates every route Route() registers (nil = AllowAll).
 func DeriveMapCRUDTable[T any](mm MetaModel[T], az auth.Authz, store map[uint]T, mu *sync.RWMutex) CRUDTable[T] {
-	c := CRUDTable[T]{
+	return CRUDTable[T]{
 		MetaData:      mm,
 		Authz:         az,
 		Slug:          defaultSlug(mm.Name),
@@ -112,193 +95,7 @@ func DeriveMapCRUDTable[T any](mm MetaModel[T], az auth.Authz, store map[uint]T,
 		EditEnabled:   true,
 		DeleteEnabled: true,
 		ListID:        "table_" + randSuffix(),
-	}
-
-	searchable := func() []string {
-		out := make([]string, 0, len(mm.Fields))
-		for _, mf := range mm.Fields {
-			if mf.Searchable {
-				out = append(out, mf.Name)
-			}
-		}
-		return out
-	}()
-
-	c.Get = func(ctx context.Context, id uint) (T, error) {
-		mu.RLock()
-		defer mu.RUnlock()
-		v, ok := store[id]
-		if !ok {
-			var z T
-			return z, ErrNotFound
-		}
-		return v, nil
-	}
-
-	c.List = func(ctx context.Context, search, sortBy string, sortDesc bool, offset, limit int) ([]CRUDSearchResult[T], int64, error) {
-		mu.RLock()
-		defer mu.RUnlock()
-
-		all := make([]CRUDSearchResult[T], 0, len(store))
-		for id, v := range store {
-			all = append(all, CRUDSearchResult[T]{ID: id, Row: v})
-		}
-
-		if search != "" {
-			needle := strings.ToLower(search)
-			filtered := all[:0]
-			for _, r := range all {
-				if rowMatchesSearch(r.Row, searchable, needle) {
-					filtered = append(filtered, r)
-				}
-			}
-			all = filtered
-		}
-
-		if sortBy == "" {
-			sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		} else {
-			sort.Slice(all, func(i, j int) bool {
-				less := compareFieldByName(all[i].Row, all[j].Row, sortBy)
-				if sortDesc {
-					return !less
-				}
-				return less
-			})
-		}
-
-		total := int64(len(all))
-		if offset >= len(all) {
-			return nil, total, nil
-		}
-		end := len(all)
-		if limit > 0 && offset+limit < end {
-			end = offset + limit
-		}
-		return all[offset:end], total, nil
-	}
-
-	c.Create = func(ctx context.Context, data T) (uint, T, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		id := nextID(store)
-		setIDField(&data, id)
-		store[id] = data
-		return id, data, nil
-	}
-
-	c.Update = func(ctx context.Context, id uint, data T) (T, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if _, ok := store[id]; !ok {
-			var z T
-			return z, ErrNotFound
-		}
-		setIDField(&data, id)
-		store[id] = data
-		return data, nil
-	}
-
-	c.Delete = func(ctx context.Context, id uint) error {
-		mu.Lock()
-		defer mu.Unlock()
-		if _, ok := store[id]; !ok {
-			return ErrNotFound
-		}
-		delete(store, id)
-		return nil
-	}
-
-	return c
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// Reflection helpers for map-backend search/sort/ID.
-// ──────────────────────────────────────────────────────────────────────────
-
-func rowMatchesSearch[T any](row T, searchFields []string, needle string) bool {
-	rv := reflect.ValueOf(row)
-	for rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return false
-	}
-	for _, name := range searchFields {
-		f := rv.FieldByName(name)
-		if !f.IsValid() {
-			continue
-		}
-		if f.Kind() == reflect.String && strings.Contains(strings.ToLower(f.String()), needle) {
-			return true
-		}
-	}
-	return false
-}
-
-func compareFieldByName[T any](a, b T, field string) bool {
-	av := fieldByName(a, field)
-	bv := fieldByName(b, field)
-	if !av.IsValid() || !bv.IsValid() {
-		return false
-	}
-	return reflectLess(av, bv)
-}
-
-func fieldByName(v any, name string) reflect.Value {
-	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return reflect.Value{}
-	}
-	return rv.FieldByName(name)
-}
-
-func reflectLess(a, b reflect.Value) bool {
-	if a.Type() == reflect.TypeOf(time.Time{}) {
-		return a.Interface().(time.Time).Before(b.Interface().(time.Time))
-	}
-	switch a.Kind() {
-	case reflect.String:
-		return a.String() < b.String()
-	case reflect.Bool:
-		return !a.Bool() && b.Bool()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return a.Int() < b.Int()
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return a.Uint() < b.Uint()
-	case reflect.Float32, reflect.Float64:
-		return a.Float() < b.Float()
-	}
-	return false
-}
-
-func nextID[T any](store map[uint]T) uint {
-	var n uint = 1
-	for id := range store {
-		if id >= n {
-			n = id + 1
-		}
-	}
-	return n
-}
-
-func setIDField[T any](data *T, id uint) {
-	rv := reflect.ValueOf(data).Elem()
-	if rv.Kind() != reflect.Struct {
-		return
-	}
-	f := rv.FieldByName("ID")
-	if !f.IsValid() || !f.CanSet() {
-		return
-	}
-	switch f.Kind() {
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		f.SetUint(uint64(id))
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		f.SetInt(int64(id))
+		Data:          MapAccessor(mm, store, mu),
 	}
 }
 
@@ -389,7 +186,7 @@ func (c *CRUDTable[T]) handleRowDisplay(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return nil
 	}
-	row, err := c.Get(r.Context(), id)
+	row, err := c.Data.Get(r.Context(), id)
 	if errors.Is(err, ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return nil
@@ -469,7 +266,7 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 	}
 	offset := (page - 1) * pageSize
 
-	results, total, err := c.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)
+	results, total, err := c.Data.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)
 	if err != nil {
 		return TableViewData{}, err
 	}
@@ -487,7 +284,7 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 		if offset < 0 {
 			offset = 0
 		}
-		results, _, err = c.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)
+		results, _, err = c.Data.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)
 		if err != nil {
 			return TableViewData{}, err
 		}
@@ -621,7 +418,7 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 		}
 		return c.createFormView(ValidationErrorsFromError(err), data, bodyID)
 	}
-	if _, _, err := c.Create(r.Context(), data); failInternal(w, err) {
+	if _, _, err := c.Data.Create(r.Context(), data); failInternal(w, err) {
 		return nil
 	}
 	if htmx.IsRequest(r) {
@@ -668,7 +465,7 @@ func (c *CRUDTable[T]) handleEditForm(w http.ResponseWriter, r *http.Request) te
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return nil
 	}
-	row, err := c.Get(r.Context(), id)
+	row, err := c.Data.Get(r.Context(), id)
 	if errors.Is(err, ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return nil
@@ -695,7 +492,7 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) te
 	}
 	// Start from the current row so unsubmitted hidden/read-only fields
 	// keep their value.
-	row, err := c.Get(r.Context(), id)
+	row, err := c.Data.Get(r.Context(), id)
 	if errors.Is(err, ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return nil
@@ -710,7 +507,7 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) te
 		}
 		return c.editFormView(id, ValidationErrorsFromError(err), row, bodyID)
 	}
-	if _, err := c.Update(r.Context(), id, row); failInternal(w, err) {
+	if _, err := c.Data.Update(r.Context(), id, row); failInternal(w, err) {
 		return nil
 	}
 	if htmx.IsRequest(r) {
@@ -736,7 +533,7 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return nil
 	}
-	if err := c.Delete(r.Context(), id); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := c.Data.Delete(r.Context(), id); err != nil && !errors.Is(err, ErrNotFound) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return nil
 	}

@@ -175,7 +175,7 @@ func TestCreate_PostRedirectsAndPersists(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != "/items" {
 		t.Errorf("Location = %q", loc)
 	}
-	rows, total, err := tbl.List(context.Background(), "Frodo", "", false, 0, 0)
+	rows, total, err := tbl.Data.List(context.Background(), "Frodo", "", false, 0, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestUpdate_PostMutates(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status %d, want 303", rec.Code)
 	}
-	row, err := tbl.Get(context.Background(), 4)
+	row, err := tbl.Data.Get(context.Background(), 4)
 	if err != nil {
 		t.Fatalf("Get(4): %v", err)
 	}
@@ -209,7 +209,7 @@ func TestDelete_BrowserRequestRedirects(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("non-HTMX delete: status %d, want 303", rec.Code)
 	}
-	if _, err := tbl.Get(context.Background(), 2); err == nil {
+	if _, err := tbl.Data.Get(context.Background(), 2); err == nil {
 		t.Error("id 2 should be gone")
 	}
 }

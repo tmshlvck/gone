@@ -294,7 +294,7 @@ func (c *CRUDTable[T]) URLBase() string { return c.urlBase }
 
 // SearchOptions returns up to relationOptionLimit options matching search.
 func (c *CRUDTable[T]) SearchOptions(ctx context.Context, search string) ([]CRUDRelationOption, int64, error) {
-	results, total, err := c.List(ctx, search, "", false, 0, relationOptionLimit)
+	results, total, err := c.Data.List(ctx, search, "", false, 0, relationOptionLimit)
 	if err != nil {
 		return nil, 0, err
 	}

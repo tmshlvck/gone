@@ -121,7 +121,7 @@ func TestGorm_CreatePersists(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status %d, want 303", rec.Code)
 	}
-	rows, total, err := hbl.List(context.Background(), "Frodo", "", false, 0, 10)
+	rows, total, err := hbl.Data.List(context.Background(), "Frodo", "", false, 0, 10)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -133,12 +133,12 @@ func TestGorm_CreatePersists(t *testing.T) {
 func TestGorm_UpdateReplacesM2M(t *testing.T) {
 	mux, hbl, stbl, _ := newGormServer(t)
 	// Look up Aragorn's row and the skill IDs.
-	rows, _, err := hbl.List(context.Background(), "Aragorn", "", false, 0, 1)
+	rows, _, err := hbl.Data.List(context.Background(), "Aragorn", "", false, 0, 1)
 	if err != nil || len(rows) == 0 {
 		t.Fatalf("seed lookup: %v rows=%d", err, len(rows))
 	}
 	aragornID := rows[0].ID
-	skillRows, _, err := stbl.List(context.Background(), "Archery", "", false, 0, 1)
+	skillRows, _, err := stbl.Data.List(context.Background(), "Archery", "", false, 0, 1)
 	if err != nil || len(skillRows) == 0 {
 		t.Fatalf("skill lookup: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestGorm_UpdateReplacesM2M(t *testing.T) {
 		t.Fatalf("status %d body=%s", rec.Code, rec.Body.String())
 	}
 
-	got, err := hbl.Get(context.Background(), aragornID)
+	got, err := hbl.Data.Get(context.Background(), aragornID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestGorm_UpdateReplacesM2M(t *testing.T) {
 
 func TestGorm_Delete(t *testing.T) {
 	mux, hbl, _, _ := newGormServer(t)
-	rows, _, _ := hbl.List(context.Background(), "Gandalf", "", false, 0, 1)
+	rows, _, _ := hbl.Data.List(context.Background(), "Gandalf", "", false, 0, 1)
 	if len(rows) == 0 {
 		t.Fatalf("Gandalf not seeded")
 	}
@@ -177,14 +177,14 @@ func TestGorm_Delete(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status %d", rec.Code)
 	}
-	if _, err := hbl.Get(context.Background(), id); err == nil {
+	if _, err := hbl.Data.Get(context.Background(), id); err == nil {
 		t.Error("Gandalf should be gone")
 	}
 }
 
 func TestGorm_RowDisplayBareboneFragment(t *testing.T) {
 	mux, hbl, _, _ := newGormServer(t)
-	rows, _, _ := hbl.List(context.Background(), "Aragorn", "", false, 0, 1)
+	rows, _, _ := hbl.Data.List(context.Background(), "Aragorn", "", false, 0, 1)
 	if len(rows) == 0 {
 		t.Fatal("Aragorn not seeded")
 	}
