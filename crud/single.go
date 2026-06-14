@@ -36,7 +36,7 @@ type FormOpts struct {
 func (mm *MetaModel[T]) RenderDisplay(instance T) templ.Component {
 	return DisplayView(DisplayViewData{
 		Fields: mm.Fields,
-		Cells:  mm.DisplayValues(*mm, instance),
+		Cells:  mm.DisplayValues(instance),
 	})
 }
 
@@ -56,7 +56,7 @@ func (mm *MetaModel[T]) RenderForm(instance T, opts FormOpts) templ.Component {
 		ActionURL:   opts.ActionURL,
 		SubmitText:  submit,
 		Fields:      mm.Fields,
-		Inputs:      mm.GenFormElements(*mm, instance),
+		Inputs:      mm.GenFormElements(instance),
 		Errors:      opts.Errors,
 		SuccessMsg:  opts.SuccessMsg,
 		HXTarget:    opts.HXTarget,
@@ -72,5 +72,5 @@ func (mm *MetaModel[T]) TryBindForm(r *http.Request, out *T) error {
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
-	return mm.BindForm(*mm, r.PostForm, out)
+	return mm.BindForm(r.PostForm, out)
 }

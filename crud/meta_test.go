@@ -97,23 +97,6 @@ func TestDeriveMetaModel_FieldsAndInputTypes(t *testing.T) {
 	}
 }
 
-func TestDeriveMetaModel_DivIDsArePerInstanceRandom(t *testing.T) {
-	a, _ := DeriveMetaModel[sampleConfig]()
-	b, _ := DeriveMetaModel[sampleConfig]()
-	if !strings.HasPrefix(a.DivID, "model_sampleconfig_") {
-		t.Errorf("model DivID = %q; want prefix model_sampleconfig_", a.DivID)
-	}
-	if a.DivID == b.DivID {
-		t.Errorf("two derivations produced the same model DivID: %q", a.DivID)
-	}
-	if !strings.HasPrefix(a.Fields[0].DivID, "field_hostname_") {
-		t.Errorf("field DivID = %q; want prefix field_hostname_", a.Fields[0].DivID)
-	}
-	if a.Fields[0].DivID == b.Fields[0].DivID {
-		t.Errorf("two derivations produced the same field DivID: %q", a.Fields[0].DivID)
-	}
-}
-
 func TestDeriveMetaModel_SortableSearchable(t *testing.T) {
 	mm, _ := DeriveMetaModel[sampleConfig]()
 	for _, mf := range mm.Fields {
@@ -144,7 +127,7 @@ func TestDefaultBindForm_AllScalars(t *testing.T) {
 		"Started":  {"2026-05-25T10:30"},
 	}
 	var out sampleConfig
-	if err := mm.BindForm(mm, form, &out); err != nil {
+	if err := mm.BindForm(form, &out); err != nil {
 		t.Fatalf("BindForm: %v", err)
 	}
 	if out.Hostname != "box.example.com" {
@@ -175,7 +158,7 @@ func TestDefaultBindForm_UncheckedCheckbox(t *testing.T) {
 	form := map[string][]string{
 		"Enabled": {"off"},
 	}
-	if err := mm.BindForm(mm, form, &out); err != nil {
+	if err := mm.BindForm(form, &out); err != nil {
 		t.Fatalf("BindForm: %v", err)
 	}
 	if out.Enabled {
@@ -187,7 +170,7 @@ func TestDefaultBindForm_InvalidNumberFails(t *testing.T) {
 	mm, _ := DeriveMetaModel[sampleConfig]()
 	form := map[string][]string{"Port": {"notnumber"}}
 	var out sampleConfig
-	err := mm.BindForm(mm, form, &out)
+	err := mm.BindForm(form, &out)
 	if err == nil {
 		t.Fatal("expected error for non-numeric Port")
 	}
@@ -236,7 +219,7 @@ func TestDefaultDisplayValues_RenderShape(t *testing.T) {
 		Count:    7,
 		Started:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	cells := mm.DisplayValues(mm, v)
+	cells := mm.DisplayValues(v)
 	if len(cells) != len(mm.Fields) {
 		t.Fatalf("DisplayValues returned %d cells, want %d", len(cells), len(mm.Fields))
 	}

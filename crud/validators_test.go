@@ -120,7 +120,7 @@ func TestDefaultBindForm_RunsFieldValidateAfterParse(t *testing.T) {
 		"Count": {"42"},
 	}
 	var out formModel
-	err := mm.BindForm(mm, form, &out)
+	err := mm.BindForm(form, &out)
 	if err == nil {
 		t.Fatal("expected ValidationErrors")
 	}
@@ -145,7 +145,7 @@ func TestDefaultBindForm_BindErrorSkipsValidate(t *testing.T) {
 	}
 	form := map[string][]string{"Count": {"notnumber"}}
 	var out formModel
-	err := mm.BindForm(mm, form, &out)
+	err := mm.BindForm(form, &out)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -177,7 +177,7 @@ func TestDefaultBindForm_AllPassReturnsNil(t *testing.T) {
 		"Count": {"50"},
 	}
 	var out formModel
-	if err := mm.BindForm(mm, form, &out); err != nil {
+	if err := mm.BindForm(form, &out); err != nil {
 		t.Errorf("expected nil error on valid input; got %v", err)
 	}
 	if out.Title != "Ok" || out.Count != 50 {
@@ -211,7 +211,7 @@ func TestModelValidate_RunsWhenSet_AndOnlyAfterFieldsPass(t *testing.T) {
 		"Count": {"12"},   // 2 digits
 	}
 	var out formModel
-	err := mm.BindForm(mm, form, &out)
+	err := mm.BindForm(form, &out)
 	var verrs ValidationErrors
 	if !errors.As(err, &verrs) {
 		t.Fatalf("expected ValidationErrors, got %T: %v", err, err)
@@ -225,7 +225,7 @@ func TestModelValidate_RunsWhenSet_AndOnlyAfterFieldsPass(t *testing.T) {
 	// When fields fail, model-level Validate must NOT run.
 	form["Count"] = []string{"notnumber"}
 	out = formModel{}
-	err = mm.BindForm(mm, form, &out)
+	err = mm.BindForm(form, &out)
 	if !errors.As(err, &verrs) {
 		t.Fatalf("expected ValidationErrors")
 	}
@@ -239,7 +239,7 @@ func TestModelValidate_NilMeansNoCrossField(t *testing.T) {
 	// Validate is nil — must NOT run, and clean inputs pass cleanly.
 	form := map[string][]string{"Title": {"x"}, "Count": {"5"}}
 	var out formModel
-	if err := mm.BindForm(mm, form, &out); err != nil {
+	if err := mm.BindForm(form, &out); err != nil {
 		t.Errorf("nil Validate should not introduce errors; got %v", err)
 	}
 }

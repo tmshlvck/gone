@@ -1,14 +1,11 @@
-// Package crud implements a simplified version of PRD §6.1–6.2.
+// Package crud renders HTMX-driven CRUD UIs (table, form, detail) from a
+// model's reflected metadata, paired with a pluggable data Accessor.
 //
 // MetaField is non-generic; MetaModel[T] is generic over the model type.
-// DeriveMetaModel[T]() walks T via reflection and installs reflect-based
-// closures on each MetaField. Callers can post-mutate the returned model
-// to override defaults (e.g. set FormInputType="email" on a particular
-// field).
-//
-// Scope of this initial cut: scalar fields (string, signed/unsigned int,
-// float, bool, time.Time). Relations, list-of-primitives, and validation
-// hooks are stubbed and will land in later iterations.
+// DeriveMetaModel[T] walks T via reflection and installs reflect-based hooks
+// on each MetaField; callers customize per field. Scalars (string, int kinds,
+// float, bool, time.Time, []byte) and relations (belongs-to / has-many /
+// many-to-many, detected from gorm tags) are supported.
 package crud
 
 import (
@@ -40,7 +37,6 @@ func randSuffix() string {
 // using MetaField.Name.
 type MetaField struct {
 	Name          string
-	DivID         string // id attribute on the field's wrapper; populated by DeriveMetaModel as "field_<name>_<rand>"
 	DisplayName   string
 	FormInputType string // HTML <input type=...>: "text", "number", "checkbox", "datetime-local", "email", …
 	FormHelp      string
@@ -88,24 +84,16 @@ type MetaField struct {
 }
 
 // MetaModel is the per-type description used to render and bind. T is the
-// model type. Pure metadata + render + bind helpers — no routing state,
-// no data accessors, no authz. Those concerns belong on CRUDTable (or
-// in user-written handlers that consume RenderDisplay / RenderForm /
-// TryBindForm directly).
-//
-// Hooks accept mm as their first argument so callers can post-mutate
-// the model and the hooks see the current state.
+// model type. Pure metadata + render/bind helper methods — no routing state,
+// no data accessors, no authz. Those concerns belong on CRUDTable (or in
+// user-written handlers that consume RenderDisplay / RenderForm /
+// TryBindForm directly). Per-field rendering/binding is customized on the
+// MetaField hooks; the model-level methods just loop over them.
 type MetaModel[T any] struct {
 	Fields []MetaField
 
 	Name        string // Go type name (e.g. "Hero")
-	Slug        string // url-safe singular; default lowercase(Name)
-	DivID       string // wrapper id; "model_<lcname>_<rand>"
 	DisplayName string
-
-	DisplayValues   func(mm MetaModel[T], instance T) []templ.Component
-	GenFormElements func(mm MetaModel[T], instance T) []templ.Component
-	BindForm        func(mm MetaModel[T], form map[string][]string, out *T) error
 
 	// Validate is the user-defined cross-field validator. It receives
 	// only the populated instance — no MetaModel, no extra context. nil
@@ -114,6 +102,23 @@ type MetaModel[T any] struct {
 	// ValidationErrors entry under ModelLevelKey ("") and rejects the
 	// form submission.
 	Validate func(instance T) error
+}
+
+// DisplayValues renders each field of instance to a table/detail cell (the
+// slice is parallel to Fields; nil for Hidden fields) via the per-field
+// DisplayValue hooks. GenFormElements is the form analogue; BindForm parses a
+// submitted form into out. These are thin wrappers over the Default*
+// functions — per-field customization lives on MetaField.
+func (mm MetaModel[T]) DisplayValues(instance T) []templ.Component {
+	return DefaultDisplayValues(mm, instance)
+}
+
+func (mm MetaModel[T]) GenFormElements(instance T) []templ.Component {
+	return DefaultGenFormElements(mm, instance)
+}
+
+func (mm MetaModel[T]) BindForm(form map[string][]string, out *T) error {
+	return DefaultBindForm(mm, form, out)
 }
 
 // FindField returns a pointer to the named MetaField on mm so callers
@@ -162,8 +167,6 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 
 	mm := MetaModel[T]{
 		Name:        rt.Name(),
-		Slug:        strings.ToLower(rt.Name()),
-		DivID:       "model_" + strings.ToLower(rt.Name()) + "_" + randSuffix(),
 		DisplayName: rt.Name(),
 	}
 
@@ -191,17 +194,12 @@ func DeriveMetaModel[T any]() (MetaModel[T], error) {
 		}
 	}
 
-	mm.DisplayValues = DefaultDisplayValues[T]
-	mm.GenFormElements = DefaultGenFormElements[T]
-	mm.BindForm = DefaultBindForm[T]
-
 	return mm, nil
 }
 
 func deriveField(f reflect.StructField) MetaField {
 	mf := MetaField{
 		Name:           f.Name,
-		DivID:          "field_" + strings.ToLower(f.Name) + "_" + randSuffix(),
 		DisplayName:    f.Name,
 		FormInputType:  inputTypeFor(f.Type),
 		Sortable:       isSortableKind(f.Type),

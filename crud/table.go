@@ -293,7 +293,7 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 	for i, res := range results {
 		rows[i] = TableRow{
 			ID:    res.ID,
-			Cells: c.MetaData.DisplayValues(c.MetaData, res.Row),
+			Cells: c.MetaData.DisplayValues(res.Row),
 		}
 	}
 	az := auth.AuthzOrAllow(c.Authz)
@@ -383,7 +383,7 @@ func (c *CRUDTable[T]) createFormView(errs ValidationErrors, data T, bodyID stri
 		ActionURL:   c.urlBase + "/create",
 		SubmitText:  "Create",
 		Fields:      c.MetaData.Fields,
-		Inputs:      c.MetaData.GenFormElements(c.MetaData, data),
+		Inputs:      c.MetaData.GenFormElements(data),
 		Errors:      errs,
 	}
 	if bodyID != "" {
@@ -410,7 +410,7 @@ func (c *CRUDTable[T]) handleCreatePost(w http.ResponseWriter, r *http.Request) 
 	}
 	modalID, bodyID, isL2 := modalIDsFromHeader(r)
 	var data T
-	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &data); err != nil {
+	if err := c.MetaData.BindForm(r.PostForm, &data); err != nil {
 		if htmx.IsRequest(r) {
 			// Validation failure: re-render the form in the same modal
 			// body it came from.
@@ -450,7 +450,7 @@ func (c *CRUDTable[T]) editFormView(id uint, errs ValidationErrors, row T, bodyI
 		ActionURL:   c.urlBase + "/" + idStr + "/edit",
 		SubmitText:  "Save",
 		Fields:      c.MetaData.Fields,
-		Inputs:      c.MetaData.GenFormElements(c.MetaData, row),
+		Inputs:      c.MetaData.GenFormElements(row),
 		Errors:      errs,
 	}
 	if bodyID != "" {
@@ -501,7 +501,7 @@ func (c *CRUDTable[T]) handleEditPost(w http.ResponseWriter, r *http.Request) te
 		return nil
 	}
 	modalID, bodyID, isL2 := modalIDsFromHeader(r)
-	if err := c.MetaData.BindForm(c.MetaData, r.PostForm, &row); err != nil {
+	if err := c.MetaData.BindForm(r.PostForm, &row); err != nil {
 		if htmx.IsRequest(r) {
 			htmx.Reply().Retarget("#" + bodyID).Reswap("innerHTML").Apply(w)
 		}
