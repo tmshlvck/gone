@@ -35,23 +35,23 @@ templ loginForm(d loginFormData) {
 							<span>{ d.Error }</span>
 						</div>
 					}
-					<form method="post" action={ templ.SafeURL(d.Action) } class="flex flex-col gap-3">
+					<form method="post" action={ templ.SafeURL(d.Action) } class="flex flex-col gap-3 gone-form">
 						<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
 						<input type="hidden" name="next" value={ d.Next }/>
-						<label class="form-control">
-							<div class="label"><span class="label-text">Username</span></div>
+						<label class="flex flex-col gap-1.5 w-full">
+							<span class="font-medium">Username</span>
 							if d.PasskeysEnabled {
 								<!-- autocomplete includes "webauthn" so
 								     conditional UI offers matching
 								     passkeys when the field is focused. -->
-								<input type="text" name="username" value={ d.Username } class="input input-bordered" autofocus autocomplete="username webauthn"/>
+								<input type="text" name="username" value={ d.Username } class="input w-full" autofocus autocomplete="username webauthn"/>
 							} else {
-								<input type="text" name="username" value={ d.Username } class="input input-bordered" autofocus autocomplete="username"/>
+								<input type="text" name="username" value={ d.Username } class="input w-full" autofocus autocomplete="username"/>
 							}
 						</label>
-						<label class="form-control">
-							<div class="label"><span class="label-text">Password</span></div>
-							<input type="password" name="password" class="input input-bordered" autocomplete="current-password"/>
+						<label class="flex flex-col gap-1.5 w-full">
+							<span class="font-medium">Password</span>
+							<input type="password" name="password" class="input w-full" autocomplete="current-password"/>
 						</label>
 						<button type="submit" class="btn btn-primary mt-2">Sign in</button>
 					</form>
@@ -222,7 +222,7 @@ templ totpLoginForm(d totpLoginFormData) {
 							<span>{ d.Error }</span>
 						</div>
 					}
-					<form method="post" action={ templ.SafeURL(d.Action) } class="flex flex-col gap-3">
+					<form method="post" action={ templ.SafeURL(d.Action) } class="flex flex-col gap-3 gone-form">
 						<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
 						<label class="flex flex-col gap-1.5 w-full">
 							<span class="font-medium">Verification code</span>
@@ -588,14 +588,14 @@ templ accountFormBody(d accountFormData) {
 			hx-post={ d.ActionURL }
 			hx-target={ "#" + d.ModalBodyID }
 			hx-swap="innerHTML"
-			class="flex flex-col gap-3"
+			class="flex flex-col gap-3 gone-form"
 		>
 			@accountFormFields(d)
 		</form>
 	} else {
 		<!-- Page flow: plain POST, response replaces the page with
 		     the success-flagged variant via the page shell. -->
-		<form method="post" action={ templ.SafeURL(d.ActionURL) } class="flex flex-col gap-3">
+		<form method="post" action={ templ.SafeURL(d.ActionURL) } class="flex flex-col gap-3 gone-form">
 			@accountFormFields(d)
 		</form>
 	}
@@ -680,7 +680,7 @@ templ passkeyCard(d accountFormData) {
 				<form
 					id="auth-passkey-add-form"
 					data-passkey-base={ d.PasskeyBaseURL }
-					class="flex flex-col gap-2"
+					class="flex flex-col gap-2 gone-form"
 				>
 					<input type="hidden" name="csrf_token" value={ d.CSRFToken }/>
 					<label class="flex flex-col gap-1.5 w-full">

@@ -1,0 +1,50 @@
+/*
+ * gone — optional polish layer for DaisyUI v5.
+ *
+ * Plain CSS, no build step. Link or inline it AFTER the DaisyUI
+ * stylesheet; site.StyleTag() embeds it for you. The library does not
+ * require it — it only smooths over the few DaisyUI v5 defaults that
+ * read as unpolished in a dense admin UI:
+ *
+ *   1. the hard 2px focus outline DaisyUI floats 2px OUTSIDE a control,
+ *      so it hugs the border and collides with neighbours (worst in a
+ *      pagination .join row) — replaced with a soft inset ring;
+ *   2. font smoothing on the default system font stack;
+ *   3. a touch of breathing room in forms and around pagination.
+ *
+ * Everything here is plain specificity — override or drop any rule from
+ * your own stylesheet. The gone-* hooks are emitted by the library's
+ * components (gone-form, gone-pagination, gone-table, gone-admin-sidebar).
+ */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Text controls: swap DaisyUI v5's hard offset outline for a soft inset
+   ring on the control's own primary colour (the Bootstrap-ish focus). */
+.input:focus,
+.input:focus-within,
+.select:focus,
+.textarea:focus,
+.gone-form [multiple]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 28%, transparent);
+}
+
+/* Clickable controls: keep the ring tight to the box and lift it above
+   siblings so a pagination / join button never clips its neighbour. */
+.btn:focus-visible,
+.checkbox:focus-visible,
+.join > :focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-primary) 65%, transparent);
+  outline-offset: 1px;
+  position: relative;
+  z-index: 1;
+}
+
+/* A little vertical air in library forms and around pagination. */
+.gone-form { gap: 1rem; }
+.gone-pagination { padding-block: 0.125rem; }

@@ -570,6 +570,30 @@ state. Search and sort reset to page 1.
   `lowercase(Name)+"s"` segment keeps distinct Go types apart; sharing a path
   deliberately is a configuration bug.
 
+## Styling
+
+The components emit **DaisyUI v5** classes (`card`, `btn`, `input`,
+`table table-zebra`, `join`, `menu`, `modal`, …) as bare fragments — the
+app owns the page and ships the stylesheet (Tailwind + DaisyUI) in its
+own `<head>`. The library never sets a `data-theme`, so the app picks the
+theme (or lets `prefers-color-scheme` choose).
+
+Two seams keep this restyleable without forking:
+
+- **`site.StyleTag()` / `site.StylesheetCSS`** — an *optional* polish
+  layer over DaisyUI v5. It swaps the v5 focus outline (a hard ring that
+  hugs control borders and collides with neighbours in a pagination
+  `join`) for a soft inset ring, smooths the system font, and evens out
+  form/pagination spacing. Embed `@site.StyleTag()` in your `<head>`
+  after the DaisyUI stylesheet, or serve `site.StylesheetCSS` as a static
+  file. Every rule is plain CSS — override or drop any of it. All the
+  examples opt in.
+- **`gone-*` hook classes** — the components tag their key containers
+  (`gone-table`, `gone-form`, `gone-pagination`, `gone-admin-sidebar`;
+  `gone-form` on the `auth` login/account/TOTP forms too) so an app's own
+  CSS can target library output precisely without depending on the
+  DaisyUI class names.
+
 ## Testing
 
 The primary lever is **HTTP end-to-end tests** via `net/http/httptest`
