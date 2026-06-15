@@ -1,7 +1,5 @@
 package main
 
-import "github.com/tmshlvck/gone/site"
-
 templ pageLayout(title string, content templ.Component) {
 	<!doctype html>
 	<html lang="en">
@@ -12,7 +10,32 @@ templ pageLayout(title string, content templ.Component) {
 			<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="https://unpkg.com/htmx.org@2"></script>
-			@site.StyleTag()
+			<!-- App-owned styling polish. The gone library never ships CSS —
+			     it emits bare DaisyUI v5 fragments and the app decides how
+			     they look. This block (the app's, not the library's) softens
+			     two DaisyUI v5 defaults: the hard focus outline that hugs a
+			     control's border (and collides with neighbours in a
+			     pagination .join), and font smoothing on the system stack.
+			     Copy, edit, or drop it; the other examples ship none of it. -->
+			<style>
+				html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+				/* Text controls: soft inset ring on the control's own primary
+				   colour instead of v5's hard 2px outline offset outside it. */
+				.input:focus, .input:focus-within,
+				.select:focus, .textarea:focus {
+					outline: none;
+					border-color: var(--color-primary);
+					box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 28%, transparent);
+				}
+				/* Clickable controls: keep the ring tight and lift it over
+				   siblings so a join / pagination button never clips a neighbour. */
+				.btn:focus-visible, .checkbox:focus-visible, .join > :focus-visible {
+					outline: 2px solid color-mix(in oklab, var(--color-primary) 65%, transparent);
+					outline-offset: 1px;
+					position: relative;
+					z-index: 1;
+				}
+			</style>
 			<script>
 				(function () {
 					const stored = localStorage.getItem('theme');

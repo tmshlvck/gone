@@ -9,9 +9,7 @@
 //   - Shell, the function shape an app's page-chrome takes;
 //   - Fragment, which writes a templ component as a bare HTML response;
 //   - Respond, an optional convenience for a single URL that serves both a
-//     fragment (to HTMX) and a full page (to a browser navigation);
-//   - StylesheetCSS / StyleTag, an OPTIONAL polish layer over DaisyUI v5
-//     (see style.go). The library never injects it; an app opts in.
+//     fragment (to HTMX) and a full page (to a browser navigation).
 //
 // A richer Shell/Nav model (with library-computed active-nav) may land here
 // later; it is intentionally absent for now.

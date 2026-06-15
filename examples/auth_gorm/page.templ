@@ -1,7 +1,5 @@
 package main
 
-import "github.com/tmshlvck/gone/site"
-
 // pageLayout is the example's HTML chrome. username == "" → anonymous
 // (e.g. the login page); otherwise the username (linking to /account/me for
 // self-service password change) + a logout form. csrfToken feeds the meta tag
@@ -9,7 +7,7 @@ import "github.com/tmshlvck/gone/site"
 // modal Save/Delete buttons pass auth.CSRFWrap.
 templ pageLayout(title, csrfToken, username, logoutPath string, content templ.Component) {
 	<!doctype html>
-	<html lang="en">
+	<html lang="en" data-theme="light">
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -18,7 +16,6 @@ templ pageLayout(title, csrfToken, username, logoutPath string, content templ.Co
 			<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
 			<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 			<script src="https://unpkg.com/htmx.org@2"></script>
-			@site.StyleTag()
 			<script>
 				document.addEventListener('htmx:configRequest', (event) => {
 					const meta = document.querySelector('meta[name="csrf-token"]');

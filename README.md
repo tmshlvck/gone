@@ -200,7 +200,7 @@ Or implement `auth.Authz` directly for per-resource policy. See
 | `examples/form_mem`           | Single struct, manual handlers using `MetaModel.RenderForm` / `TryBindForm`. Shows the IPv4-or-IPv6 validator. |
 | `examples/crud_mem`           | One `CRUDTable` over an in-memory map.                        |
 | `examples/crud_gorm`          | Three `CRUDTable`s (Hero, Weapon, Skill) with 1:N and N:M relations. GORM backend. MPA-style — one model per page. |
-| `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` (`DeriveAdmin`, relations auto-wired). Custom sidebar link demo. Zero per-field tweaking. |
+| `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` (`DeriveAdmin`, relations auto-wired). Custom sidebar link demo. Zero per-field tweaking. Ships an app-owned `<style>` styling polish (the only example that does). |
 | `examples/auth_simple`        | `AuthSimple` + a single CRUDTable behind a gated page shell. |
 | `examples/auth_gorm`          | Full `AuthGORM`: User + Group CRUDTables under Admin; `AuthzLoggedInReadAdminWrite`; password / TOTP / passkey login; account modal. |
 | `examples/auth_sso`           | `auth_gorm` + SSO providers (Google / GitHub / Okta) wired from env vars. README walks through OAuth-app registration on each. |

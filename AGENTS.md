@@ -35,7 +35,7 @@ Root files:
 | `examples/form_mem`             | Single-struct form via MetaModel; no CRUDTable.        |
 | `examples/crud_mem`             | One CRUDTable over an in-memory map.                   |
 | `examples/crud_gorm`            | Three CRUDTables with relations, GORM backend.         |
-| `examples/admin_gorm`           | Same schema wrapped in `crud.Admin`. Sidebar custom link demo. |
+| `examples/admin_gorm`           | Same schema wrapped in `crud.Admin`. Sidebar custom link demo. Ships an app-owned `<style>` styling polish (the only example that does). |
 | `examples/auth_simple`          | `AuthSimple` gating a CRUDTable.                       |
 | `examples/auth_gorm`            | Full AuthGORM: User/Group admin, account modal, TOTP, passkeys. |
 | `examples/auth_sso`             | `auth_gorm` + SSO (Google / GitHub / Okta) via env vars. |

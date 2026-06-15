@@ -173,7 +173,7 @@ templ DisplayView(d DisplayViewData) {
 // ──────────────────────────────────────────────────────────────────────────
 
 templ TableView(d TableViewData) {
-	<div class="card bg-base-100 shadow gone-table">
+	<div class="card bg-base-100 shadow">
 		<div class="card-body">
 			<div class="flex flex-wrap items-center justify-between gap-3 mb-3">
 				<h2 class="card-title">{ d.DisplayName }</h2>
@@ -328,7 +328,7 @@ templ rowActions(d TableViewData, id uint) {
 
 templ pagination(d TableViewData) {
 	if d.NumPages > 1 {
-		<div class="join gone-pagination">
+		<div class="join">
 			if d.Page > 1 {
 				<button
 					class="join-item btn btn-outline btn-sm"
@@ -492,7 +492,7 @@ templ FormView(d FormViewData) {
 		<form
 			method="post"
 			action={ templ.URL(d.ActionURL) }
-			class="flex flex-col gap-3 gone-form"
+			class="flex flex-col gap-3"
 			hx-post={ d.ActionURL }
 			hx-target={ d.HXTarget }
 			hx-swap="innerHTML"
@@ -500,7 +500,7 @@ templ FormView(d FormViewData) {
 			@formBody(d)
 		</form>
 	} else {
-		<form method="post" action={ templ.URL(d.ActionURL) } class="flex flex-col gap-3 gone-form">
+		<form method="post" action={ templ.URL(d.ActionURL) } class="flex flex-col gap-3">
 			@formBody(d)
 		</form>
 	}
@@ -645,7 +645,7 @@ func pageRange(cur, total int) []int {
 templ AdminView(d AdminViewData) {
 	<div id="crud-admin-root">
 		<div class="flex gap-6">
-			<aside class="w-56 shrink-0 gone-admin-sidebar">
+			<aside class="w-56 shrink-0">
 				<ul class="menu bg-base-200 rounded-box w-full">
 					for _, link := range d.TopLinks {
 						@adminSidebarCustomLink(link)
