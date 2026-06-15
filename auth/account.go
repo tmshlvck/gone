@@ -69,9 +69,28 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 	}
 
 	htmx := isHTMXAuthRequest(r)
-	modalBodyID := r.Header.Get("HX-Target")
-	actionURL := a.urlBase + "/account/" + strconv.FormatUint(uint64(target.ID), 10)
+	data := a.buildAccountFormData(r, current, target, errMsg, successMsg)
+	data.Modal = htmx
+	data.ModalBodyID = r.Header.Get("HX-Target")
+	form := accountForm(data)
 
+	if htmx {
+		// HTMX path: return the bare form fragment for the modal body. The
+		// crud modal bridge (crud.PageModals) auto-opens the dialog a form is
+		// swapped into — a GET landing in a .crud-modal-body — so no explicit
+		// open event is needed here.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		renderOrLog(w, r, form)
+		return
+	}
+	writeShell(w, r, "Change password — "+target.Username, form, shell)
+}
+
+// buildAccountFormData assembles the accountFormData for target —
+// running the passkey + SSO queries and computing every endpoint URL —
+// without deciding how it's rendered (modal vs. page). serveAccountForm
+// and AccountSection share it; callers set Modal / ModalBodyID after.
+func (a *AuthGORM) buildAccountFormData(r *http.Request, current User, target *UserGORM, errMsg, successMsg string) accountFormData {
 	// Passkeys card data: load list only when feature is on (RP
 	// configured). Sorted newest-first so the most recent enrolment
 	// is the top row.
@@ -107,15 +126,13 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 		}
 	}
 
-	form := accountForm(accountFormData{
-		ActionURL:       actionURL,
+	return accountFormData{
+		ActionURL:       a.urlBase + "/account/" + strconv.FormatUint(uint64(target.ID), 10),
 		TargetUsername:  target.Username,
 		IsSelf:          current.Username() == target.Username,
 		CSRFToken:       CSRFToken(r.Context()),
 		Error:           errMsg,
 		Success:         successMsg,
-		Modal:           htmx,
-		ModalBodyID:     modalBodyID,
 		TOTPEnabled:     target.TOTPSecret != "",
 		TOTPBaseURL:     a.totpEndpointBase(target.ID),
 		PasskeyBaseURL:  a.passkeyEndpointBase(target.ID),
@@ -124,18 +141,75 @@ func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shel
 		SSOOnly:         target.SSOOnly,
 		SSOIdentities:   ssoItems,
 		SSOBaseURL:      a.urlBase + "/account/" + strconv.FormatUint(uint64(target.ID), 10) + "/sso",
-	})
-
-	if htmx {
-		// HTMX path: return the bare form fragment for the modal body. The
-		// crud modal bridge (crud.PageModals) auto-opens the dialog a form is
-		// swapped into — a GET landing in a .crud-modal-body — so no explicit
-		// open event is needed here.
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		renderOrLog(w, r, form)
-		return
 	}
-	writeShell(w, r, "Change password — "+target.Username, form, shell)
+}
+
+// AccountAccess reports the outcome of the access checks AccountSection
+// runs before producing the cards, mirroring the three branches the
+// standalone /account/{ref} page distinguishes. The embedding app turns
+// it into the appropriate HTTP response.
+type AccountAccess int
+
+const (
+	// AccountOK: the cards component is non-nil and ready to render.
+	AccountOK AccountAccess = iota
+	// AccountAnonymous: no session user — the app should redirect to
+	// LoginURL (303) or, for an HTMX request, set HX-Redirect.
+	AccountAnonymous
+	// AccountForbidden: a signed-in user asked for someone else's
+	// account without admin rights — the app should respond 403.
+	AccountForbidden
+	// AccountNotFound: the ref didn't resolve to a user — 404.
+	AccountNotFound
+)
+
+// AccountSection resolves ref (honoring "me", admin-edits-other, and the
+// same anonymous / forbidden / not-found guards as the standalone
+// /account/{ref} page), loads the account-security card data, and
+// returns the library's card group as one component an app can drop into
+// its own preferences page beneath its own cards.
+//
+// target is the resolved user (non-nil whenever res != AccountAnonymous
+// and != AccountNotFound), so the app can load that user's app-specific
+// preferences for the same ref — including in the admin-edits-other
+// case. cards is non-nil only when res == AccountOK.
+//
+// Ref resolution: if the route carries a "{ref}" chi URL param it's
+// honored exactly like the standalone page ("me" or a numeric ID, with
+// admin rights required to view another user). When there's no "{ref}"
+// param — the usual case for an app mounting this at a fixed path like
+// "/preferences" — it resolves to the signed-in user (self-service).
+//
+// The component is the page-shaped (non-modal) layout: a responsive
+// grid of cards. Wrap it in your own heading / section; the password
+// + TOTP + passkey + SSO endpoints it points at are the same ones the
+// library already mounts under /account/{ref}/..., so the cards stay
+// fully functional embedded.
+func (a *AuthGORM) AccountSection(r *http.Request) (cards templ.Component, target *UserGORM, res AccountAccess) {
+	current := a.CurrentUser(r)
+	if current == nil {
+		return nil, nil, AccountAnonymous
+	}
+	var t *UserGORM
+	if chi.URLParam(r, "ref") == "" {
+		// No {ref} in the route → self-service. Look the current user up
+		// the same way resolveAccountRef does for "me".
+		var u UserGORM
+		if err := a.DB.Where("username = ?", current.Username()).First(&u).Error; err != nil {
+			return nil, nil, AccountNotFound
+		}
+		t = &u
+	} else {
+		var ok bool
+		if t, ok = a.resolveAccountRef(r, current); !ok {
+			return nil, nil, AccountNotFound
+		}
+	}
+	if !accountAllowed(current, t) {
+		return nil, t, AccountForbidden
+	}
+	data := a.buildAccountFormData(r, current, t, "", "")
+	return accountCards(data), t, AccountOK
 }
 
 // handleAccountPost validates the form and either updates the

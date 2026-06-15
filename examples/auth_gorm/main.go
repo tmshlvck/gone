@@ -128,6 +128,27 @@ func main() {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
 
+	// App-owned preferences page embedding the library's account-security
+	// cards via auth.AccountSection. No "{ref}" param on this route, so the
+	// section resolves to the signed-in user (self-service). The library
+	// mounts the password/TOTP/passkey/SSO endpoints the cards point at; we
+	// only own the page chrome and any app-specific cards.
+	mux.Get("/preferences", func(w http.ResponseWriter, r *http.Request) {
+		cards, target, res := ag.AccountSection(r)
+		switch res {
+		case auth.AccountAnonymous:
+			http.Redirect(w, r, ag.LoginURL(r.URL.Path), http.StatusSeeOther)
+			return
+		case auth.AccountForbidden:
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		case auth.AccountNotFound:
+			http.NotFound(w, r)
+			return
+		}
+		pageShell(w, r, "Preferences", preferencesPage(target.Username, cards))
+	})
+
 	handler := sm.LoadAndSave(auth.CSRFWrap(sm)(mux))
 	log.Printf("auth_gorm listening on :8080 — login admin / admin, then open /admin")
 	log.Fatal(http.ListenAndServe(":8080", handler))

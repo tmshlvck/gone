@@ -331,47 +331,55 @@ type totpSetupData struct {
 // account they're acting from.
 templ accountForm(d accountFormData) {
 	if d.Modal {
-		<!-- The shared modal-box is max-w-2xl (672px) — way too wide
-		     for a four-field password form. :has() narrows the
-		     specific modal hosting the account form to max-w-md
-		     (matches the standalone card width); other modals
-		     (CRUDTable's edit form, the L2 nested-create) keep their
-		     default width. CSS is inline so it travels with the
-		     fragment and disappears when the modal body is swapped
-		     out for other content. -->
-		<style>.modal-box:has(.gone-account-modal-form) { max-width: 28rem; }</style>
-		<div class="gone-account-modal-form flex flex-col gap-4">
-			if d.SSOOnly {
-				@ssoOnlyNotice()
-			} else {
-				@passwordCard(d)
-			}
-			@totpCard(d)
-			if d.PasskeysEnabled && !d.SSOOnly {
-				@passkeyCard(d)
-			}
-			if len(d.SSOIdentities) > 0 {
-				@linkedAccountsCard(d)
-			}
+		<!-- The account form now carries up to four cards (password,
+		     TOTP, passkeys, SSO), so it wants room to lay them out
+		     two-up on wide screens like the standalone page. :has()
+		     widens the specific modal hosting it to 48rem (matching
+		     the page's max-w-3xl); other modals (CRUDTable's edit
+		     form, the L2 nested-create) keep their default width. CSS
+		     is inline so it travels with the fragment and disappears
+		     when the modal body is swapped out for other content. -->
+		<style>.modal-box:has(.gone-account-modal-form) { max-width: 48rem; }</style>
+		<div class="gone-account-modal-form">
+			@accountCards(d)
 		</div>
 	} else {
 		<div class="hero">
-			<div class="hero-content w-full max-w-md flex flex-col gap-4">
-				if d.SSOOnly {
-					@ssoOnlyNotice()
-				} else {
-					@passwordCard(d)
-				}
-				@totpCard(d)
-				if d.PasskeysEnabled && !d.SSOOnly {
-					@passkeyCard(d)
-				}
-				if len(d.SSOIdentities) > 0 {
-					@linkedAccountsCard(d)
-				}
+			<div class="hero-content w-full max-w-6xl items-start">
+				@accountCards(d)
 			</div>
 		</div>
 	}
+}
+
+// accountCards is the account-security card group, layout-only — no
+// hero, modal, or page chrome around it. accountForm wraps it for the
+// standalone page and the admin modal; AccountSection returns it
+// directly so an app can drop it into its own preferences page.
+//
+// Layout: a width-driven responsive grid — as many ~18rem columns as
+// the container can fit (auto-fit), so the same markup is one column in
+// a phone-width modal, two on the standalone page, and three or four on
+// a wide preferences page, never leaving the cards in a tall skinny
+// ribbon. The column count follows the container's width, so the
+// embedding app controls it purely by how wide it makes that container.
+// items-start keeps each card its natural height instead of stretching
+// a short card to match a tall neighbour.
+templ accountCards(d accountFormData) {
+	<div class="grid gap-4 items-start w-full grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]">
+		if d.SSOOnly {
+			@ssoOnlyNotice()
+		} else {
+			@passwordCard(d)
+		}
+		@totpCard(d)
+		if d.PasskeysEnabled && !d.SSOOnly {
+			@passkeyCard(d)
+		}
+		if len(d.SSOIdentities) > 0 {
+			@linkedAccountsCard(d)
+		}
+	</div>
 }
 
 // ssoOnlyNotice replaces the passwordCard for SSO-managed accounts.
@@ -482,8 +490,9 @@ templ totpCard(d accountFormData) {
 				</form>
 			} else if d.IsSelf {
 				<p class="text-sm opacity-80">
-					Add a code-from-app step to every sign-in. Use any TOTP
-					authenticator (Google Authenticator, 1Password, …).
+					Require a time-based one-time code (TOTP, RFC 6238) from an
+					authenticator app — Google Authenticator, 1Password, Authy —
+					in addition to your password at sign-in.
 				</p>
 				<form
 					method="post"

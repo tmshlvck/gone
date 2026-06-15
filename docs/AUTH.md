@@ -714,10 +714,18 @@ The password card always requires the **acting** user's current
 password — privilege grants the right to act, not a free password
 reset.
 
+The cards lay out in a width-driven responsive grid (as many ~18rem
+columns as the container fits): one column in a phone-width modal, two
+on the standalone page, three or four on a wide preferences page. The
+column count follows the container width, so an embedding app controls
+it purely by how wide it makes that container.
+
 ### Header link
 
-The example `pageShell` renders the user's name as a link to
-`/account/me`:
+Render the user's name as a link to the self-service page — the
+library's standalone `/account/me`, or (as in `examples/auth_gorm`) an
+app `/preferences` page that embeds the same cards via
+[`AccountSection`](#embedding-into-an-app-preferences-page-accountsection):
 
 ```html
 <a href="/account/me" class="link link-hover">
@@ -761,6 +769,67 @@ fragment, and fires `HX-Trigger: openModal`. On password-change
 success in modal mode the response is `HX-Reswap: none` +
 `HX-Trigger: closeModal` so the admin stays on the table.
 
+### Embedding into an app preferences page (`AccountSection`)
+
+When the app has its *own* preferences (timezone, theme, API keys, …)
+that logically belong on the same page as account security, embed the
+library's cards instead of sending users to a separate `/account`
+route. `AccountSection` returns the card group as one component the app
+drops into its own page beneath its own cards — the "bundled auth block
++ app block" pattern. The library owns the cards' layout and wiring;
+the app owns the page, the heading, and everything else.
+
+```go
+func (a *AuthGORM) AccountSection(r *http.Request) (
+    cards templ.Component, target *UserGORM, res AccountAccess)
+```
+
+- **Ref resolution.** With a `{ref}` chi URL param on the route it's
+  honored exactly like the standalone page (`me` or a numeric ID, admin
+  rights required to view another user). With **no** `{ref}` param —
+  the usual case for a fixed path like `/preferences` — it resolves to
+  the signed-in user (self-service).
+- **`target`** is the resolved `*UserGORM` (non-nil unless the result
+  is `AccountAnonymous` / `AccountNotFound`), so the app can load that
+  user's app-specific preferences for the same ref.
+- **`cards`** is non-nil only when `res == AccountOK`. It's the
+  page-shaped (non-modal) responsive grid; the password / TOTP /
+  passkey / SSO endpoints it points at are the ones the library already
+  mounts under `/account/{ref}/...`, so the cards stay fully functional
+  embedded.
+- **`res`** (`AccountAccess`) mirrors the standalone page's guards so
+  the app issues the matching HTTP response:
+
+| `res`               | App should…                                  |
+|---------------------|----------------------------------------------|
+| `AccountOK`         | render `cards`                               |
+| `AccountAnonymous`  | 303 to `LoginURL` (or set `HX-Redirect`)     |
+| `AccountForbidden`  | 403                                          |
+| `AccountNotFound`   | 404                                          |
+
+```go
+mux.Get("/preferences", func(w http.ResponseWriter, r *http.Request) {
+    cards, target, res := ag.AccountSection(r)
+    switch res {
+    case auth.AccountAnonymous:
+        http.Redirect(w, r, ag.LoginURL(r.URL.Path), http.StatusSeeOther)
+        return
+    case auth.AccountForbidden:
+        http.Error(w, "forbidden", http.StatusForbidden)
+        return
+    case auth.AccountNotFound:
+        http.NotFound(w, r)
+        return
+    }
+    pageShell(w, r, "Preferences", preferencesPage(target.Username, cards))
+})
+```
+
+`examples/auth_gorm` ships this `/preferences` page (the header link
+points there). For a worked example of an app card — per-user API keys
+for a JSON API — see
+[`HOWTO-BEARER-TOKENS.md`](HOWTO-BEARER-TOKENS.md).
+
 ## Page shell integration
 
 The page shell is a `PageShellFunc` — the same type CRUD uses. It's
@@ -798,7 +867,7 @@ Without this check, the page shell would trap stage 2 of TOTP login
 | Path                          | Demonstrates                                                            |
 |-------------------------------|-------------------------------------------------------------------------|
 | [`examples/auth_simple`](../examples/auth_simple) | `AuthSimple` with seed admin user. CRUDTable behind a gated page shell. |
-| [`examples/auth_gorm`](../examples/auth_gorm)     | Full AuthGORM: User + Group CRUDTables under Admin; `AuthzLoggedInReadAdminWrite`; account page modal; TOTP; passkeys. |
+| [`examples/auth_gorm`](../examples/auth_gorm)     | Full AuthGORM: User + Group CRUDTables under Admin; `AuthzLoggedInReadAdminWrite`; account page modal; `/preferences` page embedding `AccountSection`; TOTP; passkeys. |
 
 ```sh
 go run ./examples/auth_gorm
@@ -853,4 +922,7 @@ authenticator is a follow-up.
 - [`DESIGN.md`](DESIGN.md) — design rationale and the
   open-questions / future-work decision log.
 - [`docs/CRUD.md`](CRUD.md) — CRUDTable / Admin reference.
+- [`HOWTO-BEARER-TOKENS.md`](HOWTO-BEARER-TOKENS.md) — per-user API
+  keys for an app's JSON API, reusing this package's users + Authz, and
+  hooking key management onto the preferences page.
 - [`README.md`](../README.md) — top-level project overview.

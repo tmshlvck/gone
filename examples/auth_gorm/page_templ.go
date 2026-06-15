@@ -9,8 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 // pageLayout is the example's HTML chrome. username == "" → anonymous
-// (e.g. the login page); otherwise the username (linking to /account/me for
-// self-service password change) + a logout form. csrfToken feeds the meta tag
+// (e.g. the login page); otherwise the username (linking to /preferences for
+// self-service account settings) + a logout form. csrfToken feeds the meta tag
 // — the configRequest hook attaches it to every htmx request, so the CRUD
 // modal Save/Delete buttons pass auth.CSRFWrap.
 func pageLayout(title, csrfToken, username, logoutPath string, content templ.Component) templ.Component {
@@ -65,14 +65,14 @@ func pageLayout(title, csrfToken, username, logoutPath string, content templ.Com
 			return templ_7745c5c3_Err
 		}
 		if username != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<header class=\"p-4 flex items-center justify-end gap-3\"><a href=\"/account/me\" class=\"text-sm opacity-80 link link-hover\">Signed in as <b>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<header class=\"p-4 flex items-center justify-end gap-3\"><a href=\"/preferences\" class=\"text-sm opacity-80 link link-hover\">Signed in as <b>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `examples/auth_gorm/page.templ`, Line: 29, Col: 96}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `examples/auth_gorm/page.templ`, Line: 29, Col: 97}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -190,6 +190,63 @@ func userIDLink(id, modalBodyID string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</button>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// preferencesPage is the app's own settings page. It composes the
+// library's account-security cards (auth.AccountSection — password,
+// TOTP, passkeys, SSO) as one block, then the app's own preferences as
+// a second block below. This is the "bundled auth block + app block"
+// embedding pattern: the library owns the security cards' layout and
+// wiring; the app owns the page, the heading, and everything else on
+// it. accountCards is whatever auth.AccountSection returned.
+func preferencesPage(username string, accountCards templ.Component) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var11 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var11 == nil {
+			templ_7745c5c3_Var11 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<div class=\"max-w-6xl mx-auto flex flex-col gap-8\"><h1 class=\"text-2xl font-semibold\">Preferences — ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var12 string
+		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(username)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `examples/auth_gorm/page.templ`, Line: 60, Col: 63}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</h1><section class=\"flex flex-col gap-3\"><h2 class=\"text-lg font-medium opacity-80\">Account security</h2>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = accountCards.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</section><section class=\"flex flex-col gap-3\"><h2 class=\"text-lg font-medium opacity-80\">App preferences</h2><div class=\"card w-full bg-base-100 shadow-xl\"><div class=\"card-body\"><h3 class=\"card-title\">Display</h3><p class=\"text-sm opacity-70\">App-owned preferences live here — e.g. a timezone picker or theme toggle. This stub stands in for whatever the app adds; it's rendered entirely by the app, independent of the library's account cards above.</p></div></div></section></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
