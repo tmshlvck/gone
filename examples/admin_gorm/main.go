@@ -190,10 +190,12 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
-// pageShell renders the library's component inside the app's HTML chrome.
+// pageShell renders the library's component inside the app's HTML chrome,
+// resolving the theme from the gone_theme cookie so the initial data-theme is
+// correct server-side.
 func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {
+	if err := pageLayout(title, site.Theme(r, "light"), content).Render(r.Context(), w); err != nil {
 		log.Printf("render: %v", err)
 	}
 }

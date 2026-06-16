@@ -674,7 +674,37 @@ templ AdminView(d AdminViewData) {
 				}
 			</main>
 		</div>
+		@adminSidebarActiveScript()
 	</div>
+}
+
+// adminSidebarActiveScript keeps the sidebar's active highlight correct for
+// custom links. Model entries navigate full-page and the server re-stamps
+// menu-active from the request path; custom links only HTMX-swap the working
+// area (#crud-admin-main), leaving the sidebar untouched. This delegated
+// click handler moves menu-active/aria-current to the clicked entry so the
+// highlight follows custom-link navigation too. (A full reload still re-stamps
+// server-side, so this only bridges the in-admin HTMX case.)
+templ adminSidebarActiveScript() {
+	<script>
+		(function () {
+			var root = document.getElementById('crud-admin-root');
+			if (!root || root.dataset.activeWired) return;
+			root.dataset.activeWired = '1';
+			var menu = root.querySelector('aside .menu');
+			if (!menu) return;
+			menu.addEventListener('click', function (e) {
+				var a = e.target.closest('a');
+				if (!a || !menu.contains(a)) return;
+				menu.querySelectorAll('a.menu-active').forEach(function (x) {
+					x.classList.remove('menu-active');
+					x.removeAttribute('aria-current');
+				});
+				a.classList.add('menu-active');
+				a.setAttribute('aria-current', 'page');
+			});
+		})();
+	</script>
 }
 
 // adminSidebarCustomLink renders one SidebarLink. The link fetches its

@@ -86,13 +86,7 @@ func (p *TimezonePicker) handleSet(w http.ResponseWriter, r *http.Request) {
 		val = "utc"
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     p.cookie(),
-		Value:    val,
-		Path:     "/",
-		MaxAge:   365 * 24 * 3600,
-		SameSite: http.SameSiteLaxMode,
-	})
+	SetPref(w, p.cookie(), val)
 	// Reload so all rendered times re-render in the new zone.
 	w.Header().Set("HX-Refresh", "true")
 	w.WriteHeader(http.StatusNoContent)
@@ -101,11 +95,7 @@ func (p *TimezonePicker) handleSet(w http.ResponseWriter, r *http.Request) {
 // Resolve reads the cookie and returns the session's *time.Location, defaulting
 // to UTC. Pass it to TimezoneMiddleware.
 func (p *TimezonePicker) Resolve(r *http.Request) *time.Location {
-	c, err := r.Cookie(p.cookie())
-	if err != nil {
-		return time.UTC
-	}
-	_, zone := splitChoice(c.Value)
+	_, zone := splitChoice(Pref(r, p.cookie()))
 	loc, err := loadLocation(zone)
 	if err != nil {
 		return time.UTC
@@ -127,8 +117,8 @@ func splitChoice(v string) (kind, zone string) {
 // the cookie's current selection.
 func (p *TimezonePicker) Component(r *http.Request) templ.Component {
 	kind, zone := "utc", ""
-	if c, err := r.Cookie(p.cookie()); err == nil {
-		kind, zone = splitChoice(c.Value)
+	if v := Pref(r, p.cookie()); v != "" {
+		kind, zone = splitChoice(v)
 	}
 	localSuffix := ""
 	if kind == "local" && zone != "" {

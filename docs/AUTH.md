@@ -298,6 +298,11 @@ ag.RPOrigins = []string{"http://localhost:8080"}
 // Optional: TOTP issuer label.
 ag.TOTPIssuer = "My App"
 
+// Optional: how account-page timestamps ("last used") render. Defaults to
+// site.DefaultTimeFormatter and respects the session zone (site.Timezone),
+// so auth's time output matches CRUD's. See docs/CRUD.md#per-session-display-timezone.
+ag.TimeFormatter = site.DefaultTimeFormatter{}
+
 // Seed.
 ag.GroupAdd("admin")
 ag.UserAdd("admin", "admin@local", "admin")

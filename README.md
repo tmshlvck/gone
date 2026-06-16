@@ -48,6 +48,12 @@ table.RegisterRoutes(root, "", "/heroes")
   backend (SQLite, Postgres), so SQL sort / range filters operate on
   the instant. Call it once after `gorm.Open`; see
   [`docs/CRUD.md`](docs/CRUD.md#time-fields-and-utc-storage).
+- **Per-session display preferences** — a navbar timezone picker
+  (UTC / browser-local / any IANA zone) renders *and* edits times in
+  the viewer's zone while storage stays UTC, and a cookie-backed
+  light/dark theme toggle. Both are small `site` helpers backed by
+  `site.SetPref` cookies; page size is app-configurable too
+  (`0` = no pagination).
 
 The library emits **HTML fragments** — `<html>` / `<head>` /
 `<body>` / theme are the caller's concern, supplied via a
@@ -238,7 +244,7 @@ Design rationale (the "why does it look like this?" doc):
 Operational:
 
 - [`docs/TODO.md`](docs/TODO.md) — what's specced but not yet built
-  (CSV import/export, per-session timezone).
+  (CSV import/export).
 - [`AGENTS.md`](AGENTS.md) — short pointer for agents / new contributors.
 
 ## Status
@@ -247,16 +253,16 @@ Built and exercised by seven examples + 200+ unit/HTTP tests. Stable
 enough to run in-house tools and small production apps:
 
 - **`gone/crud`** — settled. CRUDTable + Admin + MetaModel +
-  validators + relation pickers.
+  validators + relation pickers + configurable pagination.
 - **`gone/auth`** — sessions, CSRF, AuthSimple, AuthGORM, TOTP,
   passkeys, SSO (OIDC + OAuth2), account page, authz interface.
+- **`gone/site`** — page chrome + UTC-at-rest (`ForceUTC`), per-session
+  timezone (picker + middleware + `TimeFormatter`), cookie theme toggle.
 
 Planned (see [`docs/TODO.md`](docs/TODO.md)):
 
 - **CSV import/export** — round-trip a CRUDTable's rows through CSV,
   driven by the existing MetaModel.
-- **Per-session timezone** — UTC at rest (already enforced by
-  `site.ForceUTC`), with per-session display/parse in a chosen zone.
 
 Bearer-token API keys are an app-side pattern today — see
 [`docs/HOWTO-BEARER-TOKENS.md`](docs/HOWTO-BEARER-TOKENS.md).

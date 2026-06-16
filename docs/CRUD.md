@@ -236,12 +236,18 @@ func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) 
 ### Time fields and UTC storage
 
 A `time.Time` field is auto-detected and rendered as a
-`datetime-local` input. The whole CRUD pipeline is **UTC**:
+`datetime-local` input. **Storage is always UTC**; *display and entry*
+happen in the session's display zone (default UTC — see
+[Per-session display timezone](#per-session-display-timezone)):
 
-- **Display** (table cell + detail row): formatted as `t.UTC()` with an
-  explicit `UTC` suffix (e.g. `2024-06-15 14:30:00 UTC`).
+- **Display** (table cell + detail row): rendered in the session zone
+  via the model's `TimeFormatter`, with the zone abbreviation + offset
+  (e.g. `2024-06-15 14:30:00 CEST (+02:00)`) — DST-correct per row,
+  since the offset comes from each value's own instant.
 - **Bind** (form → struct): the zone-less `datetime-local` value
-  (`2006-01-02T15:04`) is parsed as **UTC**.
+  (`2006-01-02T15:04`) is interpreted in the session zone, then stored
+  as the right UTC instant. (`MetaModel.BindForm` without a request
+  stays pure UTC, for tests / non-HTTP callers.)
 
 > **You must guarantee UTC at rest — call `site.ForceUTC(db)` once,
 > right after `gorm.Open`.** This is essential for correctness, not a
@@ -277,10 +283,50 @@ if err := site.ForceUTC(db); err != nil { // before any writes
 ```
 
 With it in place, values at rest are always UTC, SQL ordering and range
-filters operate on the instant, and any future per-session timezone
-display is purely a presentation concern on top. The GORM examples
+filters operate on the instant, and per-session timezone display (next)
+is purely a presentation concern on top. The GORM examples
 (`crud_gorm`, `admin_gorm`, `auth_gorm`, `auth_sso`) all call it; the
 `Forged` column on `crud_gorm`'s Weapon showcases a time field.
+
+### Per-session display timezone
+
+The zone a session sees is one `*time.Location` on the request context;
+display, form pre-fill, and bind all read it, so a round-trip is
+consistent (what you see in zone Z you edit in zone Z). The pieces live
+in `gone/site`:
+
+```go
+// Stamp each request's context with the session zone. resolve reads
+// wherever the app keeps the choice (cookie / session / per-user DB);
+// nil / a nil result → UTC.
+mux.Use(site.TimezoneMiddleware(resolve))
+site.Timezone(ctx) *time.Location            // read point (default UTC)
+```
+
+- **`site.TimezonePicker`** is a drop-in navbar control (cookie-backed,
+  no session needed). It offers UTC / browser-local / a `Zones` list
+  (pass `site.CommonZones`), persists the choice, and exposes
+  `Resolve` for the middleware:
+
+  ```go
+  tz := &site.TimezonePicker{Mode: site.TZModeFull, Zones: site.CommonZones}
+  mux.Use(site.TimezoneMiddleware(tz.Resolve))
+  tz.RegisterRoutes(mux)
+  // render tz.Component(r) in your navbar
+  ```
+
+- **How times render** is the app-global `site.TimeFormatter` (default
+  `site.DefaultTimeFormatter`), set per model via `MetaModel.TimeFormatter`
+  and reused by `gone/auth` for account-page timestamps. It's an object
+  the app owns — *not* on the context — so the same formatter works in
+  emails / PDFs. Override by embedding `site.DefaultTimeFormatter` and
+  shadowing `FormatTime`; per-field formatting still overrides via
+  `DisplayValue`.
+
+`crud_gorm` wires all of this; `examples/admin_gorm` shows the parallel
+**theme** preference — a cookie-backed `site.ThemeToggle` whose value the
+shell reads with `site.Theme(r, …)` server-side (no flash). Both prefs
+persist via the shared `site.SetPref` / `site.Pref` cookie helpers.
 
 ## The data plane — `Accessor[T]`
 
@@ -433,6 +479,16 @@ type name. For an irregular plural (or a model named `UserGORM` you want at
 ```go
 userTable.Segment = "users" // else /admin/usergorms
 ```
+
+**Custom sidebar links** (`SidebarTop` / `SidebarBottom`) point at an
+app-owned URL. Clicking one HTMX-fetches it into the working area
+(`#crud-admin-main`) and updates the address bar (`hx-push-url`), so the
+app's handler should return a *fragment* on `HX-Request` and a
+shell-wrapped page on a direct hit. The sidebar's active highlight
+follows custom-link clicks too (a small built-in delegated script moves
+`menu-active`, since — unlike model entries — a custom link only swaps
+the content area, not the whole page). `examples/admin_gorm` has a
+`/testlink` demo.
 
 ## Relations
 
