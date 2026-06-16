@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
+	"github.com/tmshlvck/gone/site"
 	"gorm.io/gorm"
 )
 
@@ -61,8 +62,8 @@ func newGormServer(t *testing.T) (chi.Router, *CRUDTable[gormHero], *CRUDTable[g
 
 	hmm := DeriveMetaModel[gormHero](MetaModel[gormHero]{})
 	smm := DeriveMetaModel[gormSkill](MetaModel[gormSkill]{})
-	htbl := NewTable(hmm, GORMAccessor(hmm, db), 0, nil)
-	stbl := NewTable(smm, GORMAccessor(smm, db), 0, nil)
+	htbl := NewTable(hmm, GORMAccessor(hmm, db), site.DefaultSettings{}, nil)
+	stbl := NewTable(smm, GORMAccessor(smm, db), site.DefaultSettings{}, nil)
 
 	mux := chi.NewRouter()
 	htbl.RegisterRoutes(mux, "", "/heroes")

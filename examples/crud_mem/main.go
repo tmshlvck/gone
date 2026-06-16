@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/crud"
+	"github.com/tmshlvck/gone/site"
 )
 
 type Hero struct {
@@ -91,7 +92,7 @@ func main() {
 	// 2. Data plane over the caller-owned map + mutex.
 	data := crud.MapAccessor(mm, store, &mu)
 	// 3. Table config (pageSize 10, no authz). Path comes at RegisterRoutes.
-	table := crud.NewTable(mm, data, 10, nil)
+	table := crud.NewTable(mm, data, site.PageSize(10), nil)
 
 	mux := chi.NewRouter()
 	mux.Use(middleware.Logger)

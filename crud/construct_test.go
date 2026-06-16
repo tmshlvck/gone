@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
+	"github.com/tmshlvck/gone/site"
 )
 
 type cfgHero struct {
@@ -60,9 +61,9 @@ func TestDeriveMetaModelMergesPreset(t *testing.T) {
 	}
 
 	store, mu := newCfgStore()
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 7, nil)
-	if tbl.PageSize != 7 {
-		t.Errorf("PageSize = %d, want 7", tbl.PageSize)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.PageSize(7), nil)
+	if tbl.Pagination == nil || tbl.Pagination.PaginationSizeDefault() != 7 {
+		t.Errorf("Pagination = %v, want size 7", tbl.Pagination)
 	}
 	if !tbl.CreateEnabled || !tbl.EditEnabled || !tbl.DeleteEnabled {
 		t.Error("expected create/edit/delete enabled by default")
@@ -85,7 +86,7 @@ func TestDeriveMetaModelDefaults(t *testing.T) {
 	}
 	// URLSlug falls back to a lowercased plural of the model name.
 	store, mu := newCfgStore()
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, nil)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, nil)
 	if tbl.URLSlug() != "cfgheros" {
 		t.Errorf("default URLSlug = %q, want cfgheros", tbl.URLSlug())
 	}
@@ -95,7 +96,7 @@ func TestDeriveMetaModelDefaults(t *testing.T) {
 func TestSegmentOverridesURLSlug(t *testing.T) {
 	mm := DeriveMetaModel[cfgHero](MetaModel[cfgHero]{})
 	store, mu := newCfgStore()
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, nil)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, nil)
 	tbl.Segment = "heroes"
 	if tbl.URLSlug() != "heroes" {
 		t.Errorf("URLSlug = %q, want heroes", tbl.URLSlug())
@@ -223,10 +224,10 @@ func TestShortLabelOverride(t *testing.T) {
 		Owner   svHero
 	}
 	hmm := DeriveMetaModel[svHero](MetaModel[svHero]{})
-	htbl := NewTable(hmm, MapAccessor(hmm, map[uint]svHero{}, &sync.RWMutex{}), 0, nil)
+	htbl := NewTable(hmm, MapAccessor(hmm, map[uint]svHero{}, &sync.RWMutex{}), site.DefaultSettings{}, nil)
 	htbl.ShortLabel = func(h svHero) string { return h.Name + " (" + h.Realm + ")" }
 	wmm := DeriveMetaModel[svWeapon](MetaModel[svWeapon]{})
-	wtbl := NewTable(wmm, MapAccessor(wmm, map[uint]svWeapon{}, &sync.RWMutex{}), 0, nil)
+	wtbl := NewTable(wmm, MapAccessor(wmm, map[uint]svWeapon{}, &sync.RWMutex{}), site.DefaultSettings{}, nil)
 
 	// The override drives this table's own label (used by its /options).
 	if got := htbl.InstanceShortLabel(svHero{Name: "Aragorn", Realm: "Gondor"}); got != "Aragorn (Gondor)" {

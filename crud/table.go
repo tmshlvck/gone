@@ -23,12 +23,16 @@ import (
 //
 //	mm    := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{DisplayName: "Heroes"})
 //	data  := crud.GORMAccessor[Hero](mm, db)
-//	table := crud.NewTable(mm, data, 10, az)
+//	table := crud.NewTable(mm, data, site.PageSize(10), az)
 //	table.RegisterRoutes(root, "", "/admin/heroes")
 type CRUDTable[T any] struct {
-	MetaData      MetaModel[T]
-	Authz         auth.Authz // nil = AuthzAllowAll
-	PageSize      int        // rows per page; 0 = library default (20)
+	MetaData MetaModel[T]
+	Authz    auth.Authz // nil = AuthzAllowAll
+	// Pagination supplies the rows-per-page (PaginationSizeDefault): a value
+	// of 0 means no pagination — show every matching row. nil → 20 (the
+	// site.DefaultSettings default). Pass the app's site.DefaultSettings for
+	// the default, or site.PageSize(n) for a specific size.
+	Pagination    site.PaginationSettings
 	CreateEnabled bool
 	EditEnabled   bool
 	DeleteEnabled bool
@@ -98,25 +102,22 @@ func pathKey(p string) string {
 	return p
 }
 
-// defaultPageSize is used when CRUDTable.PageSize is 0 and pagination is
-// implicitly enabled by the table view (which it always is — set to 0
-// only when you intentionally want all rows in one shot).
-const defaultPageSize = 20
-
 // NewTable pairs a MetaModel with an Accessor (the data plane) into a ready
-// CRUDTable. pageSize is rows per page (0 = library default, 20); authz gates
-// every route (nil = allow all). Create/Edit/Delete are enabled by default —
-// toggle the *Enabled fields, HideUnauthorized, Segment, or ShortLabel on the
-// returned value before RegisterRoutes.
+// CRUDTable. pager supplies the page size: pass the app's site.DefaultSettings
+// for the default (20/page), site.PageSize(n) for a specific size, or
+// site.PageSize(0) for no pagination (all rows). nil also means the default.
+// authz gates every route (nil = allow all). Create/Edit/Delete are enabled by
+// default — toggle the *Enabled fields, HideUnauthorized, Segment, or
+// ShortLabel on the returned value before RegisterRoutes.
 //
 // The data Accessor must be built from the SAME mm (GORMAccessor/MapAccessor
 // read mm to learn which fields are searchable/sortable/relations).
-func NewTable[T any](mm MetaModel[T], data Accessor[T], pageSize int, authz auth.Authz) CRUDTable[T] {
+func NewTable[T any](mm MetaModel[T], data Accessor[T], pager site.PaginationSettings, authz auth.Authz) CRUDTable[T] {
 	return CRUDTable[T]{
 		MetaData:      mm,
 		Data:          data,
 		Authz:         authz,
-		PageSize:      pageSize,
+		Pagination:    pager,
 		CreateEnabled: true,
 		EditEnabled:   true,
 		DeleteEnabled: true,
@@ -288,10 +289,14 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 	sortDesc := q.Get("desc") == "1"
 	page := parsePage(q.Get("page"))
 
-	pageSize := c.PageSize
-	if pageSize <= 0 {
-		pageSize = defaultPageSize
+	// Effective rows-per-page from the table's PaginationSettings: 0 means no
+	// pagination (the accessor treats limit<=0 as "all rows"); nil settings
+	// fall back to the library default.
+	pager := c.Pagination
+	if pager == nil {
+		pager = site.DefaultSettings{}
 	}
+	pageSize := int(pager.PaginationSizeDefault())
 	offset := (page - 1) * pageSize
 
 	results, total, err := c.Data.List(r.Context(), search, sortBy, sortDesc, offset, pageSize)

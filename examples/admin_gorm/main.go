@@ -148,14 +148,14 @@ func main() {
 	// ShortLabel so it reads "Name — Realm" wherever it appears as a relation
 	// (the Owner picker + cells on /weapons); drop it for the Name-only default.
 	heroMM := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{})
-	heroTable := crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 0, nil)
+	heroTable := crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), site.DefaultSettings{}, nil)
 	heroTable.ShortLabel = func(h Hero) string { return h.Name + " — " + h.Realm }
 
 	weaponMM := crud.DeriveMetaModel[Weapon](crud.MetaModel[Weapon]{})
-	weaponTable := crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), 0, nil)
+	weaponTable := crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), site.DefaultSettings{}, nil)
 
 	skillMM := crud.DeriveMetaModel[Skill](crud.MetaModel[Skill]{})
-	skillTable := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 0, nil)
+	skillTable := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), site.DefaultSettings{}, nil)
 
 	// Admin auto-wires the relations (by matching related type name to the
 	// managed tables) when it registers their routes.

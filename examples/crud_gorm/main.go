@@ -158,7 +158,7 @@ func buildTables(db *gorm.DB) (
 			{Name: "Skills", FormHelp: "Hold Ctrl/Cmd to pick multiple."},
 		},
 	})
-	heroTable = crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 10, nil)
+	heroTable = crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), site.PageSize(10), nil)
 
 	weaponMM := crud.DeriveMetaModel[Weapon](crud.MetaModel[Weapon]{
 		DisplayName: "Weapons",
@@ -167,10 +167,11 @@ func buildTables(db *gorm.DB) (
 			{Name: "Name", FieldValidate: crud.All(crud.NotEmpty, crud.MaxLen(50))},
 			{Name: "Kind", FormHelp: "Weapon type (sword, axe, …)."},
 			{Name: "Damage", FormHelp: "Damage rating, 1–100.", FieldValidate: crud.IntRange(0, 100)},
+			{Name: "Forged", FormHelp: "When the weapon was forged (stored UTC, edited as a datetime-local)."},
 			{Name: "Owner", FormHelp: "Wielder. Pick one or use + to create a new hero."},
 		},
 	})
-	weaponTable = crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), 10, nil)
+	weaponTable = crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), site.PageSize(10), nil)
 
 	skillMM := crud.DeriveMetaModel[Skill](crud.MetaModel[Skill]{
 		DisplayName: "Skills",
@@ -185,7 +186,7 @@ func buildTables(db *gorm.DB) (
 			{Name: "Heroes", ReadOnly: true},
 		},
 	})
-	skillTable = crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 8, nil)
+	skillTable = crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), site.PageSize(8), nil)
 	return
 }
 

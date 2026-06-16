@@ -89,11 +89,11 @@ func main() {
 			{Name: "Passkeys", Hidden: true},
 		},
 	})
-	userTable := crud.NewTable(userMM, crud.GORMAccessor(userMM, db), 0, gate)
+	userTable := crud.NewTable(userMM, crud.GORMAccessor(userMM, db), site.DefaultSettings{}, gate)
 	userTable.Segment = "users" // irregular plural of "UserGORM"
 
 	groupMM := crud.DeriveMetaModel[auth.GroupGORM](crud.MetaModel[auth.GroupGORM]{DisplayName: "Groups"})
-	groupTable := crud.NewTable(groupMM, crud.GORMAccessor(groupMM, db), 0, gate)
+	groupTable := crud.NewTable(groupMM, crud.GORMAccessor(groupMM, db), site.DefaultSettings{}, gate)
 	groupTable.Segment = "groups"
 
 	// Admin takes nil Authz so its /admin index just 303s anonymous users to

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/tmshlvck/gone/site"
 )
 
 type item struct {
@@ -27,7 +29,7 @@ func newTestServer(t *testing.T) (chi.Router, *CRUDTable[item]) {
 	}
 	mu := &sync.RWMutex{}
 	mm := DeriveMetaModel[item](MetaModel[item]{})
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, nil)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, nil)
 	mux := chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "") // componentPath "" → default plural "items"
 	// CRUDTable.Route registers only partial endpoints. The "main" page
@@ -288,7 +290,7 @@ func TestRowDisplay_NotFound(t *testing.T) {
 
 func TestDefaultURLSlugFromName(t *testing.T) {
 	mm := DeriveMetaModel[item](MetaModel[item]{})
-	tbl := NewTable(mm, MapAccessor(mm, map[uint]item{}, &sync.RWMutex{}), 0, nil)
+	tbl := NewTable(mm, MapAccessor(mm, map[uint]item{}, &sync.RWMutex{}), site.DefaultSettings{}, nil)
 	if tbl.URLSlug() != "items" {
 		t.Errorf("default URLSlug = %q, want items", tbl.URLSlug())
 	}
@@ -318,7 +320,7 @@ func newTestServerWithAuthz(t *testing.T, az authzFunc, hideUnauthorized bool) c
 	}
 	mu := &sync.RWMutex{}
 	mm := DeriveMetaModel[item](MetaModel[item]{})
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 0, az)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, az)
 	tbl.HideUnauthorized = hideUnauthorized
 	mux := chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "")
@@ -413,7 +415,7 @@ func TestMutationRetainsPage(t *testing.T) {
 	}
 	mu := &sync.RWMutex{}
 	mm := DeriveMetaModel[item](MetaModel[item]{})
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 2, nil)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.PageSize(2), nil)
 	mux = chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "")
 
@@ -461,7 +463,7 @@ func TestMutationClampsBeyondLastPage(t *testing.T) {
 	}
 	mu := &sync.RWMutex{}
 	mm := DeriveMetaModel[item](MetaModel[item]{})
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), 2, nil)
+	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.PageSize(2), nil)
 	mux := chi.NewRouter()
 	tbl.RegisterRoutes(mux, "", "")
 
@@ -486,3 +488,37 @@ func TestMutationClampsBeyondLastPage(t *testing.T) {
 // Suppress unused-warning for readOnly — kept exported above for symmetry
 // with the auth.Authz interface but unused by current tests.
 var _ = readOnly{}
+
+// TestPaginationSemantics verifies the PaginationSettings wiring: a fixed
+// site.PageSize(0) shows every row (no pagination), while DefaultSettings and
+// nil both fall back to 20 per page.
+func TestPaginationSemantics(t *testing.T) {
+	store := map[uint]item{}
+	for i := 1; i <= 25; i++ {
+		store[uint(i)] = item{ID: uint(i), Name: "H"}
+	}
+	mu := &sync.RWMutex{}
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	req := httptest.NewRequest("GET", "/items/view", nil)
+
+	all := NewTable(mm, MapAccessor(mm, store, mu), site.PageSize(0), nil)
+	vd, err := all.buildTableViewData(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vd.Rows) != 25 || vd.NumPages != 1 {
+		t.Errorf("PageSize(0): rows=%d pages=%d, want 25 rows / 1 page", len(vd.Rows), vd.NumPages)
+	}
+
+	def := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, nil)
+	vd2, _ := def.buildTableViewData(req)
+	if len(vd2.Rows) != 20 || vd2.NumPages != 2 {
+		t.Errorf("DefaultSettings: rows=%d pages=%d, want 20 rows / 2 pages", len(vd2.Rows), vd2.NumPages)
+	}
+
+	nilp := NewTable(mm, MapAccessor(mm, store, mu), nil, nil)
+	vd3, _ := nilp.buildTableViewData(req)
+	if len(vd3.Rows) != 20 {
+		t.Errorf("nil Pagination: rows=%d, want 20 (library default)", len(vd3.Rows))
+	}
+}

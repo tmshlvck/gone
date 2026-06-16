@@ -42,14 +42,14 @@ pieces — metadata, data, config — and only then say where it lives:
 ```go
 mm    := crud.DeriveMetaModel[Hero](crud.MetaModel[Hero]{ /* overrides */ }) // WHAT to render/bind
 data  := crud.GORMAccessor[Hero](mm, db)                                     // the data plane
-table := crud.NewTable(mm, data, 10, az)                                     // table config (pageSize, authz)
+table := crud.NewTable(mm, data, site.PageSize(10), az)                      // table config (pager, authz)
 table.RegisterRoutes(root, "", "/admin/heroes")                             // WHERE it lives
 ```
 
 - `DeriveMetaModel` reflects `Hero`, then overlays your overrides.
 - `GORMAccessor` / `MapAccessor` build the data plane from the **same** `mm`
   (they read it to learn which fields are searchable / sortable / relations).
-- `NewTable` pairs the two and adds table-level config (`pageSize`, `authz`,
+- `NewTable` pairs the two and adds table-level config (`pager`, `authz`,
   the mutation toggles).
 - `RegisterRoutes` is the only place a path appears — the table is otherwise
   path-agnostic, so the same table can be mounted standalone or under an
@@ -79,8 +79,8 @@ func main() {
     })
     // 2. Data plane over the caller-owned map + mutex.
     data := crud.MapAccessor(mm, store, &mu)
-    // 3. Table config: pageSize 0 (= default 20), no authz.
-    table := crud.NewTable(mm, data, 0, nil)
+    // 3. Table config: default page size (20), no authz.
+    table := crud.NewTable(mm, data, site.DefaultSettings{}, nil)
 
     r := chi.NewRouter()
     const heroesPath = "/heroes"
@@ -313,16 +313,18 @@ associations on reads, and replays many-to-many selections on update.
 ## Building the table — `NewTable`
 
 ```go
-func NewTable[T any](mm MetaModel[T], data Accessor[T], pageSize int, authz auth.Authz) CRUDTable[T]
+func NewTable[T any](mm MetaModel[T], data Accessor[T], pager site.PaginationSettings, authz auth.Authz) CRUDTable[T]
 ```
 
-`pageSize` is rows per page (0 = library default, 20); `authz` gates every
-route (nil = allow all). Create / edit / delete are enabled by default. The
-returned `CRUDTable[T]` is a plain struct with public fields, so anything the
-constructor doesn't cover is set afterward:
+`pager` supplies the page size (see [Pagination](#pagination)): pass the app's
+`site.DefaultSettings` for 20/page, `site.PageSize(n)` for a specific size, or
+`site.PageSize(0)` for no pagination (all rows); `nil` also means the default.
+`authz` gates every route (nil = allow all). Create / edit / delete are enabled
+by default. The returned `CRUDTable[T]` is a plain struct with public fields,
+so anything the constructor doesn't cover is set afterward:
 
 ```go
-table := crud.NewTable(mm, data, 10, gate)
+table := crud.NewTable(mm, data, site.PageSize(10), gate)
 table.CreateEnabled = false           // granular mutation toggles
 table.HideUnauthorized = true         // omit disallowed buttons (vs render disabled)
 table.Segment = "heroes"              // path segment override (irregular plurals)
@@ -602,11 +604,31 @@ app still works as a plain MPA.
 
 ## Pagination
 
-`pageSize` (default 20) controls rows per page; `?page=N` selects it
-(1-indexed). The renderer emits a DaisyUI `join` button group with prev/next
-+ numbers. Page / sort / search links are HTMX with `hx-push-url`, so the
-state is a real, shareable URL — a reload re-renders the full page in that
-state. Search and sort reset to page 1.
+A table's page size comes from the `site.PaginationSettings` passed to
+`NewTable` (stored as `CRUDTable.Pagination`):
+
+```go
+type PaginationSettings interface {
+    PaginationSizeDefault() uint16 // 0 = no pagination (show every row)
+}
+```
+
+- `site.DefaultSettings{}` → 20 rows per page (also the `nil` fallback).
+- `site.PageSize(n)` → n per page.
+- `site.PageSize(0)` → **no pagination**: every matching row in one shot.
+
+`?page=N` selects the page (1-indexed). The renderer emits a DaisyUI `join`
+button group with prev/next + numbers (omitted when unpaginated). Page / sort /
+search links are HTMX with `hx-push-url`, so the state is a real, shareable URL
+— a reload re-renders the full page in that state. Search and sort reset to
+page 1.
+
+`PaginationSettings` is one half of `site.Settings` (the other is
+`TimeFormatter`); `site.DefaultSettings` implements both, so an app holds one
+config value and hands it to each consumer by the narrow interface it needs —
+the `MetaModel.TimeFormatter` for time cells, the `NewTable` `pager` for
+paging. Override either by embedding `site.DefaultSettings` and shadowing one
+method.
 
 ## Composition trade-offs
 

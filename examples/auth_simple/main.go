@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/auth"
 	"github.com/tmshlvck/gone/crud"
+	"github.com/tmshlvck/gone/site"
 )
 
 type Hero struct {
@@ -64,7 +65,7 @@ func deriveHeroesTable(store map[uint]Hero, mu *sync.RWMutex, az auth.Authz) cru
 			{Name: "Power", FormHelp: "Power level, 0–100.", FieldValidate: crud.IntRange(0, 100)},
 		},
 	})
-	return crud.NewTable(mm, crud.MapAccessor(mm, store, mu), 10, az)
+	return crud.NewTable(mm, crud.MapAccessor(mm, store, mu), site.PageSize(10), az)
 }
 
 func main() {
