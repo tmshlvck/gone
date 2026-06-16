@@ -10,7 +10,7 @@ detail lives in the linked docs.
 | `gone/crud`      | HTMX-driven CRUD UIs from struct metadata. CRUDTable + Admin + MetaModel + validators + relation pickers. |
 | `gone/auth`      | Sessions / CSRF / login / authz. AuthSimple + AuthGORM impls. TOTP. Passkeys. Account page.               |
 | `gone/htmx`      | Typed HTMX wire protocol: request classification + response-directive builder (Retarget/Reswap/Trigger).  |
-| `gone/site`      | Page-composition helpers: the Shell func shape, a Fragment writer, and a fragment-or-page Respond helper.  |
+| `gone/site`      | Page-composition helpers (Shell shape, Fragment writer, Respond) + `ForceUTC(db)` — GORM time.Time→UTC-at-rest guarantee. |
 
 ## Documentation
 
@@ -21,7 +21,8 @@ Everything lives under [`docs/`](docs/):
 | [`docs/CRUD.md`](docs/CRUD.md)   | User reference for `gone/crud` — what's there and how to use it. |
 | [`docs/AUTH.md`](docs/AUTH.md)   | User reference for `gone/auth`.                                  |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | *Why* it's shaped this way — design decisions + open-questions / future-work log, both packages. |
-| [`docs/TODO.md`](docs/TODO.md)   | Active build queue (API keys, CSV import/export, JSON API).      |
+| [`docs/HOWTO-BEARER-TOKENS.md`](docs/HOWTO-BEARER-TOKENS.md) | App-side per-user API keys for a JSON API, reusing gone's users + Authz. |
+| [`docs/TODO.md`](docs/TODO.md)   | Active build queue (CSV import/export, per-session timezone).    |
 
 Root files:
 
@@ -58,3 +59,8 @@ No external services required.
   in-memory, `DeriveGormCRUDTable[T]` for GORM. Same pattern for
   Auth: `NewAuthSimple` vs `NewAuthGORM`.
 - Tests are `_test.go` next to the code, no separate test packages.
+- Time is UTC. Display and form-bind are UTC; apps call
+  `site.ForceUTC(db)` once after `gorm.Open` so `time.Time` is stored
+  in UTC on any backend (`time.Now()` is local — this normalizes it).
+  Mixed-offset rows otherwise sort/range-filter by wall-clock text. See
+  [`docs/CRUD.md`](docs/CRUD.md#time-fields-and-utc-storage).

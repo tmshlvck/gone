@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/auth"
 	"github.com/tmshlvck/gone/crud"
+	"github.com/tmshlvck/gone/site"
 	"gorm.io/gorm"
 )
 
@@ -36,6 +37,11 @@ func main() {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("gorm: %v", err)
+	}
+	// Always store time.Time in UTC, on any backend. Call once, before any
+	// writes (incl. the user/group seeding below).
+	if err := site.ForceUTC(db); err != nil {
+		log.Fatalf("ForceUTC: %v", err)
 	}
 	ag, err := auth.NewAuthGORM(sm, db) // auto-migrates UserGORM + GroupGORM
 	if err != nil {

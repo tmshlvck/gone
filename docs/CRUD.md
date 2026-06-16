@@ -233,6 +233,55 @@ func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) 
 `auth.HashPassword` hashes the same way the login path verifies. See
 `examples/auth_gorm` for the User table using all of this.
 
+### Time fields and UTC storage
+
+A `time.Time` field is auto-detected and rendered as a
+`datetime-local` input. The whole CRUD pipeline is **UTC**:
+
+- **Display** (table cell + detail row): formatted as `t.UTC()` with an
+  explicit `UTC` suffix (e.g. `2024-06-15 14:30:00 UTC`).
+- **Bind** (form → struct): the zone-less `datetime-local` value
+  (`2006-01-02T15:04`) is parsed as **UTC**.
+
+> **You must guarantee UTC at rest — call `site.ForceUTC(db)` once,
+> right after `gorm.Open`.** This is essential for correctness, not a
+> nicety.
+
+A Go `time.Time` always carries a location, and a value that reaches
+the database in a non-UTC zone is stored *with that offset*. The most
+common source is ordinary app code: **`time.Now()` returns
+`time.Local`, not UTC.** The hazard is not instant fidelity (the instant
+round-trips fine) — it's that **SQL compares the stored value, not the
+instant**:
+
+- On **SQLite**, a `time.Time` is stored as RFC3339 *text including its
+  offset* (`2024-06-15T14:30:00+02:00`). Two rows that are the same
+  instant in different zones then sort and range-filter by their
+  wall-clock string — so a CRUDTable sort on a time column, or a
+  `WHERE … BETWEEN`, can return wrong results.
+- On **Postgres**, `timestamptz` (GORM's default for `time.Time`)
+  normalizes to a UTC instant and is safe; a `timestamp`
+  *without* time zone column has the same hazard as SQLite.
+
+`site.ForceUTC(db)` removes the hazard uniformly on every backend. It
+wraps `db.NowFunc` so GORM's automatic `CreatedAt` / `UpdatedAt` are
+generated in UTC, and registers before-create / before-update callbacks
+that convert any explicitly-set `time.Time` / `*time.Time` field to UTC
+before it's written:
+
+```go
+db, _ := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+if err := site.ForceUTC(db); err != nil { // before any writes
+    log.Fatal(err)
+}
+```
+
+With it in place, values at rest are always UTC, SQL ordering and range
+filters operate on the instant, and any future per-session timezone
+display is purely a presentation concern on top. The GORM examples
+(`crud_gorm`, `admin_gorm`, `auth_gorm`, `auth_sso`) all call it; the
+`Forged` column on `crud_gorm`'s Weapon showcases a time field.
+
 ## The data plane — `Accessor[T]`
 
 A `CRUDTable` is backend-blind: every read and write goes through an

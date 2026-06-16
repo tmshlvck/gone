@@ -8,12 +8,14 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/glebarez/sqlite"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/tmshlvck/gone/crud"
+	"github.com/tmshlvck/gone/site"
 	"gorm.io/gorm"
 )
 
@@ -34,6 +36,7 @@ type Weapon struct {
 	Name    string
 	Kind    string
 	Damage  int
+	Forged  time.Time // when the weapon was forged — showcases time handling
 	OwnerID uint
 	Owner   Hero `gorm:"foreignKey:OwnerID"`
 }
@@ -105,12 +108,16 @@ func seed(db *gorm.DB) error {
 		return err
 	}
 
+	// A fixed reference instant so the seed stays deterministic; each
+	// weapon is forged some random span before it.
+	forgeBase := time.Date(2024, time.January, 1, 12, 0, 0, 0, time.UTC)
 	weapons := make([]Weapon, 0, len(weaponNames))
 	for _, n := range weaponNames {
 		w := Weapon{
 			Name:   n,
 			Kind:   weaponKinds[rng.Intn(len(weaponKinds))],
 			Damage: 10 + rng.Intn(90),
+			Forged: forgeBase.Add(-time.Duration(rng.Intn(5000)) * time.Hour),
 		}
 		if rng.Intn(10) != 0 {
 			w.OwnerID = heroes[rng.Intn(len(heroes))].ID
@@ -188,6 +195,12 @@ func main() {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("gorm open: %v", err)
+	}
+	// Store every time.Time in UTC, regardless of backend — so the Forged
+	// column sorts and filters by instant, not by wall-clock text. Call
+	// once, before any writes.
+	if err := site.ForceUTC(db); err != nil {
+		log.Fatalf("ForceUTC: %v", err)
 	}
 	if err := migrate(db); err != nil {
 		log.Fatalf("migrate: %v", err)

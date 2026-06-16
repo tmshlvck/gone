@@ -43,6 +43,11 @@ table.RegisterRoutes(root, "", "/heroes")
   cache, and auto-wired cross-table relations.
 - **Backends**: in-memory map for tests / prototypes, GORM for
   production. New backends drop in by writing a constructor.
+- **Time is UTC end-to-end** — display and form-bind are UTC, and
+  `site.ForceUTC(db)` guarantees `time.Time` is stored in UTC on any
+  backend (SQLite, Postgres), so SQL sort / range filters operate on
+  the instant. Call it once after `gorm.Open`; see
+  [`docs/CRUD.md`](docs/CRUD.md#time-fields-and-utc-storage).
 
 The library emits **HTML fragments** — `<html>` / `<head>` /
 `<body>` / theme are the caller's concern, supplied via a
@@ -218,9 +223,12 @@ go run ./examples/auth_gorm
 User-facing references (the practical "how do I…?" docs):
 
 - [`docs/CRUD.md`](docs/CRUD.md) — full CRUD API reference, design
-  notes, modal flow, validation pipeline, composition trade-offs.
+  notes, modal flow, validation pipeline, time/UTC storage,
+  composition trade-offs.
 - [`docs/AUTH.md`](docs/AUTH.md) — sessions / CSRF / login (password,
   TOTP, passkeys) / authz reference, with worked examples.
+- [`docs/HOWTO-BEARER-TOKENS.md`](docs/HOWTO-BEARER-TOKENS.md) — per-user
+  API keys for an app's JSON API, reusing gone's users + Authz.
 
 Design rationale (the "why does it look like this?" doc):
 
@@ -230,7 +238,7 @@ Design rationale (the "why does it look like this?" doc):
 Operational:
 
 - [`docs/TODO.md`](docs/TODO.md) — what's specced but not yet built
-  (API keys, CSV import/export, JSON API).
+  (CSV import/export, per-session timezone).
 - [`AGENTS.md`](AGENTS.md) — short pointer for agents / new contributors.
 
 ## Status
@@ -245,8 +253,10 @@ enough to run in-house tools and small production apps:
 
 Planned (see [`docs/TODO.md`](docs/TODO.md)):
 
-- **API keys** — optional bearer-token credentials on AuthGORM;
-  ships the model + a verify function + account-page management,
-  wired into no routes by default.
 - **CSV import/export** — round-trip a CRUDTable's rows through CSV,
   driven by the existing MetaModel.
+- **Per-session timezone** — UTC at rest (already enforced by
+  `site.ForceUTC`), with per-session display/parse in a chosen zone.
+
+Bearer-token API keys are an app-side pattern today — see
+[`docs/HOWTO-BEARER-TOKENS.md`](docs/HOWTO-BEARER-TOKENS.md).

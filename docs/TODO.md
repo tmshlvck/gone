@@ -5,71 +5,9 @@ start. Design rationale and the longer "maybe someday / pending real
 need" list live in [`DESIGN.md`](DESIGN.md); user reference is
 [`CRUD.md`](CRUD.md) + [`AUTH.md`](AUTH.md).
 
-Three things on deck:
+Two things on deck:
 
-## 1. API keys (AuthGORM)
-
-Optional, per-deployment bearer-token credentials owned by a user.
-The library ships the model + storage + a verification function and
-the account-page UI to manage keys — but wires the check into **no**
-routes by default. The app decides which of its own REST endpoints
-accept a key.
-
-**Model** — `gone/auth/apikey.go` (single file, mirroring
-`passkey.go` / `totp_account.go`):
-
-```go
-type APIKeyGORM struct {
-    ID         uint
-    UserID     uint       `gorm:"index;not null"` // effective principal
-    HashedKey  string     `gorm:"uniqueIndex"`     // hash of the raw key, never the key
-    Prefix     string     `gorm:"index;size:8"`    // first chars, shown in the UI to identify a key
-    Name       string                              // user-supplied label
-    LastUsedAt *time.Time
-    ExpiresAt  *time.Time                          // nil = no expiry
-    Disabled   bool
-    CreatedAt  time.Time
-}
-```
-
-The raw key is shown to the user **once**, at creation; only its hash
-is stored. Format something like `gone_<prefix>_<random>`; verify by
-hashing the presented key and matching `HashedKey` (+ check
-`!Disabled` and `ExpiresAt`).
-
-**Enablement.** A flag on `AuthGORM` (e.g. `EnableAPIKeys bool`). When
-set:
-
-- `NewAuthGORM` AutoMigrates `APIKeyGORM`.
-- The account page renders an "API keys" card (list with prefix +
-  name + last-used + expiry, a "New key" form, per-row Revoke) — same
-  shape as the passkeys card. API keys are independent of the login
-  method, so they stay available to SSO-only users (unlike password /
-  passkey enrolment).
-- The add / revoke account routes mount under
-  `/account/{ref}/apikey/...`.
-
-When the flag is off: no table, no card, no routes — zero surface.
-
-**Verification function** — exported, always available, wired nowhere
-by default:
-
-```go
-// AuthenticateAPIKey hashes the presented key, looks up the matching
-// non-disabled, non-expired APIKeyGORM, bumps LastUsedAt, and returns
-// the owning user as an auth.User (so the app's existing Authz checks
-// apply unchanged). Returns ErrInvalidAPIKey on any miss.
-func (a *AuthGORM) AuthenticateAPIKey(rawKey string) (User, error)
-```
-
-The app calls this from its own handler / middleware for the specific
-endpoints that should accept `Authorization: Bearer <key>`. Because
-the function returns the owning `User`, all read/write authz decisions
-reuse that user's groups — no separate permission model. Key-
-authenticated requests carry no session, so they bypass CSRF (there's
-no cookie to forge against) but still pass authz.
-
-## 2. CSV import / export (CRUDTable)
+## 1. CSV import / export (CRUDTable)
 
 Round-trip a table's rows through CSV, driven by the existing
 `MetaModel` field set.
