@@ -1,0 +1,28 @@
+package site
+
+// timezonePicker renders the display-zone <select>. On change it POSTs the
+// chosen value (plus the browser's detected IANA zone via hx-vals, used when
+// "Browser-local" is picked); the server replies HX-Refresh so every rendered
+// time updates. DaisyUI classes; the app's page shell supplies the framework.
+templ timezonePicker(d tzPickerData) {
+	<select
+		name="tz"
+		title="Display timezone"
+		class="select select-sm select-bordered"
+		hx-post={ d.PostURL }
+		hx-trigger="change"
+		hx-vals="js:{browserTz: Intl.DateTimeFormat().resolvedOptions().timeZone}"
+		hx-swap="none"
+		aria-label="Display timezone"
+	>
+		<option value="utc" selected?={ d.Kind == "utc" }>UTC</option>
+		<option value="local" selected?={ d.Kind == "local" }>{ "Browser-local" + d.LocalSuffix }</option>
+		if len(d.Zones) > 0 {
+			<optgroup label="Timezones">
+				for _, z := range d.Zones {
+					<option value={ "tz:" + z } selected?={ d.Kind == "tz" && d.Zone == z }>{ z }</option>
+				}
+			</optgroup>
+		}
+	</select>
+}

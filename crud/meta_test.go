@@ -230,11 +230,12 @@ func TestDefaultDisplayValue_BoolBadgeAndUTCTime(t *testing.T) {
 		t.Errorf("bool false display = %q, want red no badge", got)
 	}
 
-	// A non-UTC instant is shown converted to UTC, with the suffix.
+	// A non-UTC instant is shown converted to UTC (no session zone on the
+	// background context), with the zone abbreviation + offset suffix.
 	loc := time.FixedZone("CET", 2*3600)
 	ts := time.Date(2026, 1, 2, 15, 4, 5, 0, loc) // 13:04:05 UTC
-	if got := render(DefaultDisplayValue(mf, ts)); got != "2026-01-02 13:04:05 UTC" {
-		t.Errorf("time display = %q, want 2026-01-02 13:04:05 UTC", got)
+	if got := render(DefaultDisplayValue(mf, ts)); got != "2026-01-02 13:04:05 UTC (+00:00)" {
+		t.Errorf("time display = %q, want 2026-01-02 13:04:05 UTC (+00:00)", got)
 	}
 	if got := render(DefaultDisplayValue(mf, time.Time{})); got != "" {
 		t.Errorf("zero time display = %q, want empty", got)

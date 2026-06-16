@@ -2,8 +2,11 @@ package crud
 
 import (
 	"net/http"
+	"reflect"
+	"time"
 
 	"github.com/a-h/templ"
+	"github.com/tmshlvck/gone/site"
 )
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -61,5 +64,62 @@ func (mm *MetaModel[T]) TryBindForm(r *http.Request, out *T) error {
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
-	return mm.BindForm(r.PostForm, out)
+	if err := mm.BindForm(r.PostForm, out); err != nil {
+		return err
+	}
+	// Zone-aware reinterpretation: BindForm parsed each datetime-local wall
+	// clock as UTC; if the session has a non-UTC zone, reinterpret the same
+	// wall clock as being in that zone (what the user saw when editing).
+	// Storage stays UTC (site.ForceUTC). Only fields actually submitted by
+	// the form are touched, so read-only times (e.g. a loaded CreatedAt on
+	// an update) keep their real instant.
+	if loc := site.Timezone(r.Context()); loc != time.UTC {
+		reinterpretSubmittedTimes(mm, r.PostForm, out, loc)
+	}
+	return nil
+}
+
+var bindTimeType = reflect.TypeOf(time.Time{})
+
+// reinterpretSubmittedTimes rebuilds each submitted time.Time / *time.Time
+// field's wall clock in loc. "Submitted" = a non-hidden, non-readonly field
+// whose key is present in the posted form — exactly the rendered
+// datetime-local inputs. Zero values are left as-is.
+func reinterpretSubmittedTimes[T any](mm *MetaModel[T], form map[string][]string, out *T, loc *time.Location) {
+	rv := reflect.ValueOf(out).Elem()
+	for _, mf := range mm.Fields {
+		if mf.Hidden || mf.ReadOnly {
+			continue
+		}
+		key := mf.FormFieldName
+		if key == "" {
+			key = mf.Name
+		}
+		if _, ok := form[key]; !ok {
+			continue
+		}
+		f := rv.FieldByName(mf.Name)
+		if !f.IsValid() || !f.CanSet() {
+			continue
+		}
+		switch f.Type() {
+		case bindTimeType:
+			if t := f.Interface().(time.Time); !t.IsZero() {
+				f.Set(reflect.ValueOf(reinterpretWallClock(t, loc)))
+			}
+		case reflect.PointerTo(bindTimeType):
+			if !f.IsNil() {
+				if t := f.Interface().(*time.Time); !t.IsZero() {
+					rt := reinterpretWallClock(*t, loc)
+					f.Set(reflect.ValueOf(&rt))
+				}
+			}
+		}
+	}
+}
+
+// reinterpretWallClock takes t's wall-clock components and rebuilds them in
+// loc — turning "14:30 parsed as UTC" into "14:30 in loc".
+func reinterpretWallClock(t time.Time, loc *time.Location) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), loc)
 }

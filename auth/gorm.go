@@ -12,8 +12,21 @@ import (
 
 	"github.com/alexedwards/argon2id"
 	"github.com/alexedwards/scs/v2"
+	"github.com/tmshlvck/gone/site"
 	"gorm.io/gorm"
 )
+
+// fmtTime renders t through the configured TimeFormatter (default
+// site.DefaultTimeFormatter) in the request's session zone. A zero time
+// yields "". Used for account-page "last used" timestamps so auth's time
+// output matches CRUD's.
+func (a *AuthGORM) fmtTime(ctx context.Context, t time.Time) string {
+	tf := a.TimeFormatter
+	if tf == nil {
+		tf = site.DefaultTimeFormatter{}
+	}
+	return tf.FormatTime(site.Timezone(ctx), t)
+}
 
 // ──────────────────────────────────────────────────────────────────
 // Models.
@@ -151,6 +164,12 @@ type AuthGORM struct {
 	// alongside the username so users can tell accounts apart.
 	// Defaults to "gone" when empty.
 	TOTPIssuer string
+
+	// TimeFormatter renders the account page's timestamps ("last used")
+	// — the same app-global policy CRUD uses, so all of gone's time
+	// output is consistent. nil → site.DefaultTimeFormatter. The session
+	// zone comes from the request context (site.Timezone).
+	TimeFormatter site.TimeFormatter
 
 	// WebAuthn relying-party info. Required iff passkey routes are
 	// in play (any user enrols a passkey, OR the login page is

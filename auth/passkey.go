@@ -508,20 +508,22 @@ func (a *AuthGORM) renderPasskeyCard(w http.ResponseWriter, r *http.Request, tar
 		IsSelf:          isSelf,
 		CSRFToken:       CSRFToken(r.Context()),
 		PasskeyBaseURL:  a.passkeyEndpointBase(target.ID),
-		PasskeyItems:    passkeyItems(ks),
+		PasskeyItems:    passkeyItems(ks, func(t time.Time) string { return a.fmtTime(r.Context(), t) }),
 		PasskeysEnabled: true,
 	}))
 }
 
-// passkeyItems converts DB rows into the view-friendly shape.
-func passkeyItems(rows []PasskeyGORM) []passkeyItem {
+// passkeyItems converts DB rows into the view-friendly shape. fmtTime
+// renders "last used" in the session zone (CreatedAt stays a plain
+// enrolment date — date-only zoning is out of scope).
+func passkeyItems(rows []PasskeyGORM, fmtTime func(time.Time) string) []passkeyItem {
 	out := make([]passkeyItem, len(rows))
 	for i, r := range rows {
 		out[i] = passkeyItem{
 			ID:         r.ID,
 			Name:       r.Name,
 			CreatedAt:  r.CreatedAt.Format("2006-01-02"),
-			LastUsedAt: r.LastUsedAt.Format("2006-01-02 15:04"),
+			LastUsedAt: fmtTime(r.LastUsedAt),
 		}
 	}
 	return out

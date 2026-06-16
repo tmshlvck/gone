@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/a-h/templ"
 	"gorm.io/gorm"
@@ -99,7 +100,7 @@ func (a *AuthGORM) buildAccountFormData(r *http.Request, current User, target *U
 	if passkeysEnabled {
 		var ks []PasskeyGORM
 		if err := a.DB.Where("user_id = ?", target.ID).Order("created_at DESC").Find(&ks).Error; err == nil {
-			pkItems = passkeyItems(ks)
+			pkItems = passkeyItems(ks, func(t time.Time) string { return a.fmtTime(r.Context(), t) })
 		}
 	}
 
@@ -116,9 +117,7 @@ func (a *AuthGORM) buildAccountFormData(r *http.Request, current User, target *U
 				DisplayName: row.DisplayName,
 				Email:       row.Email,
 			}
-			if !row.LastUsedAt.IsZero() {
-				item.LastUsed = row.LastUsedAt.Format("2006-01-02 15:04")
-			}
+			item.LastUsed = a.fmtTime(r.Context(), row.LastUsedAt)
 			ssoItems = append(ssoItems, item)
 		}
 		if target.SSOOnly && len(ssoItems) == 1 {
@@ -401,9 +400,7 @@ func (a *AuthGORM) handleSSOIdentityDelete(w http.ResponseWriter, r *http.Reques
 			DisplayName: row.DisplayName,
 			Email:       row.Email,
 		}
-		if !row.LastUsedAt.IsZero() {
-			item.LastUsed = row.LastUsedAt.Format("2006-01-02 15:04")
-		}
+		item.LastUsed = a.fmtTime(r.Context(), row.LastUsedAt)
 		items = append(items, item)
 	}
 	if target.SSOOnly && len(items) == 1 {

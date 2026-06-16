@@ -210,11 +210,19 @@ func main() {
 	}
 	heroTable, weaponTable, skillTable := buildTables(db)
 
+	// Per-session display timezone: a navbar picker (UTC / browser-local /
+	// any of CommonZones) stores the choice in a cookie; the middleware
+	// resolves it onto each request's context so the Weapon Forged column and
+	// its edit form render and parse in the chosen zone. Storage stays UTC.
+	tz := &site.TimezonePicker{Mode: site.TZModeFull, Zones: site.CommonZones}
+
 	mux := chi.NewRouter()
 	mux.Use(middleware.Logger)
-	mountPage(mux, &heroTable, "/heroes", "Heroes")
-	mountPage(mux, &weaponTable, "/weapons", "Weapons")
-	mountPage(mux, &skillTable, "/skills", "Skills")
+	mux.Use(site.TimezoneMiddleware(tz.Resolve))
+	tz.RegisterRoutes(mux)
+	mountPage(mux, &heroTable, "/heroes", "Heroes", tz)
+	mountPage(mux, &weaponTable, "/weapons", "Weapons", tz)
+	mountPage(mux, &skillTable, "/skills", "Skills", tz)
 	// Link the relation pickers now every table has its URL (Owner select on
 	// /weapons loads options from /heroes, etc).
 	crud.WireRelations(&heroTable, &weaponTable, &skillTable)
@@ -236,7 +244,7 @@ type pageComponent interface {
 
 // mountPage registers a table's fragment endpoints at path plus the app-owned
 // page route that wraps its Render output in pageShell.
-func mountPage(mux chi.Router, t pageComponent, path, title string) {
+func mountPage(mux chi.Router, t pageComponent, path, title string, tz *site.TimezonePicker) {
 	t.RegisterRoutes(mux, "", path)
 	mux.Get(path, func(w http.ResponseWriter, r *http.Request) {
 		content, err := t.Render(r)
@@ -244,14 +252,15 @@ func mountPage(mux chi.Router, t pageComponent, path, title string) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		pageShell(w, r, title, content)
+		pageShell(w, r, title, content, tz)
 	})
 }
 
-// pageShell renders the library's component inside the app's HTML chrome.
-func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
+// pageShell renders the library's component inside the app's HTML chrome,
+// including the timezone picker in the navbar.
+func pageShell(w http.ResponseWriter, r *http.Request, title string, content templ.Component, tz *site.TimezonePicker) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := pageLayout(title, content).Render(r.Context(), w); err != nil {
+	if err := pageLayout(title, tz.Component(r), content).Render(r.Context(), w); err != nil {
 		log.Printf("render: %v", err)
 	}
 }

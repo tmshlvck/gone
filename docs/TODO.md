@@ -36,71 +36,107 @@ Open decisions to settle when building:
   all-or-nothing for v1, returning the failing row + validation errors
   inline.
 
-## 3. Per-session timezone (gone/site + CRUDTable)
+## 2. Per-session timezone (gone/site + CRUDTable + auth)
 
-Today every `time.Time` is rendered and parsed as UTC (`displayTime` does
-`t.UTC()`, bind does `time.Parse("2006-01-02T15:04", …)` which is also UTC).
-Apps need to choose, per session, how times display **and** how form input is
-interpreted — in one of three modes:
+Storage is already UTC everywhere — `site.ForceUTC(db)` (done) normalizes
+every `time.Time` to UTC at write, so SQL sort / range / compare operate on
+the instant. This item is **presentation + input only**: let each session
+*display* and *enter* times in a chosen zone while the stored instant stays
+UTC. Three modes:
 
-1. **UTC** — the current behavior, and the default.
+1. **UTC** — the default.
 2. **Browser-local** — the viewer's own zone, detected client-side.
-3. **Explicit** — a named IANA zone (e.g. `Europe/Prague`) the app or a user
-   preference sets.
+3. **Explicit** — a named IANA zone (e.g. `Europe/Zurich`).
 
-**One source of truth: a per-session `*time.Location` on the request context.**
-The mode only changes how that location is *populated*; display, form pre-fill,
-and bind all read the same resolved location, so a round-trip is consistent —
-what you see in zone Z you also edit in zone Z, stored as the right instant.
-Persistence stays UTC (GORM keeps the absolute `time.Time`); only presentation
-and parse are zoned.
+Two cleanly separated concerns, by scope:
 
-**Plumbing — `gone/site`** (generic, reusable on non-CRUD pages):
+- **Which offset — request-scoped → context.** One per-session `*time.Location`
+  resolved per request; display, form pre-fill, and bind all read it, so a
+  round-trip is consistent (what you see in zone Z you edit in zone Z).
+- **How to render — app-global → an injected `TimeFormatter`.** *Not* on the
+  context: the same formatter is reused outside HTTP (emails, PDFs, logs), so
+  it's an object the app owns and hands to components, defaulting to
+  `DefaultTimeFormatter`. (Reserve a `Formats` aggregate name for later
+  money / measure formatters; ship only `TimeFormatter` now.)
+
+**`gone/site`:**
 
 ```go
+// Request-scoped zone.
 func WithTimezone(ctx context.Context, loc *time.Location) context.Context
 func Timezone(ctx context.Context) *time.Location // defaults to time.UTC
-// Stamps the location on each request's context. The app supplies resolve
-// (reads its session / cookie); the zero resolver yields UTC.
 func TimezoneMiddleware(resolve func(*http.Request) *time.Location) func(http.Handler) http.Handler
+
+// App-global formatting policy. Interface + embeddable default so an app
+// overrides by embedding and shadowing one method (dynamic dispatch via the
+// interface). Used by crud + auth + the app's own non-HTTP code.
+type TimeFormatter interface { FormatTime(loc *time.Location, t time.Time) string }
+type DefaultTimeFormatter struct{} // "2006-01-02 15:04:05 MST (-07:00)"; blank if zero
+func FormatTime(loc *time.Location, t time.Time) string // convenience: DefaultTimeFormatter
+
+var CommonZones []string // curated IANA list for the picker's full menu
 ```
+
+**Timezone picker — `site.TimezonePicker`** (cookie-backed, no session needed):
+
+```go
+type TZMode int
+const (
+    TZModeFull   TZMode = iota // UTC / Browser-local / each Zones entry
+    TZModeSimple               // UTC / Browser-local only
+)
+type TimezonePicker struct {
+    Prefix string
+    Cookie string   // default "gone_tz"
+    Mode   TZMode
+    Zones  []string // offered in Full mode; pass site.CommonZones for all
+}
+func (p *TimezonePicker) RegisterRoutes(r chi.Router)        // POST {Prefix} → set cookie → HX-Refresh
+func (p *TimezonePicker) Resolve(r *http.Request) *time.Location // for TimezoneMiddleware
+func (p *TimezonePicker) Component(r *http.Request) templ.Component // navbar <select>
+```
+
+Cookie encodes the *kind* so the UI can highlight the right option:
+`utc` | `local:<iana>` | `tz:<iana>`. Browser-local is detect-once / sticky:
+the option submits `Intl.DateTimeFormat().resolvedOptions().timeZone` (via
+HTMX `hx-vals`), stored as a concrete zone. The picker POSTs via `hx-post`, so
+a CSRF-protected app's existing htmx token hook covers it and a CSRF-free app
+(crud_gorm) just works. `LoadLocation` results are memoized.
 
 **Consuming it — `gone/crud`:**
 
-- *Display* and *form pre-fill* defer to render time. The time cell and the
-  `datetime-local` `<input>` become `templ.ComponentFunc`s that read
-  `site.Timezone(ctx)` when templ renders them and format `t.In(loc)` (zone
-  abbreviation via the `MST` layout token). No MetaField hook-signature change —
-  the location rides the templ context the table already renders with.
-- *Bind* is server-side: `TryBindForm(r, out)` reads `site.Timezone(r.Context())`
-  and parses the zone-less wall clock with `time.ParseInLocation(…, loc)`
-  instead of `time.Parse` (UTC). The raw `BindForm(form, out)` stays UTC for
-  tests / non-HTTP callers — zone-awareness is an HTTP concern carried by
-  `TryBindForm`.
+- *Display*: the time-cell hook returns a `templ.ComponentFunc` reading
+  `site.Timezone(ctx)` and formatting via the table's `TimeFormatter`
+  (`MetaModel.TimeFormatter`, default `DefaultTimeFormatter`). Custom per-field
+  formatting still goes through the existing `DisplayValue` hook.
+- *Form pre-fill*: the `datetime-local` input renders `t.In(loc)` as the
+  zone-less `2006-01-02T15:04` value **plus an adjacent zone label**
+  (`CEST (+02:00)`) so the active zone is never a guess. Fixed input layout
+  (not formatter-driven — the browser widget requires it).
+- *Bind*: `TryBindForm(r, out)` resolves `loc` from `r.Context()`; after the
+  normal UTC `BindForm` it reinterprets each `time.Time` / `*time.Time`
+  field's zone-less wall clock in `loc` (skipping zero / nil), and `ForceUTC`
+  stores UTC. Raw `BindForm(form, out)` stays UTC for tests / non-HTTP callers.
 
-**Populating the session location, per mode:**
+**Consuming it — `gone/auth`:** passkey / SSO "last used" (and any account-page
+time) format through the same `TimeFormatter` + `site.Timezone(r.Context())`,
+so all of gone's time output is consistent. `AuthGORM.TimeFormatter` overrides;
+default `DefaultTimeFormatter`.
 
-- *UTC*: nothing — the default resolver.
-- *Explicit*: the app stores an IANA name in the session (config or a small
-  preference UI); the resolver does `time.LoadLocation(name)`.
-- *Browser-local*: a tiny script reports
-  `Intl.DateTimeFormat().resolvedOptions().timeZone` to a
-  `POST {prefix}/timezone` endpoint once; it's saved to the session and then
-  behaves exactly like the explicit mode. (Fallback to the fixed offset from
-  `Date.getTimezoneOffset()` if the IANA name is unavailable — but a named zone
-  is preferred so DST stays correct.)
+**Showcase — `examples/crud_gorm`:** wrap the mux with
+`site.TimezoneMiddleware(picker.Resolve)`, mount `picker.RegisterRoutes`, render
+`picker.Component(r)` in the navbar (`TZModeFull`, `Zones: site.CommonZones`),
+so the Weapon `Forged` column and edit form switch between UTC / browser-local /
+Europe/Zurich live.
 
-Open decisions to settle when building:
+**App-side variants (no extra library surface):** a DB-saved per-user
+preference = the app supplies its own `resolve` (reads the saved zone) and
+persists on selection; a 3-way UTC/saved/browser-local toggle = `TZModeSimple`
+plus that resolve. The `auth` persistence (a `UserGORM` column + account-page
+control) is a later follow-on.
 
-- **Where the preference + report endpoint live**: the mechanism (middleware +
-  context + `/timezone` report) belongs in `gone/site` (generic); an optional
-  *persisted per-user* override (a column on `UserGORM`, surfaced on the
-  account page) belongs in `gone/auth`. Lean: ship the `site` mechanism first,
-  add the `auth` persistence as a follow-on.
-- **Date-only / time-only fields** (`date`, `time` input types): out of scope
-  for v1 — they have no instant to zone-shift; revisit if a field needs them.
-- **Cache `time.LoadLocation`**: the resolver runs per request, so memoize the
-  `name → *time.Location` lookup rather than hitting the zoneinfo DB each time.
+Out of scope for v1: date-only / time-only (`date` / `time` input) fields —
+no instant to zone-shift; money / measure formatters (the `Formats` aggregate).
 
 ---
 

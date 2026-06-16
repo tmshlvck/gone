@@ -9,16 +9,19 @@
 package crud
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base32"
 	"fmt"
 	"html"
+	"io"
 	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/tmshlvck/gone/site"
 )
 
 // randSuffix returns a short (8 chars) lowercase URL-safe random string.
@@ -102,6 +105,13 @@ type MetaModel[T any] struct {
 	// ValidationErrors entry under ModelLevelKey ("") and rejects the
 	// form submission.
 	Validate func(instance T) error
+
+	// TimeFormatter is the app-global policy for rendering time.Time
+	// cells; nil → site.DefaultTimeFormatter. The session's *time.Location
+	// is read from the render context (site.Timezone); this only decides
+	// the layout. Per-field formatting still overrides via DisplayValue.
+	// An app's site.DefaultSettings satisfies this (it embeds the formatter).
+	TimeFormatter site.TimeFormatter
 }
 
 // DisplayValues renders each field of instance to a table/detail cell (the
@@ -176,13 +186,17 @@ func DeriveMetaModel[T any](preset MetaModel[T]) MetaModel[T] {
 	if preset.Validate != nil {
 		mm.Validate = preset.Validate
 	}
+	mm.TimeFormatter = preset.TimeFormatter
+	if mm.TimeFormatter == nil {
+		mm.TimeFormatter = site.DefaultTimeFormatter{}
+	}
 
 	for i := 0; i < rt.NumField(); i++ {
 		f := rt.Field(i)
 		if !f.IsExported() {
 			continue
 		}
-		mm.Fields = append(mm.Fields, deriveField(f))
+		mm.Fields = append(mm.Fields, deriveField(f, mm.TimeFormatter))
 	}
 
 	// Post-process: hide FK fields that already drive a sibling relation.
@@ -254,7 +268,7 @@ func mergeMetaField(dst *MetaField, src MetaField) {
 	}
 }
 
-func deriveField(f reflect.StructField) MetaField {
+func deriveField(f reflect.StructField, tf site.TimeFormatter) MetaField {
 	mf := MetaField{
 		Name:           f.Name,
 		DisplayName:    f.Name,
@@ -275,6 +289,13 @@ func deriveField(f reflect.StructField) MetaField {
 	}
 	timeType := reflect.TypeOf(time.Time{})
 	gormTag := f.Tag.Get("gorm")
+
+	// time.Time (and *time.Time): display through the model's TimeFormatter,
+	// resolving the session zone from the render context. The default display
+	// hook handles UTC; this captures a possibly-custom formatter.
+	if t == timeType {
+		mf.DisplayValue = timeDisplayHook(tf)
+	}
 
 	switch {
 	case t.Kind() == reflect.Struct && t != timeType:
@@ -496,9 +517,30 @@ func DefaultDisplayValue(mf MetaField, value any) templ.Component {
 	case bool:
 		return boolBadge(v)
 	case time.Time:
-		return templ.Raw(html.EscapeString(displayTime(v)))
+		return timeCell(site.DefaultTimeFormatter{}, v)
 	}
 	return templ.Raw(html.EscapeString(formatValue(mf, value)))
+}
+
+// timeDisplayHook builds a DisplayValue hook that renders a time.Time through
+// tf, resolving the session zone from the render context.
+func timeDisplayHook(tf site.TimeFormatter) func(MetaField, any) templ.Component {
+	if tf == nil {
+		tf = site.DefaultTimeFormatter{}
+	}
+	return func(_ MetaField, value any) templ.Component {
+		t, _ := value.(time.Time)
+		return timeCell(tf, t)
+	}
+}
+
+// timeCell renders t through tf at the context's session zone, deferred to
+// templ render time so site.Timezone(ctx) reflects the request.
+func timeCell(tf site.TimeFormatter, t time.Time) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, html.EscapeString(tf.FormatTime(site.Timezone(ctx), t)))
+		return err
+	})
 }
 
 // boolBadge renders a DaisyUI yes/no badge — green for true, red for false.
@@ -507,16 +549,6 @@ func boolBadge(b bool) templ.Component {
 		return templ.Raw(`<span class="badge badge-success">yes</span>`)
 	}
 	return templ.Raw(`<span class="badge badge-error">no</span>`)
-}
-
-// displayTime formats t in UTC with an explicit "UTC" suffix; a zero time
-// renders blank. (The "MST" layout token prints the zone abbreviation, which
-// is "UTC" after the .UTC() conversion.)
-func displayTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format("2006-01-02 15:04:05 MST")
 }
 
 // DefaultGenFormElement renders an HTML form element appropriate for
@@ -546,12 +578,41 @@ func DefaultGenFormElement(mf MetaField, value any) templ.Component {
 		return templ.Raw(fmt.Sprintf(
 			`<input type="number" name=%q value="%s"%s class="input"/>`,
 			name, html.EscapeString(formatValue(mf, value)), step))
+	case "datetime-local":
+		t, _ := value.(time.Time)
+		return timeInput(mf.Name, t)
 	default:
 		return templ.Raw(fmt.Sprintf(
 			`<input type=%q name=%q value="%s" class="input"/>`,
 			html.EscapeString(mf.FormInputType), name,
 			html.EscapeString(formatValue(mf, value))))
 	}
+}
+
+// timeInput renders a datetime-local input pre-filled with t in the session
+// zone, plus an adjacent label naming that zone (e.g. "CEST (+02:00)") so the
+// user never has to guess which zone they're entering. Deferred to render time
+// so site.Timezone(ctx) reflects the request; the input value stays the
+// zone-less "2006-01-02T15:04" the widget requires. Bind reinterprets that
+// wall clock in the same zone (see TryBindForm).
+func timeInput(fieldName string, t time.Time) templ.Component {
+	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
+		loc := site.Timezone(ctx)
+		val := ""
+		if !t.IsZero() {
+			val = t.In(loc).Format("2006-01-02T15:04")
+		}
+		_, err := io.WriteString(w, fmt.Sprintf(
+			`<div class="flex items-center gap-2">`+
+				`<input type="datetime-local" name=%q value="%s" class="input"/>`+
+				`<span class="text-xs opacity-60 whitespace-nowrap">%s</span>`+
+				`</div>`,
+			html.EscapeString(fieldName),
+			html.EscapeString(val),
+			html.EscapeString(site.ZoneLabel(loc, t)),
+		))
+		return err
+	})
 }
 
 // DefaultBindStrings parses strs[0] into the field's Go type and writes
