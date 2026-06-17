@@ -3,6 +3,7 @@ package crud
 import (
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // Modal IDs used by the library's HTMX-driven create/edit forms.
@@ -58,7 +59,14 @@ type TableViewData struct {
 	CanCreate        bool
 	CanUpdate        bool
 	CanDelete        bool
+	CanImport        bool // requester may run a CSV import (create or update)
 	HideUnauthorized bool
+
+	// ConfirmDelete drives the per-row delete confirmation: true (the
+	// default) renders hx-confirm on the delete button; false suppresses it
+	// so a delete fires on the first click. Read from a per-browser cookie,
+	// toggled from the ⋮ menu.
+	ConfirmDelete bool
 
 	Search string
 	SortBy        string
@@ -207,6 +215,7 @@ templ TableView(d TableViewData) {
 							>+ Create</button>
 						}
 					}
+					@tableMenu(d)
 				</div>
 			</div>
 			<div id={ d.ListID }>
@@ -216,6 +225,145 @@ templ TableView(d TableViewData) {
 	</div>
 	@modalDialog(d.L1ModalID, d.L1BodyID)
 	@PageModals()
+}
+
+// tableMenu is the toolbar "⋮" dropdown holding the table-wide actions that
+// don't warrant their own button: CSV export (a plain download link carrying
+// the current filter/sort), CSV import (opens the import form in the L1 modal,
+// shown only when the requester may create/update), and a per-browser "confirm
+// before delete" toggle.
+templ tableMenu(d TableViewData) {
+	<div class="dropdown dropdown-end">
+		<div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square" title="More actions" aria-label="More actions">⋮</div>
+		<ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-60 p-2 shadow">
+			<li>
+				<a href={ templ.URL(exportURL(d)) } download>Export CSV</a>
+			</li>
+			if d.CanImport {
+				<li>
+					<a
+						hx-get={ d.URLBase + "/import" }
+						hx-target={ "#" + d.L1BodyID }
+						hx-swap="innerHTML"
+					>Import CSV…</a>
+				</li>
+			}
+			if d.showDelete() {
+				<li class="menu-title pt-2">Options</li>
+				<li>
+					<label class="label cursor-pointer justify-start gap-2">
+						<input
+							type="checkbox"
+							class="checkbox checkbox-sm"
+							data-gone-confirm-delete
+							data-list-id={ d.ListID }
+							data-view-url={ d.URLBase + "/view" }
+							checked?={ d.ConfirmDelete }
+						/>
+						<span class="label-text">Confirm before delete</span>
+					</label>
+				</li>
+			}
+		</ul>
+		@confirmDeleteToggleScript()
+	</div>
+}
+
+// confirmDeleteToggleScript wires the "confirm before delete" checkboxes:
+// on change it writes the preference cookie (empty = confirm, "off" =
+// suppress) and re-fetches the current list via HTMX so the delete buttons
+// re-render with or without hx-confirm. The current address-bar query is
+// carried along so the toggle doesn't reset search/sort/page. Mirrors the
+// one-time wiring guard used by themeToggleScript.
+templ confirmDeleteToggleScript() {
+	<script>
+		(function () {
+			document.querySelectorAll('input[data-gone-confirm-delete]').forEach(function (el) {
+				if (el.dataset.goneWired) return;
+				el.dataset.goneWired = '1';
+				el.addEventListener('change', function () {
+					var val = el.checked ? '' : 'off';
+					document.cookie = 'gone_crud_confirm_delete=' + val + ';path=/;max-age=31536000;samesite=lax';
+					if (window.htmx) {
+						htmx.ajax('GET', el.dataset.viewUrl + window.location.search, {
+							target: '#' + el.dataset.listId,
+							swap: 'innerHTML',
+						});
+					}
+				});
+			});
+		})();
+	</script>
+}
+
+// ImportViewData carries the CSV import form fragment's parameters.
+type ImportViewData struct {
+	Title     string   // form heading
+	ActionURL string   // POST target ({base}/import)
+	Columns   []string // recognized column names (the import hint)
+	Errors    []string // parse/validation messages; non-empty = nothing imported
+	HXTarget  string   // hx-target for in-place re-render on error
+}
+
+// ImportForm renders the CSV import fragment: an error summary (when a prior
+// attempt was rejected), the recognized-columns hint, and a form taking either
+// pasted CSV text or an uploaded file. Posted as multipart so the file input
+// works; the textarea wins nothing — csvSource prefers a non-empty file.
+templ ImportForm(d ImportViewData) {
+	<div>
+		<h3 class="font-bold text-lg mb-2">{ d.Title }</h3>
+		if len(d.Errors) > 0 {
+			<div class="alert alert-error mb-3 flex-col items-start">
+				<span class="font-semibold">Import rejected — nothing was changed.</span>
+				<ul class="list-disc list-inside text-sm">
+					for _, e := range d.Errors {
+						<li>{ e }</li>
+					}
+				</ul>
+			</div>
+		}
+		<p class="text-sm opacity-60 mb-3">
+			Recognized columns: <code>{ strings.Join(d.Columns, ", ") }</code>.
+			A non-blank <code>ID</code> updates that row; a blank or absent
+			<code>ID</code> creates a new one. Unknown columns are ignored.
+		</p>
+		<form
+			method="post"
+			action={ templ.URL(d.ActionURL) }
+			class="flex flex-col gap-3"
+			hx-post={ d.ActionURL }
+			hx-target={ d.HXTarget }
+			hx-swap="innerHTML"
+			hx-encoding="multipart/form-data"
+		>
+			<textarea
+				name="csv"
+				class="textarea textarea-bordered font-mono h-40 w-full"
+				placeholder="Paste CSV here (including the header row)…"
+			></textarea>
+			<div class="divider text-xs my-0">or</div>
+			<input type="file" name="file" accept=".csv,text/csv" class="file-input file-input-bordered w-full"/>
+			<div class="mt-2 flex justify-end">
+				<button type="submit" class="btn btn-outline btn-primary">Import</button>
+			</div>
+		</form>
+	</div>
+}
+
+// exportURL is the CSV download link for the current view — {base}/export.csv
+// carrying the active search/sort so "filter then export" works.
+func exportURL(d TableViewData) string {
+	q := url.Values{}
+	if d.Search != "" {
+		q.Set("q", d.Search)
+	}
+	if d.SortBy != "" {
+		q.Set("sort", d.SortBy)
+		if d.SortDesc {
+			q.Set("desc", "1")
+		}
+	}
+	return encodeQuery(d.URLBase+"/export.csv", q)
 }
 
 // TableContent renders the table (with headers + rows) plus the row count
@@ -310,7 +458,9 @@ templ rowActions(d TableViewData, id uint) {
 					type="button"
 					class="btn btn-outline btn-error btn-xs"
 					hx-post={ d.URLBase + "/" + strconv.FormatUint(uint64(id), 10) + "/delete" }
-					hx-confirm="Delete this row?"
+					if d.ConfirmDelete {
+						hx-confirm="Delete this row?"
+					}
 					hx-target={ "#" + d.ListID }
 					hx-swap="innerHTML"
 				>delete</button>

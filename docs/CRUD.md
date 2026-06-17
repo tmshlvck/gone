@@ -179,6 +179,7 @@ and filled later by `WireRelations` / `Admin`:
 type MetaField struct {
     Name, DisplayName, FormInputType, FormHelp string
     Hidden, ReadOnly, Multiple, Sortable, Searchable bool
+    NoExport bool // omit from CSV export (secrets); still importable
 
     RelationKind    RelationKind // NotRelation | RelationSingle | RelationMany2Many | RelationHasMany
     RelatedURLBase  string       // related table URL; blank until wired
@@ -216,7 +217,7 @@ func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) 
   `[]byte` handle) — redacted in the table, never sent to the form or bound:
 
   ```go
-  {Name: "TOTPSecret", ReadOnly: true, DisplayValue: crud.Redact},
+  {Name: "TOTPSecret", ReadOnly: true, DisplayValue: crud.Redact, NoExport: true},
   ```
 
 - **A write-only password field** — empty box in the form, redacted in the
@@ -227,11 +228,17 @@ func HashWith(hash func(string) (string, error)) func(MetaField, []string, any) 
   {Name: "PasswordHash", DisplayName: "Password", FormInputType: "password",
       DisplayValue:   crud.Redact,
       GenFormElement: crud.PasswordInput,
-      BindStrings:    crud.HashWith(auth.HashPassword)}, // auth.HashPassword = argon2id
+      BindStrings:    crud.HashWith(auth.HashPassword), // auth.HashPassword = argon2id
+      NoExport:       true},
   ```
 
 `auth.HashPassword` hashes the same way the login path verifies. See
 `examples/auth_gorm` for the User table using all of this.
+
+> **CSV note:** `Redact` only affects *display* — CSV export reads the raw
+> field, so a secret without `NoExport: true` would leak its stored value into
+> an export. Set `NoExport` on every sensitive field. It still imports (a blank
+> cell is left unchanged, so it can't be wiped to an empty/`hash("")` value).
 
 ### Time fields and UTC storage
 
@@ -408,10 +415,64 @@ its own shell. `RegisterRoutes` registers only the fragments. For
 | GET    | `/admin/heroes/{id}/edit`    | edit form fragment                        |
 | POST   | `/admin/heroes/{id}/edit`    | edit submit                               |
 | POST   | `/admin/heroes/{id}/delete`  | delete (HTMX → rows fragment; else 303)   |
+| GET    | `/admin/heroes/export.csv`   | CSV download of all matching rows         |
+| GET    | `/admin/heroes/import`       | CSV import form fragment                  |
+| POST   | `/admin/heroes/import`       | CSV import submit (multipart)             |
 | GET    | `/admin/heroes/{id}/display` | per-row dump fragment                     |
 | GET    | `/admin/heroes/options`      | relation-picker option list               |
 
-Every handler gates on the table's `Authz` (nil = allow all).
+Every handler gates on the table's `Authz` (nil = allow all). The
+`create`/`edit`/`delete` routes are only registered when the matching
+`*Enabled` toggle is on; `import` is registered when either create or edit is.
+
+### CSV export / import
+
+The toolbar's **⋮** menu carries the table-wide actions:
+
+Export and import are **not symmetric**: export carries every non-secret,
+non-internal column (read-only ones included, for reference); import writes
+back only the bindable ones and silently ignores the rest.
+
+- **Export CSV** — downloads every row matching the current search/sort as
+  CSV (`export.csv`, gated on the list permission). Columns are `ID` plus every
+  field that is **not** `Hidden`, **not** `NoExport`, and not the `ID` field
+  itself — so read-only columns (timestamps, computed values, the has-many
+  inverse) *are* exported. Scalar cells use the same plain-text rendering as
+  the form pre-fill.
+- **Import CSV…** — opens a form (paste text *or* upload a file) that upserts
+  rows: a non-blank `ID` column updates that row, a blank/absent `ID` creates
+  a new one. Import binds every field that is **not** `Hidden`, **not**
+  `ReadOnly`, and not the `ID` field; any other column in the file (read-only,
+  has-many, or unrecognized) is ignored. Each bound column runs through its
+  field's normal `BindStrings` + validation. Gated on create or update.
+
+  Import is a **PATCH**: only columns present in the header are written, so a
+  partial CSV updates just those fields and leaves the rest of the row intact
+  (it won't wipe omitted columns to zero).
+
+  Import is **fail-closed on validation**: if any row fails to parse or
+  validate, the whole file is rejected and nothing is written, with the
+  offending rows reported on the form. Persistence itself isn't transactional
+  across rows (the `Accessor` has no transaction handle), so a backend error
+  mid-write can leave earlier rows applied.
+
+  **Relations** round-trip as IDs, by kind:
+  - **single** (`RelationSingle`) — the FK id under the FK column (e.g.
+    `OwnerID`); exported and imported; `0`/blank clears it;
+  - **many-to-many** (`RelationMany2Many`) — a `;`-separated id list in one
+    cell (e.g. `5;8;12`); exported and imported; a blank cell clears the set;
+  - **has-many** (`RelationHasMany`, the read-only inverse) — exported as the
+    same `;`-list for reference, but **ignored on import** (it's read-only;
+    edit the owning side instead).
+
+  Natural-key matching isn't supported — relation columns are IDs only (see
+  below). Times are read and written as UTC wall clock, not
+  session-zone-adjusted.
+
+- **Confirm before delete** — a per-browser toggle (cookie
+  `gone_crud_confirm_delete`). On by default; turn it off to make the per-row
+  delete buttons fire on the first click, without the confirm dialog — a
+  lightweight stand-in for bulk delete.
 
 ### Mounting — the composition contract
 

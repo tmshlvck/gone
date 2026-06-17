@@ -1,7 +1,10 @@
 package crud
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +16,12 @@ import (
 	"github.com/tmshlvck/gone/htmx"
 	"github.com/tmshlvck/gone/site"
 )
+
+// confirmDeletePrefName is the per-browser preference cookie that gates the
+// per-row delete confirmation dialog. Absent/empty = confirm (the safe
+// default); the literal "off" suppresses hx-confirm so deletes fire on the
+// first click. Toggled from the table's ⋮ menu (see confirmDeleteToggleScript).
+const confirmDeletePrefName = "gone_crud_confirm_delete"
 
 // CRUDTable pairs a MetaModel (how to render/bind) with an Accessor (the
 // data plane) plus table-level config. The renderer and route handlers are
@@ -200,6 +209,15 @@ func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, routerPrefix, componentPath 
 	if c.DeleteEnabled {
 		r.Post(rel+"/{id}/delete", c.makeFragmentHandler(c.handleDeletePost, "delete"))
 	}
+	// CSV export rides the list authz; it's a full file response, not a
+	// fragment, so it bypasses makeFragmentHandler.
+	r.Get(rel+"/export.csv", c.handleExportCSV)
+	// CSV import upserts rows, so it's offered whenever this table can create
+	// or edit; the gate (importAllowed) accepts either capability.
+	if c.CreateEnabled || c.EditEnabled {
+		r.Get(rel+"/import", c.makeImportHandler(c.handleImportForm))
+		r.Post(rel+"/import", c.makeImportHandler(c.handleImportPost))
+	}
 	r.Get(rel+"/{id}/display", c.makeFragmentHandler(c.handleRowDisplay, "read"))
 	// Relation picker option fetch — used by another CRUD's relation
 	// widget when its <select> needs to refresh after an L2 save.
@@ -341,6 +359,8 @@ func (c *CRUDTable[T]) buildTableViewData(r *http.Request) (TableViewData, error
 		CanCreate:        az.CanCreate(r),
 		CanUpdate:        az.CanUpdate(r),
 		CanDelete:        az.CanDelete(r),
+		CanImport:        c.importAllowed(r),
+		ConfirmDelete:    site.Pref(r, confirmDeletePrefName) != "off",
 		HideUnauthorized: c.HideUnauthorized,
 		Search:           search,
 		SortBy:           sortBy,
@@ -535,6 +555,124 @@ func (c *CRUDTable[T]) handleDeletePost(w http.ResponseWriter, r *http.Request) 
 			return nil
 		}
 		return TableContent(d)
+	}
+	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CSV export / import.
+// ──────────────────────────────────────────────────────────────────────────
+
+// importAllowed reports whether the requester may run a CSV import: the table
+// must have create or edit enabled AND authz must permit the matching action.
+// Import upserts (create when the ID column is blank, update otherwise), so
+// either capability is enough to expose it.
+func (c *CRUDTable[T]) importAllowed(r *http.Request) bool {
+	az := auth.AuthzOrAllow(c.Authz)
+	return (c.CreateEnabled && az.CanCreate(r)) || (c.EditEnabled && az.CanUpdate(r))
+}
+
+// makeImportHandler is makeFragmentHandler's analogue for the import routes:
+// it gates on importAllowed (create OR update) rather than a single action,
+// then writes the handler's fragment.
+func (c *CRUDTable[T]) makeImportHandler(h handlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !c.importAllowed(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		frag := h(w, r)
+		if frag == nil {
+			return
+		}
+		site.Fragment(w, r, frag)
+	}
+}
+
+// handleExportCSV streams every row matching the current ?q/?sort/?desc as a
+// CSV attachment (limit 0 = all rows). Gated on the list permission.
+func (c *CRUDTable[T]) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	if !c.authzGate(w, r, "list") {
+		return
+	}
+	q := r.URL.Query()
+	results, _, err := c.Data.List(r.Context(), q.Get("q"), q.Get("sort"), q.Get("desc") == "1", 0, 0)
+	if failInternal(w, err) {
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", c.URLSlug()+".csv"))
+	// Best-effort: a mid-stream write error can't be reported once the headers
+	// (200 + attachment) are out, so there's nothing to do but stop.
+	_ = writeCSV(w, c.MetaData, results)
+}
+
+// importView builds the import form fragment for this table.
+func (c *CRUDTable[T]) importView(errs []string) templ.Component {
+	return ImportForm(ImportViewData{
+		Title:     "Import " + c.MetaData.DisplayName + " from CSV",
+		ActionURL: c.urlBase + "/import",
+		Columns:   csvColumnNames(c.MetaData),
+		Errors:    errs,
+		HXTarget:  modalFormTarget,
+	})
+}
+
+func (c *CRUDTable[T]) handleImportForm(w http.ResponseWriter, r *http.Request) templ.Component {
+	return c.importView(nil) // the client opens the modal on swap
+}
+
+// csvSource returns the CSV bytes to import: an uploaded file wins, falling
+// back to the pasted textarea. Returns an error message (for the form) when
+// neither carries content.
+func csvSource(r *http.Request) (io.Reader, error) {
+	if f, _, err := r.FormFile("file"); err == nil {
+		defer f.Close()
+		b, rerr := io.ReadAll(f)
+		if rerr != nil {
+			return nil, fmt.Errorf("could not read uploaded file: %v", rerr)
+		}
+		if len(bytes.TrimSpace(b)) > 0 {
+			return bytes.NewReader(b), nil
+		}
+	}
+	if text := strings.TrimSpace(r.FormValue("csv")); text != "" {
+		return strings.NewReader(text), nil
+	}
+	return nil, errors.New("no CSV provided — paste text or choose a file")
+}
+
+func (c *CRUDTable[T]) handleImportPost(w http.ResponseWriter, r *http.Request) templ.Component {
+	src, err := csvSource(r)
+	if err != nil {
+		return c.importView([]string{err.Error()})
+	}
+	plan, rowErrs, fatal := parseCSVImport(r.Context(), c.MetaData, c.Data, src)
+	if failInternal(w, fatal) {
+		return nil
+	}
+	if len(rowErrs) > 0 {
+		// Fail-closed: any bad row rejects the whole file, nothing persisted.
+		return c.importView(rowErrs)
+	}
+	// Phase two — persist. Validation was all-or-nothing; persistence is not
+	// transactional across rows (the Accessor has no Tx handle), so a backend
+	// error mid-loop can leave earlier rows applied. Report it on the form.
+	for i, p := range plan {
+		if p.id != 0 {
+			_, err = c.Data.Update(r.Context(), p.id, p.row)
+		} else {
+			_, _, err = c.Data.Create(r.Context(), p.row)
+		}
+		if err != nil {
+			return c.importView([]string{
+				fmt.Sprintf("applied %d row(s), then failed persisting row %d: %v", i, i+1, err),
+			})
+		}
+	}
+	if htmx.IsRequest(r) {
+		return c.afterMutation(w, r)
 	}
 	http.Redirect(w, r, c.urlBase, http.StatusSeeOther)
 	return nil

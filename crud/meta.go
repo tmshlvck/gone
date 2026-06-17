@@ -49,6 +49,15 @@ type MetaField struct {
 	Sortable      bool // column header is a sort link
 	Searchable    bool // included in case-insensitive substring search
 
+	// NoExport omits the field from CSV export — for secrets (password
+	// hashes, tokens) that must never leave in a data dump. It's distinct
+	// from Hidden (a display concern: a redacted password is shown but not
+	// Hidden, yet must not export) and from ReadOnly. The field stays
+	// IMPORTABLE: a hand-authored CSV may still set it (e.g. bulk-seeding
+	// passwords); CSV import treats a blank cell for a NoExport field as
+	// "leave unchanged" so it can't be wiped to an empty value.
+	NoExport bool
+
 	// Relation metadata — populated by DeriveMetaModel from reflection +
 	// gorm tags. RelatedURLBase is left blank at derivation and filled in
 	// later by WireRelations / Admin (matching RelatedTypeName against each
@@ -247,6 +256,9 @@ func mergeMetaField(dst *MetaField, src MetaField) {
 	}
 	if src.Hidden {
 		dst.Hidden = true
+	}
+	if src.NoExport {
+		dst.NoExport = true
 	}
 	if src.Sortable {
 		dst.Sortable = true
