@@ -10,7 +10,7 @@ detail lives in the linked docs.
 | `gone/crud`      | HTMX-driven CRUD UIs from struct metadata. CRUDTable + Admin + MetaModel + validators + relation pickers. |
 | `gone/auth`      | Sessions / CSRF / login / authz. AuthSimple + AuthGORM impls. TOTP. Passkeys. Account page.               |
 | `gone/htmx`      | Typed HTMX wire protocol: request classification + response-directive builder (Retarget/Reswap/Trigger).  |
-| `gone/site`      | Page chrome (Shell, Fragment, Respond) + per-session settings: `TimeFormatter`, `Timezone`/`TimezoneMiddleware` + `TimezonePicker`, `ThemeToggle`, `SetPref`/`Pref` cookies, and `ForceUTC(db)` (UTC-at-rest). |
+| `gone/site`      | Page chrome (Shell, Fragment, Respond) + per-session settings: `TimeFormatter`, `Timezone`/`TimezoneMiddleware` + `TimezonePicker`, `ThemeToggle`, `SetPref`/`Pref` cookies, `ForceUTC(db)` (UTC-at-rest), and `AllowedIPs` (source-IP gate). |
 
 ## Documentation
 
@@ -20,6 +20,8 @@ Everything lives under [`docs/`](docs/):
 |----------------------------------|-----------------------------------------------------------------|
 | [`docs/CRUD.md`](docs/CRUD.md)   | User reference for `gone/crud` — what's there and how to use it. |
 | [`docs/AUTH.md`](docs/AUTH.md)   | User reference for `gone/auth`.                                  |
+| [`docs/SITE.md`](docs/SITE.md)   | User reference for `gone/site` — page composition, UTC-at-rest, per-session timezone/theme, preference cookies, `AllowedIPs`. |
+| [`docs/BEHIND_PROXY.md`](docs/BEHIND_PROXY.md) | Reverse-proxy deployment: `middleware.RealIP`, source-IP gating, Caddy / nginx / Apache / HAProxy configs. |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | *Why* it's shaped this way — design decisions + open-questions / future-work log, both packages. |
 | [`docs/HOWTO-BEARER-TOKENS.md`](docs/HOWTO-BEARER-TOKENS.md) | App-side per-user API keys for a JSON API, reusing gone's users + Authz. |
 | [`docs/TODO.md`](docs/TODO.md)   | Active build queue (CSV import/export).                          |

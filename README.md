@@ -233,6 +233,12 @@ User-facing references (the practical "how do I…?" docs):
   composition trade-offs.
 - [`docs/AUTH.md`](docs/AUTH.md) — sessions / CSRF / login (password,
   TOTP, passkeys) / authz reference, with worked examples.
+- [`docs/SITE.md`](docs/SITE.md) — `gone/site` reference: page composition,
+  UTC-at-rest, per-session timezone, theme toggle, preference cookies, and
+  the `AllowedIPs` source-IP gate.
+- [`docs/BEHIND_PROXY.md`](docs/BEHIND_PROXY.md) — deploying behind Caddy /
+  nginx / Apache / HAProxy: `middleware.RealIP`, source-IP allow-listing,
+  and which IP gets logged.
 - [`docs/HOWTO-BEARER-TOKENS.md`](docs/HOWTO-BEARER-TOKENS.md) — per-user
   API keys for an app's JSON API, reusing gone's users + Authz.
 
@@ -257,7 +263,9 @@ enough to run in-house tools and small production apps:
 - **`gone/auth`** — sessions, CSRF, AuthSimple, AuthGORM, TOTP,
   passkeys, SSO (OIDC + OAuth2), account page, authz interface.
 - **`gone/site`** — page chrome + UTC-at-rest (`ForceUTC`), per-session
-  timezone (picker + middleware + `TimeFormatter`), cookie theme toggle.
+  timezone (picker + middleware + `TimeFormatter`), cookie theme toggle,
+  and `AllowedIPs` source-IP gating (see
+  [`docs/BEHIND_PROXY.md`](docs/BEHIND_PROXY.md)).
 
 Planned (see [`docs/TODO.md`](docs/TODO.md)):
 
