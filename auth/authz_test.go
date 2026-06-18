@@ -15,12 +15,18 @@ import (
 type stubAuth struct{ user User }
 
 func (s stubAuth) RegisterRoutes(chi.Router, string, PageShellFunc) error { return nil }
-func (s stubAuth) CurrentUser(*http.Request) User                         { return s.user }
-func (s stubAuth) LoginURL(string) string                                 { return "/login" }
-func (s stubAuth) LogoutURL(string) string                                { return "/logout" }
-func (s stubAuth) IsAuthPath(p string) bool                               { return p == "/login" }
-func (s stubAuth) Login(context.Context, User) error                      { return nil }
-func (s stubAuth) Logout(context.Context) error                           { return nil }
+func (s stubAuth) CurrentUser(context.Context) User                       { return s.user }
+func (s stubAuth) CurrentUsername(context.Context) string {
+	if s.user == nil {
+		return ""
+	}
+	return s.user.Username()
+}
+func (s stubAuth) LoginURL(string) string            { return "/login" }
+func (s stubAuth) LogoutURL(string) string           { return "/logout" }
+func (s stubAuth) IsAuthPath(p string) bool          { return p == "/login" }
+func (s stubAuth) Login(context.Context, User) error { return nil }
+func (s stubAuth) Logout(context.Context) error      { return nil }
 
 // stubUser is a minimal User; groups are a string slice converted to
 // stubGroup on demand.

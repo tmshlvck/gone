@@ -109,10 +109,38 @@ prefix.
   `gone/auth` implements, so the two packages compose without an
   adapter — each `crud` fragment handler gates on the table's `Authz`
   (per the action it serves) before running.
+- **Mutation/read observation is a decorator over `Accessor`, not a
+  `CRUDTable` field or middleware.** `ObserveAccessor` wraps any
+  `Accessor[T]` and fires a callback after each successful op. The
+  decorator was chosen over the two alternatives because the `Accessor`
+  is the **single chokepoint** every write funnels through: the
+  create/edit/delete handlers *and* CSV import all call `Data.*`. A
+  hook field on `CRUDTable` would have to be fired from 4+ handler sites
+  and would silently miss the import path; HTTP middleware can't see a
+  mutation that a custom `Accessor` performs outside a request. Wrapping
+  the data plane catches every path with zero changes to `CRUDTable` or
+  the backends, and composes (audit + notify by stacking wraps).
+  - **The callback is auth-agnostic; the app resolves identity.** It
+    receives the `ctx` the handler already passed to `Data` (which is
+    `r.Context()`), so the app's closure calls
+    `auth.CurrentUsername(ctx)` itself. `crud` therefore never
+    imports `auth` for auditing — the dependency stays one-directional
+    (apps wire the two together), matching how `Authz` composes.
+  - **Synchronous, after-commit, must-not-block.** The callback runs in
+    the request goroutine once the write has returned, so a failed op
+    fires nothing and the canonical sink is a non-blocking send to a
+    buffered channel. Keeping it synchronous (vs. an internal queue)
+    leaves the back-pressure policy — drop, block, or batch — to the app.
+  - **Reads are opt-in (`ObserveReads`).** `List` fires on every render,
+    search keystroke, and sort, so read events are far higher volume
+    than writes; auditing them is a separate, deliberate choice rather
+    than the default.
 
-**Out of scope for crud (lives in auth or TODO):** authentication,
-CSRF, RBAC beyond the Authz gate, JSON API, audit logging, GraphQL,
-background jobs.
+**Out of scope for crud (lives in auth or the app):** authentication,
+CSRF, RBAC beyond the Authz gate, JSON API, GraphQL, background jobs.
+Audit logging is now *enabled* by the `ObserveAccessor` hook, but the
+sink and policy (what to record, where, retention) stay the app's —
+`crud` provides the chokepoint, not the log.
 
 ## gone/auth
 
@@ -147,6 +175,30 @@ passkeys, and SSO).
   `/login/totp` when the user has TOTP enrolled. Strong first factors
   (passkey, SSO) still respect a TOTP second factor if one is set,
   without each login method re-implementing the staging.
+- **Identity getters take `ctx`, not `*http.Request`; no "load user"
+  middleware.** Both `CurrentUser` and `CurrentUsername` take a
+  `context.Context`. The session payload already rides in `r.Context()`
+  (scs caches it there), so neither getter needs the request — page
+  handlers just call `CurrentUser(r.Context())`, and code that only has
+  a ctx (a crud audit hook is the motivating case) can call them too.
+  `CurrentUser` originally took `*http.Request`; it was narrowed to
+  `ctx` once it provably used nothing else, which also made it usable
+  from the `Accessor` data plane. The split into two getters is by cost:
+  `CurrentUser` materializes the full `User` (a DB lookup for AuthGORM);
+  `CurrentUsername` is the plain session-string read for callers that
+  only want a *label* (audit lines), with no lookup. We added the label
+  getter rather than a middleware that stuffs the materialized `User`
+  into the context — a middleware would contradict the deliberate "no
+  LoadUser middleware, `CurrentUser` looks up on demand" stance, and full
+  materialization is unnecessary when the caller only wants a name.
+  `CurrentUser` is implemented on top of `CurrentUsername`, so the
+  session-key read lives in exactly one place per impl.
+  - The one case that genuinely wants the request — authenticating from
+    a header (bearer token / API key) rather than the session cookie — is
+    handled the standard way: a middleware reads the header and writes
+    the resolved user into the ctx, after which `CurrentUser(ctx)` finds
+    it. See [`HOWTO-BEARER-TOKENS.md`](HOWTO-BEARER-TOKENS.md). So
+    ctx-only is *more* composable than `*http.Request`, not less.
 
 ### SSO design
 
@@ -191,8 +243,10 @@ local user (full policy in [`AUTH.md`](AUTH.md)):
 verification (needs an email abstraction the library doesn't have),
 single sign-out / SLO (destroying the local session is enough — we
 don't propagate logout to the IdP), API keys and JSON-API content
-negotiation (separate concerns, see [`TODO.md`](TODO.md)), field-level
-audit logging.
+negotiation (separate concerns, see [`TODO.md`](TODO.md)). Field-level
+audit logging (a before/after diff per column) is also not built; the
+row-level `crud` `ObserveAccessor` hook plus `CurrentUsername` is
+the building block an app composes audit logging from today.
 
 ## Open questions / future work
 

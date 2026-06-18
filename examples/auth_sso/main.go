@@ -120,7 +120,7 @@ func main() {
 	admin := crud.DeriveAdmin([]crud.CRUDTableInterface{&userTable, &groupTable}, nil)
 
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
-		u := ag.CurrentUser(r)
+		u := ag.CurrentUser(r.Context())
 		if u == nil && !ag.IsAuthPath(r.URL.Path) {
 			http.Redirect(w, r, ag.LoginURL(r.URL.Path), http.StatusSeeOther)
 			return

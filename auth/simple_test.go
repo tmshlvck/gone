@@ -141,7 +141,7 @@ func TestSafeNext(t *testing.T) {
 func TestCurrentUserAnonymous(t *testing.T) {
 	sa, sm := newTestAuth(t)
 	withSession(t, sm, func(ctx context.Context, r *http.Request) {
-		if u := sa.CurrentUser(r); u != nil {
+		if u := sa.CurrentUser(r.Context()); u != nil {
 			t.Errorf("CurrentUser on anonymous session = %v, want nil", u)
 		}
 	})
@@ -157,7 +157,7 @@ func TestCurrentUserAfterLogin(t *testing.T) {
 		if err := sa.Login(ctx, u); err != nil {
 			t.Fatalf("Login: %v", err)
 		}
-		got := sa.CurrentUser(r)
+		got := sa.CurrentUser(r.Context())
 		if got == nil || got.Username() != "admin" {
 			t.Errorf("CurrentUser after Login = %v, want admin", got)
 		}
@@ -174,7 +174,7 @@ func TestCurrentUserAfterUserDel(t *testing.T) {
 		if err := sa.UserDel("admin"); err != nil {
 			t.Fatalf("UserDel: %v", err)
 		}
-		if got := sa.CurrentUser(r); got != nil {
+		if got := sa.CurrentUser(r.Context()); got != nil {
 			t.Errorf("CurrentUser after UserDel = %v, want nil", got)
 		}
 	})
@@ -188,7 +188,7 @@ func TestCurrentUserForgedSessionCookie(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "this-is-not-a-real-session-id"})
 	sm.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if u := sa.CurrentUser(r); u != nil {
+		if u := sa.CurrentUser(r.Context()); u != nil {
 			t.Errorf("CurrentUser with forged cookie = %v, want nil", u)
 		}
 	})).ServeHTTP(rr, req)
@@ -199,13 +199,13 @@ func TestLogoutDestroysSession(t *testing.T) {
 	withSession(t, sm, func(ctx context.Context, r *http.Request) {
 		u, _ := sa.Authenticate("admin", "secret")
 		_ = sa.Login(ctx, u)
-		if sa.CurrentUser(r) == nil {
+		if sa.CurrentUser(r.Context()) == nil {
 			t.Fatal("Login didn't take effect")
 		}
 		if err := sa.Logout(ctx); err != nil {
 			t.Fatalf("Logout: %v", err)
 		}
-		if sa.CurrentUser(r) != nil {
+		if sa.CurrentUser(r.Context()) != nil {
 			t.Error("Logout didn't clear the session")
 		}
 	})

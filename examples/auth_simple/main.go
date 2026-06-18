@@ -92,7 +92,7 @@ func main() {
 	// Anonymous requests redirect to /login, unless already on an auth page
 	// (IsAuthPath) — else the login flow would bounce itself.
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
-		u := sa.CurrentUser(r)
+		u := sa.CurrentUser(r.Context())
 		if u == nil && !sa.IsAuthPath(r.URL.Path) {
 			http.Redirect(w, r, sa.LoginURL(r.URL.Path), http.StatusSeeOther)
 			return

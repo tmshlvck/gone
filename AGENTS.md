@@ -7,7 +7,7 @@ detail lives in the linked docs.
 
 | Path             | Purpose                                                                                                   |
 |------------------|-----------------------------------------------------------------------------------------------------------|
-| `gone/crud`      | HTMX-driven CRUD UIs from struct metadata. CRUDTable + Admin + MetaModel + validators + relation pickers. |
+| `gone/crud`      | HTMX-driven CRUD UIs from struct metadata. CRUDTable + Admin + MetaModel + validators + relation pickers + Accessor observe/audit hooks. |
 | `gone/auth`      | Sessions / CSRF / login / authz. AuthSimple + AuthGORM impls. TOTP. Passkeys. Account page.               |
 | `gone/htmx`      | Typed HTMX wire protocol: request classification + response-directive builder (Retarget/Reswap/Trigger).  |
 | `gone/site`      | Page chrome (Shell, Fragment, Respond) + per-session settings: `TimeFormatter`, `Timezone`/`TimezoneMiddleware` + `TimezonePicker`, `ThemeToggle`, `SetPref`/`Pref` cookies, `ForceUTC(db)` (UTC-at-rest), and `AllowedIPs` (source-IP gate). |
@@ -37,6 +37,7 @@ Root files:
 |---------------------------------|--------------------------------------------------------|
 | `examples/form_mem`             | Single-struct form via MetaModel; no CRUDTable.        |
 | `examples/crud_mem`             | One CRUDTable over an in-memory map.                   |
+| `examples/observe_crud_mem`     | `crud_mem` + `ObserveReads`: every read/write streams to a channel, printed with the ctx-resolved user. |
 | `examples/crud_gorm`            | Three CRUDTables with relations, GORM backend; a time column + navbar timezone picker. |
 | `examples/admin_gorm`           | Same schema wrapped in `crud.Admin`. Sidebar custom link + cookie-backed theme toggle. Ships an app-owned `<style>` styling polish (the only example that does). |
 | `examples/auth_simple`          | `AuthSimple` gating a CRUDTable.                       |

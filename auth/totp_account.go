@@ -149,7 +149,7 @@ func (a *AuthGORM) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 // the supplied TOTPEnabled state. Used by every action handler to
 // return to the steady-state view.
 func (a *AuthGORM) renderTOTPCardForTarget(w http.ResponseWriter, r *http.Request, target *UserGORM, enabled bool) {
-	current := a.CurrentUser(r)
+	current := a.CurrentUser(r.Context())
 	isSelf := current != nil && current.Username() == target.Username
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	renderOrLog(w, r, totpCard(accountFormData{
@@ -166,7 +166,7 @@ func (a *AuthGORM) renderTOTPCardForTarget(w http.ResponseWriter, r *http.Reques
 // row when both checks pass; writes an HTTP error and returns
 // (..., ..., false) otherwise.
 func (a *AuthGORM) requireAccountAccess(w http.ResponseWriter, r *http.Request) (User, *UserGORM, bool) {
-	current := a.CurrentUser(r)
+	current := a.CurrentUser(r.Context())
 	if current == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return nil, nil, false

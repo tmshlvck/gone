@@ -73,7 +73,7 @@ type AuthzLoggedIn struct {
 }
 
 func (a AuthzLoggedIn) check(r *http.Request) bool {
-	return a.Auth != nil && a.Auth.CurrentUser(r) != nil
+	return a.Auth != nil && a.Auth.CurrentUser(r.Context()) != nil
 }
 
 func (a AuthzLoggedIn) CanList(r *http.Request) bool   { return a.check(r) }
@@ -90,7 +90,7 @@ type AuthzLoggedInReadOnly struct {
 }
 
 func (a AuthzLoggedInReadOnly) check(r *http.Request) bool {
-	return a.Auth != nil && a.Auth.CurrentUser(r) != nil
+	return a.Auth != nil && a.Auth.CurrentUser(r.Context()) != nil
 }
 
 func (a AuthzLoggedInReadOnly) CanList(r *http.Request) bool { return a.check(r) }
@@ -111,7 +111,7 @@ func (a AuthzLoggedInReadAdminWrite) user(r *http.Request) User {
 	if a.Auth == nil {
 		return nil
 	}
-	return a.Auth.CurrentUser(r)
+	return a.Auth.CurrentUser(r.Context())
 }
 
 func (a AuthzLoggedInReadAdminWrite) admin(r *http.Request) bool {

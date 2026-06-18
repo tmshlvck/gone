@@ -150,9 +150,9 @@ downstream.
 ## Step 2 — hook the key back into Authz
 
 The stock `Authz` impls (`AuthzLoggedIn`, `AuthzLoggedInReadAdminWrite`,
-…) reach the user through one call: `Auth.CurrentUser(r)`, which reads
-the **session**. A bearer request has no session, so we make the user
-reachable two ways:
+…) reach the user through one call: `Auth.CurrentUser(r.Context())`,
+which reads the **session**. A bearer request has no session, so we make
+the user reachable two ways:
 
 1. A middleware validates the bearer header and stuffs the resolved
    user into the request context.
@@ -204,13 +204,25 @@ func BearerAuth(ks *KeyStore) func(http.Handler) http.Handler {
 // apiAuth is an Auth whose CurrentUser prefers a bearer-resolved user
 // from the context, falling back to AuthGORM's session lookup. Pass it
 // to the stock Authz impls so they "just work" for both transports.
+//
+// Both identity getters take only the ctx, and BearerAuth already stuffed
+// the user there — so the wrapper never touches the request directly. We
+// override CurrentUsername too, so audit hooks (crud's ObserveAccessor)
+// attribute a bearer request to the key owner, not "".
 type apiAuth struct{ *auth.AuthGORM }
 
-func (a apiAuth) CurrentUser(r *http.Request) auth.User {
-	if u := apiUserFrom(r.Context()); u != nil {
+func (a apiAuth) CurrentUser(ctx context.Context) auth.User {
+	if u := apiUserFrom(ctx); u != nil {
 		return u
 	}
-	return a.AuthGORM.CurrentUser(r)
+	return a.AuthGORM.CurrentUser(ctx)
+}
+
+func (a apiAuth) CurrentUsername(ctx context.Context) string {
+	if u := apiUserFrom(ctx); u != nil {
+		return u.Username()
+	}
+	return a.AuthGORM.CurrentUsername(ctx)
 }
 ```
 

@@ -498,7 +498,7 @@ func bytesEqual(a, b []byte) bool {
 // list from the DB; same shape as serveAccountForm but only the
 // passkey card.
 func (a *AuthGORM) renderPasskeyCard(w http.ResponseWriter, r *http.Request, target *UserGORM) {
-	current := a.CurrentUser(r)
+	current := a.CurrentUser(r.Context())
 	isSelf := current != nil && current.Username() == target.Username
 	var ks []PasskeyGORM
 	_ = a.DB.Where("user_id = ?", target.ID).Order("created_at DESC").Find(&ks).Error

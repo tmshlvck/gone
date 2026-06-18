@@ -238,7 +238,7 @@ func TestAuthGORMUserGORMSatisfiesUser(t *testing.T) {
 func TestAuthGORMCurrentUserAnonymous(t *testing.T) {
 	ag, sm := newTestAuthGORM(t)
 	withSession(t, sm, func(ctx context.Context, r *http.Request) {
-		if u := ag.CurrentUser(r); u != nil {
+		if u := ag.CurrentUser(r.Context()); u != nil {
 			t.Errorf("CurrentUser anonymous = %v, want nil", u)
 		}
 	})
@@ -254,7 +254,7 @@ func TestAuthGORMCurrentUserAfterLogin(t *testing.T) {
 		if err := ag.Login(ctx, u); err != nil {
 			t.Fatal(err)
 		}
-		got := ag.CurrentUser(r)
+		got := ag.CurrentUser(r.Context())
 		if got == nil || got.Username() != "admin" {
 			t.Errorf("CurrentUser after Login = %v, want admin", got)
 		}
@@ -269,7 +269,7 @@ func TestAuthGORMCurrentUserAfterUserDel(t *testing.T) {
 		if err := ag.UserDel("admin"); err != nil {
 			t.Fatal(err)
 		}
-		if got := ag.CurrentUser(r); got != nil {
+		if got := ag.CurrentUser(r.Context()); got != nil {
 			t.Errorf("CurrentUser after UserDel = %v, want nil", got)
 		}
 	})
@@ -280,13 +280,13 @@ func TestAuthGORMLogoutDestroysSession(t *testing.T) {
 	withSession(t, sm, func(ctx context.Context, r *http.Request) {
 		u, _ := ag.Authenticate("admin", "secret")
 		_ = ag.Login(ctx, u)
-		if ag.CurrentUser(r) == nil {
+		if ag.CurrentUser(r.Context()) == nil {
 			t.Fatal("login didn't take effect")
 		}
 		if err := ag.Logout(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if ag.CurrentUser(r) != nil {
+		if ag.CurrentUser(r.Context()) != nil {
 			t.Error("Logout didn't clear the session")
 		}
 	})

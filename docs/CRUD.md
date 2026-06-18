@@ -363,6 +363,67 @@ the accessor from the **same** `MetaModel` you hand to `NewTable`.
 caller's. `GORMAccessor` searches Searchable columns with `LIKE`, preloads
 associations on reads, and replays many-to-many selections on update.
 
+### Observing changes — `ObserveAccessor` (audit / notify hooks)
+
+To react to row changes — audit logging, cache invalidation, pushing updates
+down a channel — wrap any `Accessor[T]` in an observer. It fires a callback
+after each **successful** operation, and because every mutation path (the
+create/edit/delete handlers **and** CSV import) goes through `Data`, one wrap
+catches them all:
+
+```go
+type ChangeKind int
+const ( ChangeCreate ChangeKind = iota; ChangeUpdate; ChangeDelete; ChangeRead; ChangeList )
+
+type ChangeEvent[T any] struct {
+    Kind  ChangeKind
+    ID    uint
+    Row   T    // resulting row (create/update/read); zero for delete unless re-read; zero for list
+    Count int  // rows returned — ChangeList only
+}
+
+func ObserveAccessor[T any](inner Accessor[T], on func(context.Context, ChangeEvent[T])) Accessor[T]
+func ObserveDeletes[T any](inner Accessor[T], on func(context.Context, ChangeEvent[T])) Accessor[T]
+func ObserveReads[T any](inner Accessor[T], on func(context.Context, ChangeEvent[T])) Accessor[T]
+```
+
+- **`ObserveAccessor`** — fires on writes only (create / update / delete).
+- **`ObserveDeletes`** — same, but re-reads the row before deleting so the
+  delete event carries the old contents (one extra `Get` per delete).
+- **`ObserveReads`** — also fires `ChangeRead` per `Get` and `ChangeList` per
+  `List`, for a full audit trail. Reads are *far* higher volume than writes
+  (a `ChangeList` fires on every render, search keystroke, and sort), so this
+  is opt-in; keep the callback cheap and consider filtering by `Kind`.
+
+The callback runs **synchronously inside the request**, after the write
+commits, so it must not block — the canonical use is a non-blocking send to a
+buffered channel drained by a goroutine:
+
+```go
+changes := make(chan crud.ChangeEvent[Hero], 64)
+go func() { for e := range changes { log.Printf("%s id=%d", e.Kind, e.ID) } }()
+
+data := crud.ObserveAccessor(
+    crud.MapAccessor(mm, store, &mu),
+    func(ctx context.Context, e crud.ChangeEvent[Hero]) {
+        select {
+        case changes <- e:
+        default: // worker behind — drop rather than stall the request
+        }
+    },
+)
+table := crud.NewTable(mm, data, site.PageSize(10), gate)
+```
+
+**Identifying the user.** The callback receives the same `ctx` the handler
+passed to `Data` (`r.Context()`), and the session rides along in it — so an
+audit hook resolves *who* with `auth.CurrentUsername(ctx)` (no
+`*http.Request`, no user lookup; see [AUTH.md](AUTH.md#auth-interface)).
+Non-HTTP callers (CSV export, background jobs) carry no session, so that
+returns `""` — audit those as anonymous/system. The decorator itself stays
+auth-agnostic: crud never imports auth for this, the app's closure does the
+lookup. `examples/observe_crud_mem` is a runnable end-to-end demo.
+
 ## Building the table — `NewTable`
 
 ```go

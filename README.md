@@ -43,6 +43,11 @@ table.RegisterRoutes(root, "", "/heroes")
   cache, and auto-wired cross-table relations.
 - **Backends**: in-memory map for tests / prototypes, GORM for
   production. New backends drop in by writing a constructor.
+- **Observe / audit hooks** — wrap any `Accessor` with
+  `ObserveAccessor` / `ObserveReads` to fire a callback on every
+  create / edit / delete (and optionally read), for audit logs, cache
+  invalidation, or pushing changes down a channel. The hook resolves the
+  acting user from the request context via `auth.CurrentUsername`.
 - **Time is UTC end-to-end** — display and form-bind are UTC, and
   `site.ForceUTC(db)` guarantees `time.Time` is stored in UTC on any
   backend (SQLite, Postgres), so SQL sort / range filters operate on
@@ -210,6 +215,7 @@ Or implement `auth.Authz` directly for per-resource policy. See
 |-------------------------------|---------------------------------------------------------------|
 | `examples/form_mem`           | Single struct, manual handlers using `MetaModel.RenderForm` / `TryBindForm`. Shows the IPv4-or-IPv6 validator. |
 | `examples/crud_mem`           | One `CRUDTable` over an in-memory map.                        |
+| `examples/observe_crud_mem`   | `crud_mem` wrapped with `ObserveReads` — every read and write streams to a channel and prints to the console, tagged with the ctx-resolved user. |
 | `examples/crud_gorm`          | Three `CRUDTable`s (Hero, Weapon, Skill) with 1:N and N:M relations. GORM backend. MPA-style — one model per page. |
 | `examples/admin_gorm`         | Same schema as `crud_gorm`, wrapped in `Admin` (`DeriveAdmin`, relations auto-wired). Custom sidebar link demo. Zero per-field tweaking. Ships an app-owned `<style>` styling polish (the only example that does). |
 | `examples/auth_simple`        | `AuthSimple` + a single CRUDTable behind a gated page shell. |
@@ -255,11 +261,12 @@ Operational:
 
 ## Status
 
-Built and exercised by seven examples + 200+ unit/HTTP tests. Stable
+Built and exercised by eight examples + 200+ unit/HTTP tests. Stable
 enough to run in-house tools and small production apps:
 
 - **`gone/crud`** — settled. CRUDTable + Admin + MetaModel +
-  validators + relation pickers + configurable pagination.
+  validators + relation pickers + configurable pagination + Accessor
+  observe/audit hooks.
 - **`gone/auth`** — sessions, CSRF, AuthSimple, AuthGORM, TOTP,
   passkeys, SSO (OIDC + OAuth2), account page, authz interface.
 - **`gone/site`** — page chrome + UTC-at-rest (`ForceUTC`), per-session

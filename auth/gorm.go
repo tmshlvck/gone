@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-chi/chi/v5"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -396,8 +395,8 @@ func (a *AuthGORM) Authenticate(username, password string) (User, error) {
 // CurrentUser reads the username from the session and looks up the
 // user (preloading groups). Returns nil for anonymous AND for sessions
 // whose user has since been deleted or disabled.
-func (a *AuthGORM) CurrentUser(r *http.Request) User {
-	username := a.Sessions.GetString(r.Context(), userSessionKey)
+func (a *AuthGORM) CurrentUser(ctx context.Context) User {
+	username := a.CurrentUsername(ctx)
 	if username == "" {
 		return nil
 	}
@@ -409,6 +408,13 @@ func (a *AuthGORM) CurrentUser(r *http.Request) User {
 		return nil
 	}
 	return UserGORMAdapter{U: &user}
+}
+
+// CurrentUsername returns the session's username verbatim ("" when
+// anonymous), reading only the ctx — no DB lookup, no disabled check. See
+// the Auth interface for when to prefer this over CurrentUser.
+func (a *AuthGORM) CurrentUsername(ctx context.Context) string {
+	return a.Sessions.GetString(ctx, userSessionKey)
 }
 
 // LoginURL / LogoutURL are the same shape as AuthSimple's.

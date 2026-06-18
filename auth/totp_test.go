@@ -163,7 +163,7 @@ func TestStagedLogin_TOTPUserRedirectedToTOTPStep(t *testing.T) {
 	withSession(t, ag.Sessions, func(ctx context.Context, _ *http.Request) {})
 	// Use ag.CurrentUser via a wrapped handler so the session is loaded.
 	ag.Sessions.LoadAndSave(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if u := ag.CurrentUser(r); u != nil {
+		if u := ag.CurrentUser(r.Context()); u != nil {
 			t.Errorf("CurrentUser between stages = %v, want nil", u)
 		}
 		// Pending marker present.

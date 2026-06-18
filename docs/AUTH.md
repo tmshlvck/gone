@@ -92,7 +92,8 @@ DaisyUI + Tailwind + HTMX from jsDelivr/unpkg.
 ```go
 type Auth interface {
     Route(mux Mux, baseUrl string, shell PageShellFunc) (string, error)
-    CurrentUser(r *http.Request) User
+    CurrentUser(ctx context.Context) User             // full user (does a lookup)
+    CurrentUsername(ctx context.Context) string       // just the name (no lookup)
     LoginURL(next string) string
     LogoutURL(next string) string
     IsAuthPath(path string) bool         // public auth pages — see Page shell
@@ -103,6 +104,17 @@ type Auth interface {
 
 Both `AuthSimple` and `AuthGORM` satisfy it. Apps depend on the
 interface; switching impls is one constructor call.
+
+Both identity getters take a `context.Context` — the session payload rides in
+it (scs caches it there), so neither needs the `*http.Request`. A page handler
+calls `a.CurrentUser(r.Context())`. The difference is cost and return:
+`CurrentUser` materializes the full `User` (a DB lookup for AuthGORM);
+**`CurrentUsername`** reads the username straight out of the session — no
+lookup — and returns `""` for anonymous (or a ctx with no loaded session, e.g.
+a background job). `CurrentUsername` is the right tool for code that only needs
+an identity label, such as a crud `Accessor` audit hook
+(see [CRUD.md](CRUD.md#observing-changes--observeaccessor-audit--notify-hooks)).
+`CurrentUser` is implemented on top of it.
 
 ### `User` and `Group` interfaces
 
@@ -149,7 +161,7 @@ Stock impls:
 |---------------------------------|-----------------------------------------------------------------|
 | `AuthzAllowAll`                 | Everything permits. Equivalent to `nil`.                        |
 | `AuthzDenyAll`                  | Everything denies. Read-only snapshots, tests, default-deny.    |
-| `AuthzLoggedIn{Auth}`           | Permits when `Auth.CurrentUser(r) != nil`.                      |
+| `AuthzLoggedIn{Auth}`           | Permits when `Auth.CurrentUser(r.Context()) != nil`.           |
 | `AuthzLoggedInReadOnly{Auth}`   | Reads need login; writes always denied.                         |
 | `AuthzLoggedInReadAdminWrite{Auth, AdminGroup}` | Reads need login; writes need `AdminGroup` (default `"admin"`).  |
 | `AuthzOrAllow(a)`               | Returns `a` or `AuthzAllowAll` if `a` is nil. Library boundary helper. |
@@ -164,7 +176,7 @@ type ZoneAuthz struct {
 }
 
 func (z ZoneAuthz) CanUpdate(r *http.Request) bool {
-    u := z.Auth.CurrentUser(r)
+    u := z.Auth.CurrentUser(r.Context())
     if u == nil { return false }
     var ok bool
     z.DB.Raw("SELECT EXISTS(SELECT 1 FROM zone_admins WHERE username = ?)",
@@ -844,7 +856,7 @@ shell anonymous-aware:
 ```go
 pageShell := func(w http.ResponseWriter, r *http.Request,
                   title string, content templ.Component) {
-    u := ag.CurrentUser(r)
+    u := ag.CurrentUser(r.Context())
     if u == nil && !ag.IsAuthPath(r.URL.Path) {
         http.Redirect(w, r, ag.LoginURL(r.URL.Path), http.StatusSeeOther)
         return

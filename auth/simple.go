@@ -152,8 +152,8 @@ func (s *AuthSimple) Passwd(username, password string) error {
 // Returning the interface (auth.User) is what makes Auth pluggable.
 // Returning a typed *UserSimple as a nil-interface would be a footgun
 // for callers that compare against nil — guarded explicitly here.
-func (s *AuthSimple) CurrentUser(r *http.Request) User {
-	username := s.Sessions.GetString(r.Context(), userSessionKey)
+func (s *AuthSimple) CurrentUser(ctx context.Context) User {
+	username := s.CurrentUsername(ctx)
 	if username == "" {
 		return nil
 	}
@@ -164,6 +164,13 @@ func (s *AuthSimple) CurrentUser(r *http.Request) User {
 		return nil
 	}
 	return u
+}
+
+// CurrentUsername returns the session's username verbatim ("" when
+// anonymous), reading only the ctx — no user lookup. See the Auth
+// interface for when to prefer this over CurrentUser.
+func (s *AuthSimple) CurrentUsername(ctx context.Context) string {
+	return s.Sessions.GetString(ctx, userSessionKey)
 }
 
 // LoginURL returns the login path with `next` encoded as ?next=…

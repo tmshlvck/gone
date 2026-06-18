@@ -60,10 +60,20 @@ type Auth interface {
 	RegisterRoutes(r chi.Router, mountBase string, shell PageShellFunc) error
 
 	// CurrentUser returns the user the session points to, or nil for
-	// anonymous. Page handlers call this and decide their response.
-	// Cheap enough to call multiple times per request — scs caches
-	// the session payload in r.Context().
-	CurrentUser(r *http.Request) User
+	// anonymous. Page handlers call this (CurrentUser(r.Context())) and
+	// decide their response. Takes only the ctx — the session payload
+	// rides in it (scs caches it there), so no *http.Request is needed.
+	// Cheap enough to call multiple times per request.
+	CurrentUser(ctx context.Context) User
+
+	// CurrentUsername returns the username the session points to, or ""
+	// for anonymous (or a ctx with no loaded session — e.g. a background
+	// job). Unlike CurrentUser it does NO user lookup — it's the session
+	// string verbatim — so it's the right tool for code that only needs
+	// an identity label, such as an Accessor audit hook: c.Data sees
+	// r.Context(), and the session payload rides along in it. CurrentUser
+	// is implemented on top of it.
+	CurrentUsername(ctx context.Context) string
 
 	// LoginURL / LogoutURL build the URL to the respective endpoint,
 	// encoding `next` as the "?next=..." query parameter. Empty next

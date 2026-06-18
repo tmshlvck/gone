@@ -48,7 +48,7 @@ func (a *AuthGORM) mountAccountRoutes(mux chi.Router, shell PageShellFunc) {
 // auto-opens when it lands in a modal body; plain GETs get the form wrapped
 // in the page shell.
 func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shell PageShellFunc, errMsg, successMsg string) {
-	current := a.CurrentUser(r)
+	current := a.CurrentUser(r.Context())
 	if current == nil {
 		// Anonymous → bounce through login with a return target.
 		if isHTMXAuthRequest(r) {
@@ -185,7 +185,7 @@ const (
 // library already mounts under /account/{ref}/..., so the cards stay
 // fully functional embedded.
 func (a *AuthGORM) AccountSection(r *http.Request) (cards templ.Component, target *UserGORM, res AccountAccess) {
-	current := a.CurrentUser(r)
+	current := a.CurrentUser(r.Context())
 	if current == nil {
 		return nil, nil, AccountAnonymous
 	}
@@ -214,7 +214,7 @@ func (a *AuthGORM) AccountSection(r *http.Request) (cards templ.Component, targe
 // handleAccountPost validates the form and either updates the
 // password or re-renders the form with an error.
 func (a *AuthGORM) handleAccountPost(w http.ResponseWriter, r *http.Request, shell PageShellFunc) {
-	current := a.CurrentUser(r)
+	current := a.CurrentUser(r.Context())
 	if current == nil {
 		// CSRFWrap already guarded this; reaching here means the
 		// session evaporated between page load and submit.
