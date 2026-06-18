@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/site"
 	"log"
 	"net/http"
 	"net/url"
@@ -74,7 +75,7 @@ const (
 // The {name} segment is matched against registered providers; an
 // unknown name returns 404 (deliberate — no leakage of which
 // providers exist).
-func (a *AuthGORM) mountSSOLoginRoutes(mux chi.Router, shell PageShellFunc) {
+func (a *AuthGORM) mountSSOLoginRoutes(mux chi.Router, shell site.Shell) {
 	if len(a.ssoProviders) == 0 {
 		return
 	}
@@ -121,7 +122,7 @@ func (a *AuthGORM) ssoStartHandler(w http.ResponseWriter, r *http.Request) {
 // if the user has TOTP enrolled. Failure paths render plain-text
 // errors via http.Error (callers don't get to choose an error page
 // for now; SSO failures are rare and the messages are diagnostic).
-func (a *AuthGORM) ssoCallbackHandler(w http.ResponseWriter, r *http.Request, shell PageShellFunc) {
+func (a *AuthGORM) ssoCallbackHandler(w http.ResponseWriter, r *http.Request, shell site.Shell) {
 	name := chi.URLParam(r, "name")
 	p := a.findSSOProvider(name)
 	if p == nil {

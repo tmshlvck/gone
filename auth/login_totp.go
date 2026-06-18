@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/site"
 	"net/http"
 
 	"gorm.io/gorm"
@@ -57,7 +58,7 @@ func (a *AuthGORM) loginStage1(ctx context.Context, u User, formNext string) (st
 
 // mountTOTPLoginRoutes registers GET/POST /login/totp. The handler
 // is private to AuthGORM because AuthSimple has no TOTP path.
-func (a *AuthGORM) mountTOTPLoginRoutes(mux chi.Router, shell PageShellFunc) {
+func (a *AuthGORM) mountTOTPLoginRoutes(mux chi.Router, shell site.Shell) {
 	mux.Get(pathTOTPLogin, func(w http.ResponseWriter, r *http.Request) {
 		a.serveTOTPLoginForm(w, r, shell, "")
 	})
@@ -66,7 +67,7 @@ func (a *AuthGORM) mountTOTPLoginRoutes(mux chi.Router, shell PageShellFunc) {
 	})
 }
 
-func (a *AuthGORM) serveTOTPLoginForm(w http.ResponseWriter, r *http.Request, shell PageShellFunc, errMsg string) {
+func (a *AuthGORM) serveTOTPLoginForm(w http.ResponseWriter, r *http.Request, shell site.Shell, errMsg string) {
 	username := a.Sessions.GetString(r.Context(), totpPendingUserKey)
 	if username == "" {
 		// No pending stage-1 state — bounce back to /login.
@@ -82,7 +83,7 @@ func (a *AuthGORM) serveTOTPLoginForm(w http.ResponseWriter, r *http.Request, sh
 	writeShell(w, r, "Two-factor authentication", body, shell)
 }
 
-func (a *AuthGORM) handleTOTPLoginPost(w http.ResponseWriter, r *http.Request, shell PageShellFunc) {
+func (a *AuthGORM) handleTOTPLoginPost(w http.ResponseWriter, r *http.Request, shell site.Shell) {
 	username := a.Sessions.GetString(r.Context(), totpPendingUserKey)
 	if username == "" {
 		http.Redirect(w, r, a.loginPath, http.StatusSeeOther)

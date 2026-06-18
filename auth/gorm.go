@@ -498,7 +498,7 @@ func (a *AuthGORM) Logout(ctx context.Context) error {
 //
 // Stage 2 is skipped entirely for users without a TOTP secret —
 // they go straight to AfterLogin from the password POST.
-func (a *AuthGORM) RegisterRoutes(mux chi.Router, mountBase string, shell PageShellFunc) error {
+func (a *AuthGORM) RegisterRoutes(mux chi.Router, mountBase string, shell site.Shell) error {
 	if mux == nil {
 		return errors.New("auth.AuthGORM.RegisterRoutes: nil router")
 	}

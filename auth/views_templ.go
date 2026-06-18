@@ -30,7 +30,7 @@ type loginFormData struct {
 }
 
 // loginForm is the body fragment rendered by GET /login. The app's
-// PageShellFunc wraps it in chrome. DaisyUI v5 classes — the app
+// site.Shell wraps it in chrome. DaisyUI v5 classes — the app
 // ships the stylesheet via its page shell.
 func loginForm(d loginFormData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/site"
 	"log"
 	"net/http"
 	"strconv"
@@ -19,7 +20,7 @@ import (
 // "ref" is either the literal string "me" (resolves to the current
 // user) or a numeric ID (resolves the named UserGORM row). Both
 // routes share a single handler that branches on r.Method.
-func (a *AuthGORM) mountAccountRoutes(mux chi.Router, shell PageShellFunc) {
+func (a *AuthGORM) mountAccountRoutes(mux chi.Router, shell site.Shell) {
 	mux.Get("/account/{ref}", func(w http.ResponseWriter, r *http.Request) {
 		a.serveAccountForm(w, r, shell, "", "")
 	})
@@ -47,7 +48,7 @@ func (a *AuthGORM) mountAccountRoutes(mux chi.Router, shell PageShellFunc) {
 // HTMX requests get the bare form fragment, which the crud modal bridge
 // auto-opens when it lands in a modal body; plain GETs get the form wrapped
 // in the page shell.
-func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shell PageShellFunc, errMsg, successMsg string) {
+func (a *AuthGORM) serveAccountForm(w http.ResponseWriter, r *http.Request, shell site.Shell, errMsg, successMsg string) {
 	current := a.CurrentUser(r.Context())
 	if current == nil {
 		// Anonymous → bounce through login with a return target.
@@ -213,7 +214,7 @@ func (a *AuthGORM) AccountSection(r *http.Request) (cards templ.Component, targe
 
 // handleAccountPost validates the form and either updates the
 // password or re-renders the form with an error.
-func (a *AuthGORM) handleAccountPost(w http.ResponseWriter, r *http.Request, shell PageShellFunc) {
+func (a *AuthGORM) handleAccountPost(w http.ResponseWriter, r *http.Request, shell site.Shell) {
 	current := a.CurrentUser(r.Context())
 	if current == nil {
 		// CSRFWrap already guarded this; reaching here means the

@@ -2,27 +2,10 @@ package auth
 
 import (
 	"context"
-	"net/http"
 
-	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/site"
 )
-
-// PageShellFunc wraps a library component's output in the app's page
-// chrome. It receives the HTTP writer and request directly — not a
-// templ.Component to return — so the caller can write redirects,
-// custom headers, or "anonymous → /login" responses from inside the
-// shell.
-//
-// title is supplied by the caller (the app's page route, Admin's
-// active-table DisplayName, AuthSimple's "Sign in") and is typically
-// what the shell writes into <title> and any heading.
-//
-// content is the component-rendered body the shell embeds.
-//
-// nil shell on Route() means "don't register a page handler" —
-// useful for tests and for fragment-only callers.
-type PageShellFunc func(w http.ResponseWriter, r *http.Request, title string, content templ.Component)
 
 // Relative auth route patterns. RegisterRoutes registers these on the
 // router the caller hands it, so auth composes under any mount (root, a
@@ -57,7 +40,7 @@ type Auth interface {
 	// LoginURL, redirects, and rendered form actions resolve absolutely,
 	// even behind a stripping mount. shell wraps the login form in the
 	// app's chrome; nil is allowed for tests / fragment-only callers.
-	RegisterRoutes(r chi.Router, mountBase string, shell PageShellFunc) error
+	RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error
 
 	// CurrentUser returns the user the session points to, or nil for
 	// anonymous. Page handlers call this (CurrentUser(r.Context())) and

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/site"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,8 +15,8 @@ import (
 // "user is logged in" / "user is in admin group" branches.
 type stubAuth struct{ user User }
 
-func (s stubAuth) RegisterRoutes(chi.Router, string, PageShellFunc) error { return nil }
-func (s stubAuth) CurrentUser(context.Context) User                       { return s.user }
+func (s stubAuth) RegisterRoutes(chi.Router, string, site.Shell) error { return nil }
+func (s stubAuth) CurrentUser(context.Context) User                    { return s.user }
 func (s stubAuth) CurrentUsername(context.Context) string {
 	if s.user == nil {
 		return ""

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/go-chi/chi/v5"
+	"github.com/tmshlvck/gone/site"
 	"net/http"
 	"net/url"
 	"strings"
@@ -269,7 +270,7 @@ func (s *AuthSimple) Authenticate(username, password string) (User, error) {
 //	GET    /login   render login form (reads ?next=… for the redirect target)
 //	POST   /login   authenticate + Login + redirect to next or AfterLogin
 //	POST   /logout  Logout + redirect to LoginURL("")
-func (s *AuthSimple) RegisterRoutes(r chi.Router, mountBase string, shell PageShellFunc) error {
+func (s *AuthSimple) RegisterRoutes(r chi.Router, mountBase string, shell site.Shell) error {
 	if r == nil {
 		return errors.New("auth.AuthSimple.RegisterRoutes: nil router")
 	}
@@ -316,7 +317,7 @@ type passwordLoginOpts struct {
 	Login    func(ctx context.Context, u User, formNext string) (override string, err error)
 	Logout   func(ctx context.Context) error
 	LoginURL func(next string) string
-	Shell    PageShellFunc
+	Shell    site.Shell
 
 	// PasskeyOptionsPath + PasskeyFinishPath wire the "Use passkey"
 	// button into the rendered login form. When both are empty the
@@ -407,7 +408,7 @@ func mountPasswordLogin(mux chi.Router, o passwordLoginOpts) {
 
 // writeShell renders body through shell, or as a bare fragment when
 // shell is nil. The fragment path is for tests / non-page callers.
-func writeShell(w http.ResponseWriter, r *http.Request, title string, body templ.Component, shell PageShellFunc) {
+func writeShell(w http.ResponseWriter, r *http.Request, title string, body templ.Component, shell site.Shell) {
 	if shell != nil {
 		shell(w, r, title, body)
 		return
