@@ -49,15 +49,16 @@ type Admin struct {
 //	URLBase == "" && DisplayName != ""  → a header / group label (not clickable)
 //	both ""                             → a separator (<hr>)
 //
-// *CRUDTable[T] satisfies it (CRUDTableInterface embeds it); Link, Header and
-// Separator build the lightweight non-table elements.
+// *CRUDTable[T] satisfies it (CRUDTableInterface embeds it); SidebarLink,
+// SidebarHeader and SidebarSeparator build the lightweight non-table elements.
 type SidebarElementInterface interface {
 	DisplayName() string
 	URLBase() string
 }
 
 // sidebarElement is the concrete non-table sidebar entry. Build one with
-// Link, Header or Separator rather than setting the fields directly.
+// SidebarLink, SidebarHeader or SidebarSeparator rather than setting the
+// fields directly.
 type sidebarElement struct {
 	name string
 	url  string
@@ -66,23 +67,23 @@ type sidebarElement struct {
 func (e sidebarElement) DisplayName() string { return e.name }
 func (e sidebarElement) URLBase() string     { return e.url }
 
-// Link is a custom sidebar entry pointing at an app-owned URL. Clicking it is
-// plain page navigation (a real <a href>): the app's handler at url renders
-// the destination — either a full page that replaces the Admin view (or an
-// external site), or, to keep the Admin frame, by calling Admin.Render(r,
+// SidebarLink is a custom sidebar entry pointing at an app-owned URL. Clicking
+// it is plain page navigation (a real <a href>): the app's handler at url
+// renders the destination — either a full page that replaces the Admin view (or
+// an external site), or, to keep the Admin frame, by calling Admin.Render(r,
 // content) with its own working-area content. In the latter case the sidebar
-// highlights this Link, matching url against the request path.
-func Link(displayName, url string) SidebarElementInterface {
+// highlights this link, matching url against the request path.
+func SidebarLink(displayName, url string) SidebarElementInterface {
 	return sidebarElement{name: displayName, url: url}
 }
 
-// Header is a non-clickable group label rendered in the sidebar.
-func Header(displayName string) SidebarElementInterface {
+// SidebarHeader is a non-clickable group label rendered in the sidebar.
+func SidebarHeader(displayName string) SidebarElementInterface {
 	return sidebarElement{name: displayName}
 }
 
-// Separator is a thin horizontal divider (<hr>) in the sidebar.
-func Separator() SidebarElementInterface {
+// SidebarSeparator is a thin horizontal divider (<hr>) in the sidebar.
+func SidebarSeparator() SidebarElementInterface {
 	return sidebarElement{}
 }
 

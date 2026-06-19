@@ -164,8 +164,8 @@ func main() {
 		&heroTable,
 		&weaponTable,
 		&skillTable,
-		crud.Separator(),
-		crud.Link("Hello", "/testlink"),
+		crud.SidebarSeparator(),
+		crud.SidebarLink("Hello", "/testlink"),
 	}, nil)
 
 	mux := chi.NewRouter()
