@@ -441,7 +441,6 @@ so anything the constructor doesn't cover is set afterward:
 table := crud.NewTable(mm, data, site.PageSize(10), gate)
 table.CreateEnabled = false           // granular mutation toggles
 table.HideUnauthorized = true         // omit disallowed buttons (vs render disabled)
-table.Segment = "heroes"              // path segment override (irregular plurals)
 table.ShortLabel = func(h Hero) string { return h.Name } // relation label (see Relations)
 ```
 
@@ -457,8 +456,9 @@ func (c *CRUDTable[T]) URLBase() string // absolute base, e.g. "/admin/heroes"
 ```
 
 - **`componentPath`** is where the table sits relative to `r` — one or more
-  segments, e.g. `"/heroes"` or `"/admin/heroes"`. Empty falls back to the
-  table's `Segment`, then a derived plural of the model name.
+  segments, e.g. `"/heroes"` or `"/admin/heroes"`. Empty falls back to a
+  derived plural of the model name (`Hero`→`"heros"`); pass an explicit path
+  for irregular plurals or any custom placement.
 - **`routerPrefix`** is the absolute path at which `r` itself is served (`""`
   when `r` is the root mux). The caller knows this; chi can't report it at
   registration time. The table's absolute base, used for every rendered
@@ -495,7 +495,8 @@ non-internal column (read-only ones included, for reference); import writes
 back only the bindable ones and silently ignores the rest.
 
 - **Export CSV** — downloads every row matching the current search/sort as
-  CSV (`export.csv`, gated on the list permission). Columns are `ID` plus every
+  CSV (`export.csv`, gated on the list permission; the download is named
+  `<lowercase model name>_table.csv`, e.g. `hero_table.csv`). Columns are `ID` plus every
   field that is **not** `Hidden`, **not** `NoExport`, and not the `ID` field
   itself — so read-only columns (timestamps, computed values, the has-many
   inverse) *are* exported. Scalar cells use the same plain-text rendering as
@@ -574,8 +575,8 @@ func (a *Admin) Render(r *http.Request) (templ.Component, error)
 
 `Admin.RegisterRoutes` composes every path on the router it is handed — **no
 stripping `chi.Route` needed**, just the root mux. Each child table is
-mounted at `componentPath + "/" + its URLSlug` (a lowercased plural of the
-model name, or its `Segment` override). It also registers an index redirect
+mounted at `componentPath + "/" + a lowercased plural of the model name`
+(`Hero`→`"heros"`). It also registers an index redirect
 to the first table, a per-slug page handler wrapping the active table in
 `shell`, and links the children's relation fields (see [Relations](#relations)):
 
@@ -594,13 +595,12 @@ Registered for `componentPath="/admin"`, tables `["heroes","weapons","skills"]`:
 `shell == nil` registers the index redirect and child fragments but no
 per-slug page handler.
 
-Children's URL segments come from `URLSlug()` — a lowercased plural of the Go
-type name. For an irregular plural (or a model named `UserGORM` you want at
-`/admin/users`), set `Segment` on the child table before building the Admin:
-
-```go
-userTable.Segment = "users" // else /admin/usergorms
-```
+Children's URL segments are a lowercased plural of the Go type name
+(`lowercase(Name)+"s"`), so irregular plurals get the literal default —
+`Hero`→`/admin/heros`, `UserGORM`→`/admin/usergorms`. Admin has no per-table
+override; if you need clean URLs, route the tables yourself (each
+`CRUDTable.RegisterRoutes(r, "", "/admin/users")`) and render the page +
+sidebar in your own handler instead of using `Admin`.
 
 **Custom sidebar links** (`SidebarTop` / `SidebarBottom`) point at an
 app-owned URL. Clicking one HTMX-fetches it into the working area

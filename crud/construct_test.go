@@ -84,22 +84,9 @@ func TestDeriveMetaModelDefaults(t *testing.T) {
 	if !name.Searchable {
 		t.Error("Name should stay searchable (reflected default)")
 	}
-	// URLSlug falls back to a lowercased plural of the model name.
-	store, mu := newCfgStore()
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, nil)
-	if tbl.URLSlug() != "cfgheros" {
-		t.Errorf("default URLSlug = %q, want cfgheros", tbl.URLSlug())
-	}
-}
-
-// TestSegmentOverridesURLSlug covers the irregular-plural escape hatch.
-func TestSegmentOverridesURLSlug(t *testing.T) {
-	mm := DeriveMetaModel[cfgHero](MetaModel[cfgHero]{})
-	store, mu := newCfgStore()
-	tbl := NewTable(mm, MapAccessor(mm, store, mu), site.DefaultSettings{}, nil)
-	tbl.Segment = "heroes"
-	if tbl.URLSlug() != "heroes" {
-		t.Errorf("URLSlug = %q, want heroes", tbl.URLSlug())
+	// The default mount leaf is a lowercased plural of the model name.
+	if got := defaultSlug(mm.Name); got != "cfgheros" {
+		t.Errorf("defaultSlug(%q) = %q, want cfgheros", mm.Name, got)
 	}
 }
 

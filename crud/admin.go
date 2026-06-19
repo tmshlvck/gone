@@ -89,8 +89,8 @@ func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
 //
 // routerPrefix is the absolute path at which r is served ("" for the root
 // mux); componentPath is where Admin sits relative to r (e.g. "/admin"). Each
-// child table is mounted at componentPath + "/" + its URLSlug (a lowercased
-// plural of the model name, or its Segment override).
+// child table is mounted at componentPath + "/" + a lowercased plural of the
+// model name (Hero→"heros").
 //
 // Registers, for componentPath="/admin", tables ["heroes","weapons","skills"]:
 //
@@ -108,27 +108,30 @@ func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string,
 	if len(a.Tables) == 0 {
 		return nil
 	}
-	// Mount each child under {base}/{slug}, relative to r. Children's page
+	// Mount each child under {base}/{slug}, relative to r, where slug is a
+	// derived plural of the model name (Hero→"heros"). Children's page
 	// handlers are not registered — Admin owns the page route.
 	for _, t := range a.Tables {
-		if t.URLSlug() == "" {
-			return fmt.Errorf("Admin: table %q has empty URLSlug", t.DisplayName())
+		if t.ModelName() == "" {
+			return fmt.Errorf("Admin: table %q has empty ModelName", t.DisplayName())
 		}
-		t.RegisterRoutes(r, routerPrefix, base+"/"+t.URLSlug())
+		t.RegisterRoutes(r, routerPrefix, base+"/"+defaultSlug(t.ModelName()))
 	}
 	// Every child now has its URLBase set — link relation fields across
 	// them (Go type name → URLBase) so relation pickers fetch options from
 	// the right sibling table.
 	WireRelations(a.Tables...)
 	az := auth.AuthzOrAllow(a.Authz)
-	firstSlug := a.Tables[0].URLSlug()
+	// Captured after the mount loop, so URLBase is set. The first table is
+	// the default landing for the bare {base} index.
+	firstURL := a.Tables[0].URLBase()
 	// Index redirect: GET {base} → first table.
 	r.Get(base, func(w http.ResponseWriter, req *http.Request) {
 		if !az.CanList(req) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		http.Redirect(w, req, a.urlBase+"/"+firstSlug, http.StatusSeeOther)
+		http.Redirect(w, req, firstURL, http.StatusSeeOther)
 	})
 	// Per-slug page handler — registered only when the caller supplied a
 	// shell. Wraps Admin.Render in the shell with the active table's
@@ -139,13 +142,9 @@ func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string,
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			activeSlug := chi.URLParam(req, "slug")
 			title := "Admin"
-			for _, t := range a.Tables {
-				if t.URLSlug() == activeSlug {
-					title = t.DisplayName()
-					break
-				}
+			if t := a.activeTable(req); t != nil {
+				title = t.DisplayName()
 			}
 			body, err := a.Render(req)
 			if failInternal(w, err) {
@@ -157,26 +156,28 @@ func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string,
 	return nil
 }
 
-// Render returns the Admin layout for the request URL. The active
-// table is determined from r.URL.Path (the first segment after
-// urlBase); its Render(r) output is embedded inline in the working
-// area. The sidebar marks the matching entry as active.
+// Render returns the Admin layout for the request URL. The active table is
+// the one whose URLBase matches r.URL.Path (see activeTable); its Render(r)
+// output is embedded inline in the working area, and the sidebar marks the
+// matching entry as active. Every sidebar URL is the child's own URLBase —
+// Admin treats the table's absolute URL as authoritative rather than
+// recomposing it from a slug.
 //
 // Sidebar entries are plain links (real MPA navigation); the server
 // re-renders the whole page on each load and marks the active entry
 // from the request path.
 func (a *Admin) Render(r *http.Request) (templ.Component, error) {
-	activeSlug := a.activeSlug(r)
+	active := a.activeTable(r)
 	entries := make([]AdminEntry, 0, len(a.Tables))
 	var activeContent templ.Component
 	for _, t := range a.Tables {
-		active := t.URLSlug() == activeSlug
+		isActive := t == active
 		entries = append(entries, AdminEntry{
 			DisplayName: t.DisplayName(),
-			URL:         a.urlBase + "/" + t.URLSlug(),
-			Active:      active,
+			URL:         t.URLBase(),
+			Active:      isActive,
 		})
-		if active {
+		if isActive {
 			c, err := t.Render(r)
 			if err != nil {
 				return nil, err
@@ -192,20 +193,27 @@ func (a *Admin) Render(r *http.Request) (templ.Component, error) {
 	}), nil
 }
 
-// activeSlug extracts the first path segment under urlBase from r.URL.
-// Returns "" for the bare /admin URL or for any path that's not under
-// urlBase (defensive — shouldn't happen if the caller routes correctly).
-func (a *Admin) activeSlug(r *http.Request) string {
-	p := strings.TrimPrefix(r.URL.Path, a.urlBase)
-	p = strings.TrimPrefix(p, "/")
-	if i := strings.Index(p, "/"); i >= 0 {
-		p = p[:i]
+// activeTable returns the child table that owns r.URL.Path — the one mounted
+// at, or owning a sub-path of, the request URL. Match is by longest URLBase
+// prefix, with a "/" boundary so /admin/users doesn't swallow a sibling at
+// /admin/users-roles. Returns nil when no child matches (e.g. the bare
+// {base} index before its redirect fires).
+func (a *Admin) activeTable(r *http.Request) CRUDTableInterface {
+	var best CRUDTableInterface
+	bestLen := -1
+	for _, t := range a.Tables {
+		b := t.URLBase()
+		if r.URL.Path == b || strings.HasPrefix(r.URL.Path, b+"/") {
+			if len(b) > bestLen {
+				best, bestLen = t, len(b)
+			}
+		}
 	}
-	return p
+	return best
 }
 
 // AdminEntry is one row in the sidebar. Active is true on the entry
-// whose slug matches the request URL — the templ adds menu-active to
+// whose URLBase matches the request URL — the templ adds menu-active to
 // that link.
 type AdminEntry struct {
 	DisplayName string

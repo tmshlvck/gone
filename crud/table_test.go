@@ -288,11 +288,25 @@ func TestRowDisplay_NotFound(t *testing.T) {
 	}
 }
 
-func TestDefaultURLSlugFromName(t *testing.T) {
+// An empty componentPath falls back to a lowercased plural of the model name,
+// so the table's absolute URL ends in that derived leaf.
+func TestDefaultURLBaseFromName(t *testing.T) {
 	mm := DeriveMetaModel[item](MetaModel[item]{})
 	tbl := NewTable(mm, MapAccessor(mm, map[uint]item{}, &sync.RWMutex{}), site.DefaultSettings{}, nil)
-	if tbl.URLSlug() != "items" {
-		t.Errorf("default URLSlug = %q, want items", tbl.URLSlug())
+	tbl.RegisterRoutes(chi.NewRouter(), "", "")
+	if tbl.URLBase() != "/items" {
+		t.Errorf("default URLBase = %q, want /items", tbl.URLBase())
+	}
+}
+
+// An explicit componentPath is the escape hatch for irregular plurals (and any
+// custom placement), overriding the derived default.
+func TestExplicitComponentPath(t *testing.T) {
+	mm := DeriveMetaModel[item](MetaModel[item]{})
+	tbl := NewTable(mm, MapAccessor(mm, map[uint]item{}, &sync.RWMutex{}), site.DefaultSettings{}, nil)
+	tbl.RegisterRoutes(chi.NewRouter(), "", "/admin/things")
+	if tbl.URLBase() != "/admin/things" {
+		t.Errorf("URLBase = %q, want /admin/things", tbl.URLBase())
 	}
 }
 

@@ -3,7 +3,6 @@ package crud
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -22,7 +21,6 @@ import (
 type CRUDTableInterface interface {
 	DisplayName() string
 	ModelName() string                                               // Go type name (e.g. "Hero")
-	URLSlug() string                                                 // path segment, e.g. "heroes"
 	URLBase() string                                                 // absolute URL prefix, e.g. "/admin/heroes"
 	Render(r *http.Request) (templ.Component, error)                 // table view + this table's L1 modal
 	RegisterRoutes(r chi.Router, routerPrefix, componentPath string) // register the table's fragment endpoints
@@ -49,16 +47,6 @@ func (c *CRUDTable[T]) DisplayName() string { return c.MetaData.DisplayName }
 // (MetaData.Name) — used by Admin's auto-wire path to match
 // MetaField.RelatedTypeName against peer tables.
 func (c *CRUDTable[T]) ModelName() string { return c.MetaData.Name }
-
-// URLSlug returns the URL path segment for this table: the Segment override
-// when set, else a lowercased plural of the model name. Admin uses it to
-// place the child and mark the active sidebar entry.
-func (c *CRUDTable[T]) URLSlug() string {
-	if c.Segment != "" {
-		return strings.Trim(c.Segment, "/")
-	}
-	return defaultSlug(c.MetaData.Name)
-}
 
 // URLBase returns the absolute URL prefix the CRUDTable was routed under
 // (e.g. "/admin/heroes"). Set by RegisterRoutes; empty until then.

@@ -59,12 +59,6 @@ type CRUDTable[T any] struct {
 	// is false OR Authz permits the action).
 	HideUnauthorized bool
 
-	// Segment is the URL path segment this table prefers when it's composed
-	// under an Admin, and the fallback componentPath for a bare
-	// RegisterRoutes(r, prefix, ""). Empty = a lowercased plural of the Go
-	// model name (Hero→"heros"); set it for irregular plurals.
-	Segment string
-
 	// Data is the data plane — Get/List/Create/Update/Delete. Built by a
 	// backend constructor (MapAccessor / GORMAccessor) or any custom Accessor.
 	Data Accessor[T]
@@ -94,8 +88,8 @@ type CRUDTable[T any] struct {
 }
 
 // defaultSlug returns a heuristic plural for a Go type name. Wrong for
-// irregular plurals (Hero→heros, Person→persons, Sheep→sheeps) — set
-// CRUDTable.Segment (or pass an explicit componentPath) for those.
+// irregular plurals (Hero→heros, Person→persons, Sheep→sheeps) — pass an
+// explicit componentPath to RegisterRoutes for those.
 func defaultSlug(name string) string {
 	return strings.ToLower(name) + "s"
 }
@@ -116,8 +110,8 @@ func pathKey(p string) string {
 // for the default (20/page), site.PageSize(n) for a specific size, or
 // site.PageSize(0) for no pagination (all rows). nil also means the default.
 // authz gates every route (nil = allow all). Create/Edit/Delete are enabled by
-// default — toggle the *Enabled fields, HideUnauthorized, Segment, or
-// ShortLabel on the returned value before RegisterRoutes.
+// default — toggle the *Enabled fields, HideUnauthorized, or ShortLabel on the
+// returned value before RegisterRoutes.
 //
 // The data Accessor must be built from the SAME mm (GORMAccessor/MapAccessor
 // read mm to learn which fields are searchable/sortable/relations).
@@ -165,10 +159,11 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 //     caller knows it; chi can't report it at registration time). "" when r
 //     is the root mux.
 //   - componentPath is where this table sits RELATIVE to r — one or more
-//     segments, e.g. "/heroes" or "/admin/heroes". Empty falls back to the
-//     table's Segment field, then to a derived plural of the model name. The
-//     table's absolute base, used for every rendered hx-get / form action, is
-//     normalizePrefix(routerPrefix) + componentPath.
+//     segments, e.g. "/heroes" or "/admin/heroes". Empty falls back to a
+//     derived plural of the model name (Hero→"heros"; pass an explicit path
+//     for irregular plurals). The table's absolute base, used for every
+//     rendered hx-get / form action, is normalizePrefix(routerPrefix) +
+//     componentPath.
 //
 // Routes are registered relative to r, so the table composes on the root mux
 // without a stripping chi.Route. For componentPath="/admin/heroes",
@@ -186,9 +181,6 @@ func (c *CRUDTable[T]) Render(r *http.Request) (templ.Component, error) {
 // Every handler gates on c.Authz (CanList / CanRead / CanCreate /
 // CanUpdate / CanDelete); nil = AllowAll.
 func (c *CRUDTable[T]) RegisterRoutes(r chi.Router, routerPrefix, componentPath string) {
-	if componentPath == "" {
-		componentPath = c.Segment
-	}
 	if componentPath == "" {
 		componentPath = defaultSlug(c.MetaData.Name)
 	}
@@ -602,7 +594,9 @@ func (c *CRUDTable[T]) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", c.URLSlug()+".csv"))
+	// Filename is derived from the model name (e.g. Hero → hero_table.csv),
+	// independent of the URL the table was routed under.
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", strings.ToLower(c.MetaData.Name)+"_table.csv"))
 	// Best-effort: a mid-stream write error can't be reported once the headers
 	// (200 + attachment) are out, so there's nothing to do but stop.
 	_ = writeCSV(w, c.MetaData, results)
