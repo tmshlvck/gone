@@ -12,62 +12,84 @@ import (
 )
 
 // Admin aggregates a set of CRUDTables under a single URL prefix with a
-// sidebar. Navigation between tables is plain page navigation (each sidebar
-// entry is a real link to /{mountBase}/{slug}); the server renders the whole
-// page on each load and marks the active entry from the request path, so no
-// JS or active-state coordination is needed.
+// sidebar. The sidebar is an ordered list of elements — CRUDTables, custom
+// Links, Headers and Separators in any order (see SidebarElementInterface).
+// Navigation is plain page navigation (every clickable entry is a real <a
+// href>): the server re-renders the whole page on each load and marks the
+// active entry from the request path, so there's no JS or active-state
+// coordination.
 //
 // Admin.RegisterRoutes registers, on the router it is handed: every child
-// table's fragment endpoints, a per-slug page handler that wraps the active
-// table in the app's shell, and a GET-index redirect to the first table. It
-// also links the children's relation fields (see WireRelations). The app
-// supplies the page shell; the library has no <html> chrome.
+// table's fragment endpoints, a page handler that wraps the active table in
+// the app's shell, and a GET-index redirect to the first table. It also links
+// the children's relation fields (see WireRelations). The app supplies the
+// page shell; the library has no <html> chrome. Only CRUDTables are routed;
+// Links/Headers/Separators are render-only (the app owns the Links' URLs).
 type Admin struct {
-	// Tables is the ordered list of CRUDTables the sidebar exposes,
-	// top to bottom. The first one is the default landing on /admin.
-	Tables []CRUDTableInterface
+	// Elements is the ordered sidebar, top to bottom: CRUDTables, custom
+	// Links, Headers and Separators interleaved in any order. Only the
+	// CRUDTables are routed (and relation-wired); the rest are render-only.
+	// The first CRUDTable is the default landing on the {base} index.
+	Elements []SidebarElementInterface
 
-	// Authz gates Admin's own redirect endpoint. nil = AllowAll. Each
-	// child table has its own Authz gating its own routes.
+	// Authz gates Admin's own redirect and page endpoints. nil = AllowAll.
+	// Each child table has its own Authz gating its own routes.
 	Authz auth.Authz
 
-	// SidebarTop / SidebarBottom are optional app-defined links that
-	// render above / below the table entries. Clicking one HTMX-swaps
-	// the response into the working area (#crud-admin-main) instead
-	// of the whole admin root, so the response should be a *fragment*
-	// of the content area (the app's handler returns whatever should
-	// occupy the right pane).
-	//
-	// The app is responsible for handling the URLs. The library doesn't
-	// auto-route them — they can point at any path the mux already
-	// covers.
-	SidebarTop    []SidebarLink
-	SidebarBottom []SidebarLink
-
 	// urlBase is the absolute prefix Admin was routed under (e.g.
-	// "/admin"). Set by Route.
+	// "/admin"). Set by RegisterRoutes.
 	urlBase string
 }
 
-// SidebarLink is one custom entry in Admin's sidebar — a static link
-// at the top or bottom of the menu. Clicking it HTMX-fetches URL and
-// swaps the response into the working area; the address bar updates
-// via hx-push-url, so reloading the page or navigating directly to
-// URL also works (the app's handler decides whether to return a
-// fragment or a full page based on HX-Request).
-type SidebarLink struct {
-	DisplayName string
-	URL         string
-	// Separator: render a thin divider above this link. Use for
-	// grouping ("Custom" section after the models, etc.) or as a
-	// dummy entry on its own (DisplayName / URL both empty) for a
-	// pure visual break.
-	Separator bool
+// SidebarElementInterface is the surface Admin's sidebar renders each entry
+// from: a display label and an absolute URL. The (DisplayName, URLBase) pair
+// encodes the entry kind:
+//
+//	URLBase != ""                       → a link (a CRUDTable or a custom Link)
+//	URLBase == "" && DisplayName != ""  → a header / group label (not clickable)
+//	both ""                             → a separator (<hr>)
+//
+// *CRUDTable[T] satisfies it (CRUDTableInterface embeds it); Link, Header and
+// Separator build the lightweight non-table elements.
+type SidebarElementInterface interface {
+	DisplayName() string
+	URLBase() string
 }
 
-// DeriveAdmin builds an Admin from a list of pre-derived CRUDTables.
-// Tables can be derived from any backend (Map, GORM, future) — Admin
-// works against the non-generic CRUDTableInterface.
+// sidebarElement is the concrete non-table sidebar entry. Build one with
+// Link, Header or Separator rather than setting the fields directly.
+type sidebarElement struct {
+	name string
+	url  string
+}
+
+func (e sidebarElement) DisplayName() string { return e.name }
+func (e sidebarElement) URLBase() string     { return e.url }
+
+// Link is a custom sidebar entry pointing at an app-owned URL. Clicking it is
+// plain page navigation (a real <a href>): the app's handler at url renders
+// the destination — either a full page that replaces the Admin view (or an
+// external site), or, to keep the Admin frame, by calling Admin.Render(r,
+// content) with its own working-area content. In the latter case the sidebar
+// highlights this Link, matching url against the request path.
+func Link(displayName, url string) SidebarElementInterface {
+	return sidebarElement{name: displayName, url: url}
+}
+
+// Header is a non-clickable group label rendered in the sidebar.
+func Header(displayName string) SidebarElementInterface {
+	return sidebarElement{name: displayName}
+}
+
+// Separator is a thin horizontal divider (<hr>) in the sidebar.
+func Separator() SidebarElementInterface {
+	return sidebarElement{}
+}
+
+// DeriveAdmin builds an Admin from an ordered list of sidebar elements —
+// CRUDTables (derived from any backend: Map, GORM, future), custom Links,
+// Headers and Separators, in any order. Tables are matched against the
+// non-generic CRUDTableInterface.
 //
 // Cross-table relation links are wired automatically at RegisterRoutes time
 // (Admin calls WireRelations once every child has its URLBase) by matching
@@ -75,10 +97,10 @@ type SidebarLink struct {
 // names — no manual wiring. The matching is name-based; two tables of the
 // same Go type would be ambiguous (last write wins), which doesn't happen
 // for distinct types in one package.
-func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
+func DeriveAdmin(elements []SidebarElementInterface, az auth.Authz) Admin {
 	return Admin{
-		Tables: tables,
-		Authz:  az,
+		Elements: elements,
+		Authz:    az,
 	}
 }
 
@@ -90,41 +112,49 @@ func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin {
 // routerPrefix is the absolute path at which r is served ("" for the root
 // mux); componentPath is where Admin sits relative to r (e.g. "/admin"). Each
 // child table is mounted at componentPath + "/" + a lowercased plural of the
-// model name (Hero→"heros").
+// model name (Hero→"heros"). Non-table elements (Links/Headers/Separators)
+// are not routed — the app owns the Links' URLs.
 //
-// Registers, for componentPath="/admin", tables ["heroes","weapons","skills"]:
+// Registers, for componentPath="/admin", tables ["heros","weapons","skills"]:
 //
-//	GET  /admin                        → 303 to /admin/heroes (index redirect)
-//	GET  /admin/heroes                 → page (shell wrapping sidebar + heroes table)
+//	GET  /admin                        → 303 to /admin/heros (index redirect)
+//	GET  /admin/heros                  → page (shell wrapping sidebar + heros table)
 //	GET  /admin/weapons | /skills      → page (active table)
-//	GET  /admin/heroes/view, /create…  → each child table's fragment endpoints
+//	GET  /admin/heros/view, /create…   → each child table's fragment endpoints
 //
-// shell == nil → no per-slug page handler is registered (the index redirect
-// and child fragments still are). Child relation fields are linked via
-// WireRelations once all children are routed.
+// shell == nil → no page handler is registered (the index redirect and child
+// fragments still are). Child relation fields are linked via WireRelations
+// once all children are routed.
 func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string, shell site.Shell) error {
 	base := "/" + strings.Trim(componentPath, "/")
 	a.urlBase = normalizePrefix(routerPrefix) + base
-	if len(a.Tables) == 0 {
-		return nil
-	}
-	// Mount each child under {base}/{slug}, relative to r, where slug is a
+	// Mount each CRUDTable under {base}/{slug}, relative to r, where slug is a
 	// derived plural of the model name (Hero→"heros"). Children's page
-	// handlers are not registered — Admin owns the page route.
-	for _, t := range a.Tables {
+	// handlers are not registered — Admin owns the page route. Non-table
+	// elements are skipped.
+	var tables []CRUDTableInterface
+	for _, el := range a.Elements {
+		t, ok := el.(CRUDTableInterface)
+		if !ok {
+			continue
+		}
 		if t.ModelName() == "" {
 			return fmt.Errorf("Admin: table %q has empty ModelName", t.DisplayName())
 		}
 		t.RegisterRoutes(r, routerPrefix, base+"/"+defaultSlug(t.ModelName()))
+		tables = append(tables, t)
 	}
-	// Every child now has its URLBase set — link relation fields across
-	// them (Go type name → URLBase) so relation pickers fetch options from
-	// the right sibling table.
-	WireRelations(a.Tables...)
+	if len(tables) == 0 {
+		return nil
+	}
+	// Every child now has its URLBase set — link relation fields across them
+	// (Go type name → URLBase) so relation pickers fetch options from the
+	// right sibling table.
+	WireRelations(tables...)
 	az := auth.AuthzOrAllow(a.Authz)
-	// Captured after the mount loop, so URLBase is set. The first table is
-	// the default landing for the bare {base} index.
-	firstURL := a.Tables[0].URLBase()
+	// Captured after the mount loop, so URLBase is set. The first table is the
+	// default landing for the bare {base} index.
+	firstURL := tables[0].URLBase()
 	// Index redirect: GET {base} → first table.
 	r.Get(base, func(w http.ResponseWriter, req *http.Request) {
 		if !az.CanList(req) {
@@ -146,7 +176,7 @@ func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string,
 			if t := a.activeTable(req); t != nil {
 				title = t.DisplayName()
 			}
-			body, err := a.Render(req)
+			body, err := a.Render(req, nil)
 			if failInternal(w, err) {
 				return
 			}
@@ -156,28 +186,30 @@ func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string,
 	return nil
 }
 
-// Render returns the Admin layout for the request URL. The active table is
-// the one whose URLBase matches r.URL.Path (see activeTable); its Render(r)
-// output is embedded inline in the working area, and the sidebar marks the
-// matching entry as active. Every sidebar URL is the child's own URLBase —
-// Admin treats the table's absolute URL as authoritative rather than
-// recomposing it from a slug.
+// Render returns the Admin layout for the request URL. The sidebar lists every
+// element in order, marking the one whose URLBase matches r.URL.Path active.
+// The working area shows content when non-nil (a custom-link module supplying
+// its own content); otherwise the active CRUDTable renders itself. Every
+// sidebar URL is the element's own URLBase — Admin treats it as authoritative.
 //
-// Sidebar entries are plain links (real MPA navigation); the server
-// re-renders the whole page on each load and marks the active entry
-// from the request path.
-func (a *Admin) Render(r *http.Request) (templ.Component, error) {
-	active := a.activeTable(r)
-	entries := make([]AdminEntry, 0, len(a.Tables))
-	var activeContent templ.Component
-	for _, t := range a.Tables {
-		isActive := t == active
+// Entries are plain links (real MPA navigation); the server re-renders the
+// whole page on each load and marks the active entry from the request path.
+func (a *Admin) Render(r *http.Request, content templ.Component) (templ.Component, error) {
+	activeURL := a.activeURL(r)
+	entries := make([]AdminEntry, 0, len(a.Elements))
+	for _, el := range a.Elements {
+		url := el.URLBase()
 		entries = append(entries, AdminEntry{
-			DisplayName: t.DisplayName(),
-			URL:         t.URLBase(),
-			Active:      isActive,
+			DisplayName: el.DisplayName(),
+			URL:         url,
+			Active:      url != "" && url == activeURL,
 		})
-		if isActive {
+	}
+	// Caller-supplied content (a custom-link module) wins; otherwise the
+	// active table renders itself into the working area.
+	activeContent := content
+	if activeContent == nil {
+		if t := a.activeTable(r); t != nil {
 			c, err := t.Render(r)
 			if err != nil {
 				return nil, err
@@ -188,20 +220,41 @@ func (a *Admin) Render(r *http.Request) (templ.Component, error) {
 	return AdminView(AdminViewData{
 		Entries:       entries,
 		ActiveContent: activeContent,
-		TopLinks:      a.SidebarTop,
-		BottomLinks:   a.SidebarBottom,
 	}), nil
 }
 
-// activeTable returns the child table that owns r.URL.Path — the one mounted
-// at, or owning a sub-path of, the request URL. Match is by longest URLBase
-// prefix, with a "/" boundary so /admin/users doesn't swallow a sibling at
-// /admin/users-roles. Returns nil when no child matches (e.g. the bare
-// {base} index before its redirect fires).
+// activeURL returns the URLBase of the element that owns r.URL.Path — the
+// clickable entry mounted at, or owning a sub-path of, the request URL. Match
+// is by longest URLBase prefix, with a "/" boundary so /admin/users doesn't
+// swallow a sibling at /admin/users-roles. "" when nothing matches (e.g. the
+// bare {base} index before its redirect fires).
+func (a *Admin) activeURL(r *http.Request) string {
+	best := ""
+	for _, el := range a.Elements {
+		b := el.URLBase()
+		if b == "" {
+			continue
+		}
+		if r.URL.Path == b || strings.HasPrefix(r.URL.Path, b+"/") {
+			if len(b) > len(best) {
+				best = b
+			}
+		}
+	}
+	return best
+}
+
+// activeTable returns the child table that owns r.URL.Path, by the same
+// longest-URLBase-prefix match as activeURL but restricted to CRUDTables. nil
+// when no table matches (the bare index, or a custom-link page).
 func (a *Admin) activeTable(r *http.Request) CRUDTableInterface {
 	var best CRUDTableInterface
 	bestLen := -1
-	for _, t := range a.Tables {
+	for _, el := range a.Elements {
+		t, ok := el.(CRUDTableInterface)
+		if !ok {
+			continue
+		}
 		b := t.URLBase()
 		if r.URL.Path == b || strings.HasPrefix(r.URL.Path, b+"/") {
 			if len(b) > bestLen {
@@ -212,20 +265,19 @@ func (a *Admin) activeTable(r *http.Request) CRUDTableInterface {
 	return best
 }
 
-// AdminEntry is one row in the sidebar. Active is true on the entry
-// whose URLBase matches the request URL — the templ adds menu-active to
-// that link.
+// AdminEntry is one row in the sidebar. The (DisplayName, URL) pair encodes
+// the kind (link / header / separator — see SidebarElementInterface); Active
+// is true on the entry whose URL matches the request, so the templ adds
+// menu-active to that link.
 type AdminEntry struct {
 	DisplayName string
 	URL         string
 	Active      bool
 }
 
-// AdminViewData carries the entries and the embedded active-table
-// content into the AdminView templ.
+// AdminViewData carries the ordered sidebar entries and the embedded
+// working-area content into the AdminView templ.
 type AdminViewData struct {
 	Entries       []AdminEntry
-	ActiveContent templ.Component // nil when no slug matches
-	TopLinks      []SidebarLink   // rendered above Entries
-	BottomLinks   []SidebarLink   // rendered below Entries
+	ActiveContent templ.Component // nil when nothing matches
 }

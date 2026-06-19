@@ -97,7 +97,7 @@ func main() {
 	// Admin takes nil Authz so its /admin index just 303s anonymous users to
 	// the first child, which then redirects to /login via pageShell. The child
 	// tables keep their own `gate`. Relations are auto-wired at RegisterRoutes.
-	admin := crud.DeriveAdmin([]crud.CRUDTableInterface{&userTable, &groupTable}, nil)
+	admin := crud.DeriveAdmin([]crud.SidebarElementInterface{&userTable, &groupTable}, nil)
 
 	// One shell serves /login, /login/totp, and /admin. Anonymous requests
 	// redirect to /login unless already on an auth page (IsAuthPath) — else

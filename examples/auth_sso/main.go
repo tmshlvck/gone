@@ -115,7 +115,7 @@ func main() {
 	groupMM := crud.DeriveMetaModel[auth.GroupGORM](crud.MetaModel[auth.GroupGORM]{DisplayName: "Groups"})
 	groupTable := crud.NewTable(groupMM, crud.GORMAccessor(groupMM, db), site.DefaultSettings{}, gate)
 
-	admin := crud.DeriveAdmin([]crud.CRUDTableInterface{&userTable, &groupTable}, nil)
+	admin := crud.DeriveAdmin([]crud.SidebarElementInterface{&userTable, &groupTable}, nil)
 
 	pageShell := func(w http.ResponseWriter, r *http.Request, title string, content templ.Component) {
 		u := ag.CurrentUser(r.Context())

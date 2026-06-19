@@ -19,9 +19,10 @@ import (
 // pointer — so the interface carries no SearchOptions / data accessors.
 // *CRUDTable[T] satisfies it.
 type CRUDTableInterface interface {
-	DisplayName() string
+	// SidebarElementInterface provides DisplayName() + URLBase(), so a table
+	// is directly usable as an Admin sidebar element.
+	SidebarElementInterface
 	ModelName() string                                               // Go type name (e.g. "Hero")
-	URLBase() string                                                 // absolute URL prefix, e.g. "/admin/heroes"
 	Render(r *http.Request) (templ.Component, error)                 // table view + this table's L1 modal
 	RegisterRoutes(r chi.Router, routerPrefix, componentPath string) // register the table's fragment endpoints
 

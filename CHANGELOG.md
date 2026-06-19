@@ -9,6 +9,27 @@ surface, not internal refactors.
 
 ## [0.1.1] - Unreleased
 
+### Added
+
+- **`crud.Admin` sidebar is now one ordered list** of `SidebarElementInterface`
+  — mix `CRUDTable`s with `crud.Link` (custom link), `crud.Header` (group
+  label) and `crud.Separator` in any order. `CRUDTableInterface` embeds
+  `SidebarElementInterface` (`DisplayName()` + `URLBase()`).
+
+### Changed
+
+- **`DeriveAdmin` now takes `[]SidebarElementInterface`** (was
+  `[]CRUDTableInterface`). `Admin.Tables`, `Admin.SidebarTop/SidebarBottom`
+  and the `SidebarLink` type are removed — fold everything into the one
+  ordered list.
+- **Custom sidebar links navigate plainly** (a real `<a href>`, full page
+  load) instead of HTMX-swapping the working area; the built-in active-state
+  JS is gone. A link's handler either renders its own page or keeps the Admin
+  frame by calling `admin.Render(r, content)`.
+- **`Admin.Render` now takes the working-area content**:
+  `Render(r *http.Request, content templ.Component)` — pass `nil` to render
+  the active table, or a component to show inside the Admin frame.
+
 ### Removed
 
 - **`CRUDTable.Segment` and `CRUDTableInterface.URLSlug()` are gone.** Set a

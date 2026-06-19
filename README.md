@@ -38,9 +38,10 @@ table.RegisterRoutes(root, "", "/heroes")
   (belongs-to / many-to-many / has-many). Pickers know how to fetch
   their options and ship a "+ create new" button that opens a nested
   modal without losing the parent form's state.
-- **Admin** bundles multiple `CRUDTable`s under one URL prefix with
-  HTMX-boosted sidebar navigation, an active-link highlight, history
-  cache, and auto-wired cross-table relations.
+- **Admin** bundles multiple `CRUDTable`s under one URL prefix with a
+  sidebar — tables, custom links, headers and separators in any order —
+  plain page navigation, a server-stamped active highlight, and auto-wired
+  cross-table relations.
 - **Backends**: in-memory map for tests / prototypes, GORM for
   production. New backends drop in by writing a constructor.
 - **Observe / audit hooks** — wrap any `Accessor` with
@@ -154,8 +155,14 @@ heroTable   := crud.NewTable(heroMM, crud.GORMAccessor(heroMM, db), 0, nil)
 weaponTable := crud.NewTable(weaponMM, crud.GORMAccessor(weaponMM, db), 0, nil)
 skillTable  := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), 0, nil)
 
+// The sidebar is one ordered list — mix tables with Separators, Headers
+// (group labels) and custom Links in any order.
 admin := crud.DeriveAdmin(
-    []crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable},
+    []crud.SidebarElementInterface{
+        &heroTable, &weaponTable, &skillTable,
+        crud.Separator(),
+        crud.Link("Docs", "/docs"),
+    },
     nil,
 )
 

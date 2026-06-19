@@ -158,14 +158,15 @@ func main() {
 	skillTable := crud.NewTable(skillMM, crud.GORMAccessor(skillMM, db), site.DefaultSettings{}, nil)
 
 	// Admin auto-wires the relations (by matching related type name to the
-	// managed tables) when it registers their routes.
-	admin := crud.DeriveAdmin([]crud.CRUDTableInterface{&heroTable, &weaponTable, &skillTable}, nil)
-
-	// Custom sidebar link → /testlink (a fragment under HTMX, full page direct).
-	admin.SidebarBottom = []crud.SidebarLink{
-		{Separator: true},
-		{DisplayName: "Hello", URL: "/testlink"},
-	}
+	// managed tables) when it registers their routes. The sidebar is one
+	// ordered list mixing tables with a Separator and a custom Link.
+	admin := crud.DeriveAdmin([]crud.SidebarElementInterface{
+		&heroTable,
+		&weaponTable,
+		&skillTable,
+		crud.Separator(),
+		crud.Link("Hello", "/testlink"),
+	}, nil)
 
 	mux := chi.NewRouter()
 	mux.Use(middleware.Logger)
@@ -175,15 +176,18 @@ func main() {
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 	})
+	// The custom Link's target. It keeps the Admin frame by handing its own
+	// content to admin.Render — the sidebar renders with "Hello" highlighted
+	// (its URL matches the request path) and the working area shows this page.
+	// A link that should replace the whole Admin view (or point off-site)
+	// would just render its own page here instead.
 	mux.Get("/testlink", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("HX-Request") == "true" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err := helloFragment().Render(r.Context(), w); err != nil {
-				log.Printf("render: %v", err)
-			}
+		body, err := admin.Render(r, helloFragment())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		pageShell(w, r, "Hello", helloFragment())
+		pageShell(w, r, "Hello", body)
 	})
 
 	log.Printf("admin_gorm listening on :8080 — open /admin")

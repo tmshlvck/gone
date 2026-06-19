@@ -562,16 +562,43 @@ for the active highlight.
 
 ```go
 type Admin struct {
-    Tables []CRUDTableInterface
-    Authz  auth.Authz
-    SidebarTop, SidebarBottom []SidebarLink // optional app-defined links
+    Elements []SidebarElementInterface // ordered sidebar: tables, links, headers, separators
+    Authz    auth.Authz
 }
 
-func DeriveAdmin(tables []CRUDTableInterface, az auth.Authz) Admin
+// SidebarElementInterface is the two-method surface each sidebar row renders
+// from; *CRUDTable[T] satisfies it (CRUDTableInterface embeds it).
+type SidebarElementInterface interface {
+    DisplayName() string
+    URLBase() string
+}
+
+func DeriveAdmin(elements []SidebarElementInterface, az auth.Authz) Admin
+
+// Non-table elements:
+func Link(displayName, url string) SidebarElementInterface // clickable custom link
+func Header(displayName string) SidebarElementInterface    // non-clickable group label
+func Separator() SidebarElementInterface                   // <hr> divider
 
 func (a *Admin) RegisterRoutes(r chi.Router, routerPrefix, componentPath string, shell site.Shell) error
-func (a *Admin) Render(r *http.Request) (templ.Component, error)
+func (a *Admin) Render(r *http.Request, content templ.Component) (templ.Component, error)
 ```
+
+The sidebar is **one ordered list** — `CRUDTable`s, `Link`s, `Header`s and
+`Separator`s in any order:
+
+```go
+admin := crud.DeriveAdmin([]crud.SidebarElementInterface{
+    &heroTable, &weaponTable, &skillTable,
+    crud.Separator(),
+    crud.Link("Hello", "/testlink"),
+}, nil)
+```
+
+Each row's kind is encoded by the `(DisplayName, URLBase)` pair: non-empty URL
+→ a navigation link (table or custom `Link`); URL `""` with a name → a header;
+both `""` → a divider. **Only `CRUDTable`s are routed** (and relation-wired);
+links/headers/separators are render-only.
 
 `Admin.RegisterRoutes` composes every path on the router it is handed — **no
 stripping `chi.Route` needed**, just the root mux. Each child table is
@@ -584,13 +611,14 @@ to the first table, a per-slug page handler wrapping the active table in
 admin.RegisterRoutes(root, "", "/admin", pageShell)
 ```
 
-Registered for `componentPath="/admin"`, tables `["heroes","weapons","skills"]`:
+Registered for `componentPath="/admin"`, tables `[Hero, Weapon, Skill]`
+(derived slugs `heros`, `weapons`, `skills`):
 
-| Method | Path                               | Returns                                  |
-|--------|------------------------------------|------------------------------------------|
-| GET    | `/admin`                           | 303 redirect to `/admin/heroes`          |
-| GET    | `/admin/{slug}`                    | full page (sidebar + active table)       |
-| GET    | `/admin/heroes/view`, `/create`, … | each child table's fragment endpoints    |
+| Method | Path                              | Returns                                  |
+|--------|-----------------------------------|------------------------------------------|
+| GET    | `/admin`                          | 303 redirect to `/admin/heros`           |
+| GET    | `/admin/{slug}`                   | full page (sidebar + active table)       |
+| GET    | `/admin/heros/view`, `/create`, … | each child table's fragment endpoints    |
 
 `shell == nil` registers the index redirect and child fragments but no
 per-slug page handler.
@@ -602,15 +630,26 @@ override; if you need clean URLs, route the tables yourself (each
 `CRUDTable.RegisterRoutes(r, "", "/admin/users")`) and render the page +
 sidebar in your own handler instead of using `Admin`.
 
-**Custom sidebar links** (`SidebarTop` / `SidebarBottom`) point at an
-app-owned URL. Clicking one HTMX-fetches it into the working area
-(`#crud-admin-main`) and updates the address bar (`hx-push-url`), so the
-app's handler should return a *fragment* on `HX-Request` and a
-shell-wrapped page on a direct hit. The sidebar's active highlight
-follows custom-link clicks too (a small built-in delegated script moves
-`menu-active`, since — unlike model entries — a custom link only swaps
-the content area, not the whole page). `examples/admin_gorm` has a
-`/testlink` demo.
+**Custom links** (`crud.Link`) point at an app-owned URL and navigate
+plainly — a real `<a href>`, full page load, no HTMX (the app owns the URL;
+the library never routes it). The handler at that URL has two options:
+
+- **Replace the Admin view** (or go off-site): just render its own page.
+- **Keep the Admin frame**: call `admin.Render(r, content)` with its own
+  working-area `content`. The sidebar renders with the active entry
+  highlighted (the `Link`'s URL matched against the request path) and
+  `content` fills the working area.
+
+Active highlight is server-stamped from the request path on every load, so it
+works for custom links exactly as for tables — no client-side script.
+`examples/admin_gorm` has a `/testlink` demo of the keep-the-frame pattern:
+
+```go
+mux.Get("/testlink", func(w http.ResponseWriter, r *http.Request) {
+    body, _ := admin.Render(r, helloFragment())
+    pageShell(w, r, "Hello", body)
+})
+```
 
 ## Relations
 

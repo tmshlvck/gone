@@ -98,9 +98,9 @@ func pageLayout(title, theme string, content templ.Component) templ.Component {
 	})
 }
 
-// helloFragment is the body for /testlink. Rendered as a fragment
-// inside admin's working area when HX-Request: true; wrapped in
-// pageLayout when the user hits /testlink directly.
+// helloFragment is the body for /testlink. The handler hands it to
+// admin.Render as the working-area content, so it appears inside the Admin
+// frame (sidebar + this card) with the "Hello" sidebar link highlighted.
 func helloFragment() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -122,7 +122,7 @@ func helloFragment() templ.Component {
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"card bg-base-100 shadow\"><div class=\"card-body\"><h2 class=\"card-title\">Hello from /testlink</h2><p>This page lives outside the CRUD admin. The sidebar link pulled it in via HTMX (just the content area swapped); a direct request to <code>/testlink</code> renders it inside the app's page shell instead.</p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"card bg-base-100 shadow\"><div class=\"card-body\"><h2 class=\"card-title\">Hello from /testlink</h2><p>This page lives outside the CRUD admin, but its handler hands this content to <code>admin.Render</code>, so it shows inside the Admin frame with the <strong>Hello</strong> sidebar link highlighted. Navigation is a plain full-page link — no HTMX.</p></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
